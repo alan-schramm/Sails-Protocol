@@ -82,6 +82,29 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     expect(Array.isArray(row.evidence) ? row.evidence : []).toHaveLength(1)
   })
 
+  it('ten concurrent legitimate submissions all survive bounded CAS retries', async () => {
+    requirePostgres('concurrent evidence service retries')
+    const { dispute, buyer, seller } = await fixture('ten')
+    const service = getDisputeService()
+
+    const submissions = Array.from({ length: 10 }, (_, i) =>
+      service.submitEvidence(
+        dispute.id,
+        i % 2 === 0 ? buyer.id : seller.id,
+        { type: 'chat_log', note: `concurrent-evidence-${i}` },
+      )
+    )
+    await Promise.all(submissions)
+
+    const row = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    const evidence = Array.isArray(row.evidence) ? row.evidence as Array<{ note?: string }> : []
+    expect(row.evidenceGeneration).toBe(10)
+    expect(evidence).toHaveLength(10)
+    expect(new Set(evidence.map((entry) => entry.note))).toEqual(
+      new Set(Array.from({ length: 10 }, (_, i) => `concurrent-evidence-${i}`))
+    )
+  })
+
   it('a stale evidence writer cannot restore EVIDENCE_SUBMITTED after human/state advancement', async () => {
     requirePostgres('stale evidence writer')
     const { dispute } = await fixture('stale')
