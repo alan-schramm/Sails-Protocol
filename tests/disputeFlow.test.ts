@@ -923,12 +923,17 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
       autoResolutionDeadline: new Date(Date.now() + 3600_000),
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
 
     await service.contestAutoResolution('dispute-1', 'seller-1')
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'dispute-1',
+        status: 'AUTO_PROPOSED',
+        autoResolutionDeadline: expect.any(Date),
+      },
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -942,6 +947,19 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
       expect.objectContaining({ disputeId: 'dispute-1', contestedBy: 'seller-1' }),
       'trade-1'
     )
+  })
+
+  it('does not emit a contest event when a concurrent state transition wins the claim', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
+      autoResolutionDeadline: new Date(Date.now() + 3600_000),
+    })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.contestAutoResolution('dispute-1', 'buyer-1'))
+      .rejects.toThrow('changed while the automated resolution was being contested')
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('rejects a contest from someone who is not a party to the trade', async () => {
