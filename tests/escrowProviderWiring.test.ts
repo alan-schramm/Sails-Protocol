@@ -1480,6 +1480,38 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(result.complete).toBe(true)
   })
 
+  it('#254 emits the pending ruling generation even if the mutable dispute has already advanced to N+1', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-historical', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1'],
+      unsignedPsbtBase64: 'unsigned-historical-psbt', triggeredBy: 'arbiter-1',
+      disputeId: 'dispute-1', rulingAppealRound: 3,
+      rulingArbiterId: 'arbiter-1', rulingOutcome: 'RELEASE',
+    })
+    mockTxSignatureFindMany.mockResolvedValue([
+      { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+    ])
+    // Mutable/current semantic state has advanced to N+1. The historical
+    // settlement event must still bind to the generation snapshotted on
+    // the pending operation, never this later Dispute generation.
+    mockDisputeFindFirst.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED',
+      appealRound: 4, arbiterId: 'arbiter-2', ruling: 'REFUND',
+    })
+    mockFinalizeRelease.mockResolvedValue({ txId: 'historical-release-txid' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'historical-release-txid' })
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
+
+    expect(result.complete).toBe(true)
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
+  })
+
   it('rejects a signature from someone who is not a required signer for this pending transaction', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
     mockPendingTxFindUnique.mockResolvedValue({
