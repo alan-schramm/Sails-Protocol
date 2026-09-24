@@ -69,7 +69,7 @@ jobs:
           [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'source_sha must be an exact commit SHA' >&2; exit 1; }
 
       - name: Checkout exact source SHA
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f544f54fb7c
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.REQUESTED_SOURCE_SHA }}
           fetch-depth: 0
@@ -87,7 +87,7 @@ jobs:
             git cat-file -e 'HEAD:.github/workflows/sdk-release.yml'
           fi
 
-      - uses: actions/setup-node@2028fbc2674bbc2c7b7cbe9a74f7b36b1c4b8c3f
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -267,13 +267,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f544f54fb7c
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@2028fbc2674bbc2c7b7cbe9a74f7b36b1c4b8c3f
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
