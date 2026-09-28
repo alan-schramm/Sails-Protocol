@@ -30,14 +30,30 @@ function requiredInt(name: string, fallback: number): number {
 // rather than merely unusual. Same validated-config discipline
 // resolveMultisigRequiredConfirmations() below already applies to
 // MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS.
+// Strict: plain decimal digits only. parseInt() alone would read '1e3' as 1
+// and '60000abc' as 60000, silently accepting a value nobody wrote.
 function requiredPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined) return fallback
-  const parsed = parseInt(raw, 10)
-  if (isNaN(parsed) || parsed < 1) {
+  const parsed = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error(`Environment variable ${name} must be a positive integer, got: ${raw}`)
   }
   return parsed
+}
+
+// Node clamps any timer delay above 2^31-1 ms (about 24.8 days) to 1 ms with
+// only a warning, so a too-large scheduler interval would become a hot loop.
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+// A background scheduler interval: a strict positive integer that setInterval()
+// honours as written.
+function requiredIntervalMs(name: string, fallback: number): number {
+  const value = requiredPositiveInt(name, fallback)
+  if (value > MAX_TIMER_DELAY_MS) {
+    throw new Error(`Environment variable ${name} must be at most ${MAX_TIMER_DELAY_MS} ms (Node's timer limit), got: ${process.env[name]}`)
+  }
+  return value
 }
 
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
@@ -474,9 +490,9 @@ export const config = {
     // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
-    timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
-    // Positive: 0 or a negative value would make Node fire the settlement/C4 recovery tick every 1ms.
-    settlementReconcileIntervalMs: requiredPositiveInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
+    timelockSweepIntervalMs: requiredIntervalMs('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
+    // 0, a negative value or one above Node's timer limit would make Node fire the settlement/C4 tick every 1ms.
+    settlementReconcileIntervalMs: requiredIntervalMs('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
@@ -486,7 +502,7 @@ export const config = {
     // 5-minute default as the other two sweepers — confirmation depth
     // itself is a per-policy decision (FeePolicyVersion.requiredConfirmations),
     // this is only how often the job bothers to look.
-    multisigFeeConfirmationSweepIntervalMs: requiredInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeConfirmationSweepIntervalMs: requiredIntervalMs('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 8.1 reorg sweeper (when enabled) re-checks
     // recently-collected MULTISIG fee obligations. Same 5-minute default.
     multisigFeeReorgSweepIntervalMs: requiredInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
@@ -500,7 +516,7 @@ export const config = {
     multisigReorgSafetyWindowBlocks: requiredInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
     // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
     // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
-    multisigFundingReorgSweepIntervalMs: requiredInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFundingReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
     // Sails Core Implementation Program M9-F — how often the release-leg
     // reorg sweeper (when enabled) re-checks terminal MULTISIG escrows'
     // main payout. Same 5-minute default as every other sweeper here.

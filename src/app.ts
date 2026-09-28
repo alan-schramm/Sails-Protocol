@@ -31,6 +31,7 @@ import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { startSettlementRecoverySchedule, type SettlementRecoverySchedule } from './modules/open-settlement/settlement-recovery-schedule'
+import { startGuardedInterval, type GuardedInterval } from './common/guarded-interval'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
@@ -423,13 +424,14 @@ export async function startServer() {
   // graceful-shutdown path leaves no dangling connections on the DB/
   // Redis side even if something delays the actual process exit.
   let settlementRecovery: SettlementRecoverySchedule | undefined
+  const backgroundSweepers: GuardedInterval[] = []
   const shutdown = async (signal: string) => {
     app.log.info({ msg: 'Shutting down gracefully', signal })
-    // Stop scheduling first, then drain a recovery tick already in flight before its Postgres/Redis
-    // connections are closed (an interrupted tick would be safe, only noisier).
-    const recoveryDrained = settlementRecovery?.stop()
+    // Stop scheduling first, then drain any recovery tick or sweeper run already in flight before its
+    // Postgres/Redis connections are closed (an interrupted run would be safe, only noisier).
+    const drained = Promise.all([settlementRecovery?.stop(), ...backgroundSweepers.map((sweeper) => sweeper.stop())])
     await app.close()
-    await recoveryDrained
+    await drained
     await eventBus.disableCrossInstanceFanout()
     await prisma.$disconnect()
     await redis.quit()
@@ -475,12 +477,12 @@ export async function startServer() {
   }
 
   // BACKLOG.md P0, "Escrow timelock proactive sweeper" — off by default,
-  // see config/index.ts's own comment for why. `unref()`'d so a running
-  // sweeper never keeps the process alive on its own; the process's
-  // normal `shutdown()` above already calls `process.exit(0)` directly,
-  // which terminates regardless of any pending interval either way.
+  // see config/index.ts's own comment for why. Scheduled through
+  // startGuardedInterval() (never two runs at once in this process;
+  // stopped and drained by shutdown() above), like the fee-confirmation
+  // and funding-reorg sweepers below.
   if (config.features.escrowTimelockSweeper) {
-    const sweepInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       escrowService.sweepExpiredEscrows()
         .then(({ refunded, requiresManualRecovery, failed }) => {
           if (refunded.length || requiresManualRecovery.length || failed.length) {
@@ -499,9 +501,8 @@ export async function startServer() {
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.timelockSweepIntervalMs)
-    sweepInterval.unref()
+        .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.timelockSweepIntervalMs))
   }
 
   // Issue #291/#298 hardening - settlement crash recovery. On by default (see config comment). Each pass
@@ -533,16 +534,15 @@ export async function startServer() {
   // FeePolicyVersion is published for MULTISIG — safe to enable ahead of
   // that.
   if (config.features.multisigFeeConfirmationSweeper) {
-    const feeConfirmationInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFeeConfirmations()
         .then(({ collected, stillPending, failed }) => {
           if (collected.length || failed.length) {
             app.log.info({ msg: 'MULTISIG fee confirmation sweep completed', module: 'multisig-fee-confirmation-sweeper', collected: collected.length, stillPending: stillPending.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFeeConfirmationSweepIntervalMs)
-    feeConfirmationInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFeeConfirmationSweepIntervalMs))
   }
 
   // Missão 11 Fase 8.1 LB-08 — off by default, same reasoning as the
@@ -565,7 +565,7 @@ export async function startServer() {
   // only; see multisig-funding-reorg-sweep.ts's own header comment for
   // why it does not change Escrow.status.
   if (config.features.multisigFundingReorgSweeper) {
-    const fundingReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFundingReorgs()
         .then(({ reverted, reconfirmed, replacementObserved, failed }) => {
           if (reverted.length || reconfirmed.length || replacementObserved.length || failed.length) {
@@ -575,9 +575,8 @@ export async function startServer() {
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFundingReorgSweepIntervalMs)
-    fundingReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFundingReorgSweepIntervalMs))
   }
 
   // Sails Core Implementation Program M9-F — off by default, same

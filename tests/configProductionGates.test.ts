@@ -483,6 +483,44 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('background sweeper intervals (production sweeper hardening)', () => {
+    const HARDENED_INTERVALS: Array<[string, string, number]> = [
+      ['ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 'timelockSweepIntervalMs', 300000],
+      ['ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 'settlementReconcileIntervalMs', 60000],
+      ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'multisigFeeConfirmationSweepIntervalMs', 300000],
+      ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'multisigFundingReorgSweepIntervalMs', 300000],
+    ]
+
+    it.each(HARDENED_INTERVALS)('%s keeps its existing default when unset', (envName, key, expected) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: undefined })().trade[key]).toBe(expected)
+    })
+
+    it.each(HARDENED_INTERVALS)('%s accepts an explicit plain positive integer as written', (envName, key) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: '45000' })().trade[key]).toBe(45000)
+    })
+
+    // Every value here used to boot and schedule something other than what was written: 0 and negatives
+    // became a ~1 ms Node timer, '1e3' parsed as 1, '60000abc' as 60000, and anything above 2^31-1 is
+    // clamped by Node to 1 ms.
+    const FAIL_OPEN_VALUES = ['0', '-1', '', 'abc', '1e3', '60000abc', '1.5', '2147483648', '99999999999999999999']
+    for (const [envName] of HARDENED_INTERVALS) {
+      it.each(FAIL_OPEN_VALUES)(`${envName}=%p refuses to boot`, (value) => {
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: value })).toThrow(new RegExp(envName))
+      })
+    }
+
+    it('the largest delay Node honours (2147483647 ms) is still accepted', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_TIMELOCK_SWEEP_INTERVAL_MS: '2147483647' })().trade.timelockSweepIntervalMs).toBe(2147483647)
+    })
+
+    it('the stricter positive-integer parsing also applies to the timeouts that share it', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_EXPLORER_TIMEOUT_MS: '1e3' })).toThrow(/MULTISIG_EXPLORER_TIMEOUT_MS must be a positive integer/)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_EXPLORER_TIMEOUT_MS: '8000' })().multisig.explorerRequestTimeoutMs).toBe(8000)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
