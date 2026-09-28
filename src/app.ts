@@ -514,18 +514,25 @@ export async function startServer() {
   }
 
   // RFC-021 D8 — off by default, see config/index.ts's own comment.
-  // unref()'d for the same reason the escrow sweeper above is.
+  // Scheduled through startGuardedInterval() like the sweepers above;
+  // each revert is a conditional claim on the exact proposal it read
+  // (sweepExpiredAutoResolutions()), so a sweep that loses a race to a
+  // ruling, a contest or a newer proposal is a no-op (`superseded`).
   if (config.features.disputeAutoResolutionSweeper) {
-    const disputeSweepInterval = setInterval(() => {
-      getDisputeService().sweepExpiredAutoResolutions()
-        .then(({ revertedToHuman, failed }) => {
-          if (revertedToHuman.length || failed.length) {
-            app.log.info({ msg: 'Dispute auto-resolution sweep completed (advisory-only, Missão 13 Fase 2)', module: 'dispute-auto-resolution-sweeper', revertedToHuman: revertedToHuman.length, failed: failed.length })
+    backgroundSweepers.push(startGuardedInterval(() =>
+      // getDisputeService() is synchronous and throws on a misconfiguration (no
+      // trusted arbitrators); started inside the chain, that throw is logged
+      // below like any other sweep failure instead of escaping the timer
+      // callback as an uncaught exception that would take the process down.
+      Promise.resolve()
+        .then(() => getDisputeService().sweepExpiredAutoResolutions())
+        .then(({ revertedToHuman, superseded, failed }) => {
+          if (revertedToHuman.length || superseded.length || failed.length) {
+            app.log.info({ msg: 'Dispute auto-resolution sweep completed (advisory-only, Missão 13 Fase 2)', module: 'dispute-auto-resolution-sweeper', revertedToHuman: revertedToHuman.length, superseded: superseded.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.disputeAutoResolutionSweepIntervalMs)
-    disputeSweepInterval.unref()
+        .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.disputeAutoResolutionSweepIntervalMs))
   }
 
   // Missão 11 Fase 5 §7 — off by default, see config/index.ts's own

@@ -120,18 +120,20 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     expect(redis.quit).toHaveBeenCalled()
   })
 
-  it('PRODUCTION, sweepers enabled: the escrow-timelock, fee-confirmation and funding-reorg sweepers are scheduled through the guarded interval at their configured intervals, each run contains its own failure, and SIGTERM drains every one of them before Postgres disconnects', async () => {
+  it('PRODUCTION, sweepers enabled: the escrow-timelock, dispute auto-resolution, fee-confirmation and funding-reorg sweepers are scheduled through the guarded interval at their configured intervals, each run contains its own failure, and SIGTERM drains every one of them before Postgres disconnects', async () => {
     const { startGuardedInterval, sweeperStops, events, startSettlementRecoverySchedule } = await boot({
       ...PROD_ENV,
       ESCROW_SETTLEMENT_RECONCILER: 'false', // also the opt-out case: no recovery tick is scheduled at all
       ESCROW_TIMELOCK_SWEEPER: 'true', ESCROW_TIMELOCK_SWEEP_INTERVAL_MS: '111000',
       MULTISIG_FEE_CONFIRMATION_SWEEPER: 'true', MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS: '222000',
       MULTISIG_FUNDING_REORG_SWEEPER: 'true', MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS: '333000',
+      DISPUTE_AUTO_RESOLUTION_SWEEPER: 'true', DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS: '444000',
     })
     try {
       expect(startSettlementRecoverySchedule).not.toHaveBeenCalled() // ESCROW_SETTLEMENT_RECONCILER=false is the only way to not schedule it
-      expect(startGuardedInterval).toHaveBeenCalledTimes(3)
-      expect(startGuardedInterval.mock.calls.map((call) => call[1])).toEqual([111000, 222000, 333000])
+      expect(startGuardedInterval).toHaveBeenCalledTimes(4)
+      // startServer() order: escrow timelock, dispute auto-resolution, fee confirmation, funding reorg.
+      expect(startGuardedInterval.mock.calls.map((call) => call[1])).toEqual([111000, 444000, 222000, 333000])
       // Run each scheduled sweep for real against this test's stub database (no real Postgres here, so
       // every sweep fails inside): the run must contain that failure and resolve, never reject.
       for (const [run] of startGuardedInterval.mock.calls) await expect(run()).resolves.toBeUndefined()
@@ -140,7 +142,7 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
       await shutdown()
     }
     for (const sweeperStop of sweeperStops) expect(sweeperStop).toHaveBeenCalledTimes(1)
-    expect(events).toEqual(['sweeper 0 drained', 'sweeper 1 drained', 'sweeper 2 drained', 'postgres disconnected'])
+    expect(events).toEqual(['sweeper 0 drained', 'sweeper 1 drained', 'sweeper 2 drained', 'sweeper 3 drained', 'postgres disconnected'])
   })
 
   it('NON-PRODUCTION: the same on-by-default policy applies to the recovery tick (the flag is not production-only), and disabled sweepers (their default) are never scheduled', async () => {
