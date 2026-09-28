@@ -57,6 +57,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   let capabilityRegistry: typeof import('../../src/core/capability-registry').capabilityRegistry
   let authorizePendingExecution: typeof import('../../src/modules/open-settlement/capability-execution-authorization').authorizePendingExecution
   let reconcileMissingDispatch: typeof import('../../src/modules/open-settlement/dispute-dispatch-recovery').reconcileMissingDispatch
+  let DISPATCH_RECOVERY_BATCH: number
   let SailsCapabilitiesModule: typeof import('../../packages/sails-sdk/src/modules/capabilities').SailsCapabilitiesModule
   let SailsTransport: typeof import('../../packages/sails-sdk/src/transport').SailsTransport
   let config: typeof import('../../src/config').config
@@ -104,7 +105,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
     ;({ capabilityRegistry } = require('../../src/core/capability-registry'))
     ;({ authorizePendingExecution } = require('../../src/modules/open-settlement/capability-execution-authorization'))
-    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
+    ;({ reconcileMissingDispatch, DISPATCH_RECOVERY_BATCH } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     ;({ SailsCapabilitiesModule } = require('../../packages/sails-sdk/src/modules/capabilities'))
     ;({ SailsTransport } = require('../../packages/sails-sdk/src/transport'))
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -344,13 +345,30 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     await prisma.escrowPendingTransaction.delete({ where: { escrowId } })
     await revokeAllSettlementGrants(ARBITER_ID)
 
-    const blocked = await reconcileMissingDispatch()
+    // M9-R bounded recovery: one sweep attempts at most DISPATCH_RECOVERY_BATCH candidates, and this database is
+    // shared, so sweep until this escrow is claimed - within the starvation bound, ceil(queued / batch) sweeps.
+    const sweepUntilClaimed = async () => {
+      const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
+        SELECT count(*) AS n FROM disputes d JOIN escrows e ON e.id = d."escrowId"
+        WHERE d.status = 'RESOLVED' AND e.type = 'MULTISIG' AND e.status NOT IN ('COMPLETED', 'REFUNDED', 'SPLIT')
+          AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId")
+          AND EXISTS (SELECT 1 FROM semantic_transition_records r WHERE r."interactionId" = d."escrowId"
+            AND r."transitionType" = 'escrow.dispute.rule' AND r."appealRound" = d."appealRound" AND r."outcomeContent" IS NOT NULL)`
+      const bound = Math.ceil(Number(n) / DISPATCH_RECOVERY_BATCH)
+      for (let i = 0; i < bound; i++) {
+        const report = await reconcileMissingDispatch()
+        if (report.claimed.includes(escrowId)) return report
+      }
+      throw new Error(`escrow ${escrowId} was not claimed within the starvation bound of ${bound} sweep(s)`)
+    }
+
+    const blocked = await sweepUntilClaimed()
     expect(blocked.resumed.map((r) => r.escrowId)).not.toContain(escrowId)
     expect(blocked.failed.find((f) => f.escrowId === escrowId)?.error).toMatch(/no active 'settlement' capability grant/) // explicit, not silent
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })).toBeNull()
 
     await onboard(ARBITER_ID)
-    const resumed = await reconcileMissingDispatch()
+    const resumed = await sweepUntilClaimed()
     expect(resumed.resumed.map((r) => r.escrowId)).toContain(escrowId)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })).not.toBeNull()
   })

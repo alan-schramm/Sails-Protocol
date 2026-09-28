@@ -53,6 +53,15 @@
  * initiate)"). This module treats that specific, recognizable error as a
  * benign "someone else already resumed this" outcome, never a failure —
  * no new locking primitive was invented; the existing one is reused.
+ *
+ * BOUNDED PASSES (M9-R bounded recovery): one invocation attempts at most
+ * `limit` dispatches. The candidate predicate is evaluated in SQL, so
+ * already-dispatched and legacy disputes are never loaded or re-checked
+ * row by row. A candidate whose dispatch keeps failing (for example an
+ * unreachable explorer, or a revoked capability grant) is still retried on
+ * every sweep, but it can no longer make every pass do work proportional
+ * to the whole failing backlog. Fair order comes from
+ * `Dispute.dispatchRecoveryAttemptedAt`: see `claimCandidates()`.
  */
 import { prisma } from '../../common/database'
 import { config } from '../../config'
@@ -63,13 +72,24 @@ import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome
 import { evaluateDisputeDispatchEligibility } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('dispute-dispatch-recovery')
 
-const TERMINAL_ESCROW_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
+/**
+ * Upper bound on dispatch attempts per invocation. The bound is on
+ * attempts, not rows scanned, because each attempt can do external I/O:
+ * the MULTISIG explorer UTXO lookup, up to 3 x MULTISIG_EXPLORER_TIMEOUT_MS
+ * during an explorer outage. At the defaults that caps one pass at about
+ * 10 x 24s even when every attempt times out. A C4 crash is rare, so a
+ * larger backlog is simply worked through over later sweeps.
+ */
+export const DISPATCH_RECOVERY_BATCH = 10
 
 export interface DispatchRecoveryReport {
+  /** Escrow ids claimed by this invocation, in queue order. Never longer than `limit`. */
+  claimed: string[]
   resumed: Array<{ escrowId: string; disputeId: string; ruling: 'RELEASE' | 'REFUND' | 'SPLIT' }>
   alreadyResumedConcurrently: string[]
   notEligible: Array<{ escrowId: string; reason: string }>
@@ -81,24 +101,75 @@ function isConcurrentPendingConflict(err: unknown): boolean {
   return err instanceof EscrowError && /already has a pending/i.test(err.message)
 }
 
+interface ClaimedCandidate {
+  id: string
+  escrowId: string
+  escrowTradeId: string
+  appealRound: number
+  arbiterId: string | null
+  queueKey: Date
+}
+
 /**
- * Candidate query: a RESOLVED Dispute on a MULTISIG escrow that is NOT
- * terminal and has NO surviving `EscrowPendingTransaction` row. This is
- * the durable fact combination C4 leaves behind — nothing else in this
+ * Candidate predicate: a RESOLVED Dispute on a MULTISIG escrow that is NOT
+ * terminal, has NO surviving `EscrowPendingTransaction` row, and has a
+ * durable Core-authoritative ruling record with an Outcome. This is the
+ * durable fact combination C4 leaves behind — nothing else in this
  * codebase's own model can produce it except a crash in exactly that
  * window (a live, successful ruling always reaches at least the pending-
- * transaction write before returning to the caller).
+ * transaction write before returning to the caller). The predicate is the
+ * same one the previous in-memory loop applied, now evaluated in SQL.
+ *
+ * Order is strict round-robin by queue key =
+ * COALESCE(dispatchRecoveryAttemptedAt, resolvedAt, createdAt), ties
+ * broken by id. Claiming a candidate stamps it in the same statement, which
+ * moves it behind every candidate not attempted since. Starvation-free:
+ * only candidates with a smaller key are ahead of a given one, that set is
+ * finite, and each of them moves behind it once it is served. So every
+ * candidate is attempted within ceil(ahead / limit) sweeps, however large
+ * the history and however many other candidates keep failing. A crash
+ * after the stamp commits costs one queue turn, never the candidate itself:
+ * the stamp decides order only, and eligibility is re-derived below from
+ * durable facts on every attempt. SKIP LOCKED gives two concurrent workers
+ * disjoint batches while their claims overlap in time. It is not what
+ * prevents duplicate dispatch; EscrowPendingTransaction's unique constraint
+ * still is (see header).
  */
-export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport> {
-  const report: DispatchRecoveryReport = { resumed: [], alreadyResumedConcurrently: [], notEligible: [], guardFailed: [], failed: [] }
+async function claimCandidates(limit: number): Promise<ClaimedCandidate[]> {
+  const stampedAt = new Date()
+  const claimed = await prisma.$queryRaw<ClaimedCandidate[]>`
+    WITH picked AS (
+      SELECT d.id, e."tradeId" AS "escrowTradeId",
+             COALESCE(d."dispatchRecoveryAttemptedAt", d."resolvedAt", d."createdAt") AS "queueKey"
+      FROM disputes d
+      JOIN escrows e ON e.id = d."escrowId"
+      WHERE d.status = 'RESOLVED'
+        AND e.type = 'MULTISIG'
+        AND e.status NOT IN ('COMPLETED', 'REFUNDED', 'SPLIT')
+        AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId")
+        AND EXISTS (
+          SELECT 1 FROM semantic_transition_records r
+          WHERE r."interactionId" = d."escrowId"
+            AND r."transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+            AND r."appealRound" = d."appealRound"
+            AND r."outcomeContent" IS NOT NULL AND r."outcomeContent" <> 'null'::jsonb)
+      ORDER BY "queueKey" ASC, d.id ASC
+      LIMIT ${limit}
+      FOR UPDATE OF d SKIP LOCKED
+    )
+    UPDATE disputes d SET "dispatchRecoveryAttemptedAt" = ${stampedAt}
+    FROM picked
+    WHERE d.id = picked.id
+    RETURNING d.id, d."escrowId", picked."escrowTradeId", d."appealRound", d."arbiterId", picked."queueKey"`
+  // RETURNING carries no order guarantee — restore the queue order.
+  return claimed.sort((a, b) => a.queueKey.getTime() - b.queueKey.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
 
-  const candidates = await prisma.dispute.findMany({
-    where: {
-      status: 'RESOLVED',
-      escrow: { type: 'MULTISIG', status: { notIn: [...TERMINAL_ESCROW_STATUSES] } },
-    },
-    include: { escrow: true },
-  })
+export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY_BATCH): Promise<DispatchRecoveryReport> {
+  const report: DispatchRecoveryReport = { claimed: [], resumed: [], alreadyResumedConcurrently: [], notEligible: [], guardFailed: [], failed: [] }
+
+  const candidates = await claimCandidates(limit)
+  report.claimed = candidates.map((c) => c.escrowId)
 
   for (const dispute of candidates) {
     try {
@@ -127,9 +198,9 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
         continue
       }
 
-      const trade = await tradeRepository.findById(dispute.escrow.tradeId)
+      const trade = await tradeRepository.findById(dispute.escrowTradeId)
       if (!trade) {
-        report.failed.push({ escrowId: dispute.escrowId, error: `Trade ${dispute.escrow.tradeId} not found` })
+        report.failed.push({ escrowId: dispute.escrowId, error: `Trade ${dispute.escrowTradeId} not found` })
         continue
       }
 
