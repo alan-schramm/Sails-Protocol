@@ -1245,9 +1245,10 @@ export class DisputeService {
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the durable side effect here
   // is the validation reads (no writes) followed by exactly one durable
-  // write, `prisma.dispute.update(...)`, which durably appends the
+  // write, a conditional `UPDATE disputes`, which durably appends the
   // evidence entry AND advances `status` to `EVIDENCE_SUBMITTED` in the
-  // same statement. Before that call returns, no evidence has been
+  // same statement (or changes nothing, when the dispute no longer accepts
+  // evidence — that case throws, so it is marked FAILED and never emits). Before that call returns, no evidence has been
   // durably appended — a throw anywhere above it (including the
   // NotFoundError/ForbiddenError/ValidationError guards) genuinely means
   // nothing durable happened, the only case safe to mark FAILED and
@@ -1271,12 +1272,31 @@ export class DisputeService {
     // descriptor (see resolveEvidenceDescriptor()'s own header comment).
     const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
     const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
-    const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
-    })
+    // One statement, both properties decided by the row as it is when the
+    // write runs, never by the read above:
+    //   - authority: only a dispute STILL in OPENED/EVIDENCE_SUBMITTED takes
+    //     evidence. A ruling (RESOLVED), a proposal (AUTO_PROPOSED) or an
+    //     appeal (APPEALED) committed since the read makes this a no-op
+    //     instead of being overwritten back to EVIDENCE_SUBMITTED.
+    //   - integrity: the entry is appended to the CURRENT list in the
+    //     database (jsonb ||), not to the list read above, so concurrent
+    //     submissions serialize on the row and every one of them survives.
+    // Status alone is the right predicate here: the append depends on nothing
+    // else from the read (the trade and its parties never change), so a
+    // dispute that left and re-entered an evidence-accepting state (e.g.
+    // proposed, then contested) is genuinely open again.
+    const appended = await prisma.$executeRaw`
+      UPDATE disputes
+      SET evidence = (CASE WHEN jsonb_typeof(evidence) = 'array' THEN evidence ELSE '[]'::jsonb END) || ${JSON.stringify([entry])}::jsonb,
+          status = 'EVIDENCE_SUBMITTED', "updatedAt" = ${new Date()}
+      WHERE id = ${disputeId} AND status IN ('OPENED', 'EVIDENCE_SUBMITTED')`
+    if (appended === 0) {
+      const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${current?.status ?? 'unknown'}`)
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!updated) throw new NotFoundError('Dispute', disputeId)
 
     // `tradeId`/`escrowId` never change in this update (only `evidence`/
     // `status` do) — merging over the already-validated pre-update
