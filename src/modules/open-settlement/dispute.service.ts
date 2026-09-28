@@ -1376,16 +1376,35 @@ export class DisputeService {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: {
-        status: 'EVIDENCE_SUBMITTED',
-        autoResolutionRecommendation: null,
-        autoResolutionConfidence: null,
-        autoResolutionReasoning: null,
-        autoResolutionDeadline: null,
-      },
-    })
+    // Conditional claim on the exact proposal validated above (same identity
+    // rule as sweepExpiredAutoResolutions()): still AUTO_PROPOSED, still the
+    // same deadline, and that deadline not yet passed WHEN THE WRITE RUNS. A
+    // ruling, a sweep, another contest or a newer proposal committed since
+    // the read makes this a no-op — nothing is changed or emitted. The window
+    // is checked against the database clock at execution (clock_timestamp(),
+    // re-read if the statement waited on the row lock), not a Date built
+    // before a pool or lock wait: a contest may only commit before the
+    // deadline, not merely have been validated before it.
+    const readDeadline = dispute.autoResolutionDeadline
+    const claimed = await prisma.$executeRaw`
+      UPDATE disputes
+      SET status = 'EVIDENCE_SUBMITTED', "autoResolutionRecommendation" = NULL, "autoResolutionConfidence" = NULL,
+          "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = ${new Date()}
+      WHERE id = ${disputeId} AND status = 'AUTO_PROPOSED'
+        AND ${readDeadline
+          ? Prisma.sql`"autoResolutionDeadline" = ${readDeadline} AND "autoResolutionDeadline" >= (clock_timestamp() AT TIME ZONE 'UTC')`
+          : Prisma.sql`"autoResolutionDeadline" IS NULL`}`
+    if (claimed === 0) {
+      const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (current?.status !== 'AUTO_PROPOSED') {
+        throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${current?.status ?? 'unknown'})`)
+      }
+      if (current.autoResolutionDeadline && current.autoResolutionDeadline.getTime() < Date.now()) {
+        throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+      }
+      throw new ValidationError(`Dispute ${disputeId}'s automated resolution was replaced by a newer proposal while this contest was being processed — review the current proposal and contest again`)
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
@@ -1431,20 +1450,37 @@ export class DisputeService {
    * mission's own QVAC STOP GATE ("acceptable to downgrade QVAC to
    * ADVISORY... correct attribution is more important than preserving
    * automation").
+   *
+   * The revert is a conditional claim on the exact proposal this sweep read
+   * (status AUTO_PROPOSED AND the same autoResolutionDeadline), never an
+   * update by id alone. Between the read and the write an arbiter may have
+   * resolved the dispute, a party may have contested it, or a contest plus
+   * new evidence may have produced a NEW proposal with a later deadline; an
+   * unconditional write would overwrite any of those with
+   * EVIDENCE_SUBMITTED (hiding a committed RESOLVED ruling from C4 and
+   * ruling-finalization recovery, or discarding a live proposal). The
+   * deadline is the proposal's identity: proposeAutoResolution() sets it
+   * once per proposal and every exit from AUTO_PROPOSED clears it. A sweep
+   * that loses the claim changes nothing and emits nothing (`superseded`).
    */
-  async sweepExpiredAutoResolutions(): Promise<{ revertedToHuman: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+  async sweepExpiredAutoResolutions(): Promise<{ revertedToHuman: string[]; superseded: string[]; failed: Array<{ disputeId: string; error: string }> }> {
     const expired = await prisma.dispute.findMany({
       where: { status: 'AUTO_PROPOSED', autoResolutionDeadline: { lt: new Date() } },
     })
 
     const revertedToHuman: string[] = []
+    const superseded: string[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
+        const claim = await prisma.dispute.updateMany({
+          where: { id: dispute.id, status: 'AUTO_PROPOSED', autoResolutionDeadline: dispute.autoResolutionDeadline },
           data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
         })
+        if (claim.count === 0) {
+          superseded.push(dispute.id) // another transition won since this sweep's read — not an error
+          continue
+        }
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
@@ -1457,7 +1493,7 @@ export class DisputeService {
         failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
-    return { revertedToHuman, failed }
+    return { revertedToHuman, superseded, failed }
   }
 }
 

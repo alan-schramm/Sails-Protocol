@@ -489,6 +489,7 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       ['ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 'settlementReconcileIntervalMs', 60000],
       ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'multisigFeeConfirmationSweepIntervalMs', 300000],
       ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'multisigFundingReorgSweepIntervalMs', 300000],
+      ['DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 'disputeAutoResolutionSweepIntervalMs', 300000],
     ]
 
     it.each(HARDENED_INTERVALS)('%s keeps its existing default when unset', (envName, key, expected) => {
