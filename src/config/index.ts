@@ -475,7 +475,8 @@ export const config = {
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
     timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
-    settlementReconcileIntervalMs: requiredInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
+    // Positive: 0 or a negative value would make Node fire the settlement/C4 recovery tick every 1ms.
+    settlementReconcileIntervalMs: requiredPositiveInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.

@@ -457,6 +457,32 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('settlement / C4 recovery tick (M9-R/C4 production wiring)', () => {
+    const DEV_ENV = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: undefined }
+
+    it('is ON by default in production and in development alike - the same policy, not a production-only switch', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILER: undefined })().features.escrowSettlementReconciler).toBe(true)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...DEV_ENV, ESCROW_SETTLEMENT_RECONCILER: undefined })().features.escrowSettlementReconciler).toBe(true)
+    })
+
+    it('is turned off only by the explicit opt-out ESCROW_SETTLEMENT_RECONCILER=false', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILER: 'false' })().features.escrowSettlementReconciler).toBe(false)
+    })
+
+    it('interval defaults to 60000 ms and accepts an explicit positive value', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: undefined })().trade.settlementReconcileIntervalMs).toBe(60000)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '30000' })().trade.settlementReconcileIntervalMs).toBe(30000)
+    })
+
+    it.each(['0', '-1', 'not-a-number'])('refuses to boot with ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS=%s (Node would fire the tick every 1 ms)', (value) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: value })).toThrow(/ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS must be a positive integer/)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
