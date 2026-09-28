@@ -33,6 +33,7 @@ describe('Issue #240 - signature-collection provider (LIGHTNING_HODL/SAFE_GUARD_
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
   let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
+  let SETTLEMENT_RECOVERY_BATCH: number
   let ensureFinalizationAttempt: typeof import('../../src/modules/open-settlement/signature-collection-finalization-truth').ensureFinalizationAttempt
   let recordFinalizationOutcome: typeof import('../../src/modules/open-settlement/signature-collection-finalization-truth').recordFinalizationOutcome
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
@@ -47,7 +48,7 @@ describe('Issue #240 - signature-collection provider (LIGHTNING_HODL/SAFE_GUARD_
     ;({ prisma } = require('../../src/common/database'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
-    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+    ;({ reconcilePendingSettlements, SETTLEMENT_RECOVERY_BATCH } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     ;({ ensureFinalizationAttempt, recordFinalizationOutcome } = require('../../src/modules/open-settlement/signature-collection-finalization-truth'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
     ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
@@ -285,7 +286,7 @@ describe('Issue #240 - signature-collection provider (LIGHTNING_HODL/SAFE_GUARD_
         expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /is SUBMISSION_UNKNOWN/.test(m.reason))).toBe(true)
         expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
 
-        await reconcilePendingSettlements({ projectionGraceMs: 0 })
+        await reconcileUntilClaimedAgain(c.escrowId)
         expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
       })
 
@@ -405,6 +406,23 @@ describe('Issue #240 - signature-collection provider (LIGHTNING_HODL/SAFE_GUARD_
   }
 
   // SAFE_GUARD_EVM-specific: SUBMITTED (bundler-accepted, not chain-confirmed) never auto-converges.
+
+  // PASS 1 claims a bounded batch per run from a durable round-robin queue, so a later run reaches a
+  // given escrow again only after the escrows ahead of it (the shared database keeps other suites'
+  // rows). Runs reconciliation until this escrow has been claimed again, within the queue's own
+  // bound, so "a later tick" really looked at it.
+  async function reconcileUntilClaimedAgain(escrowId: string): Promise<void> {
+    const stampOf = async () => (await prisma.$queryRaw<Array<{ at: Date | null }>>`SELECT "settlementRecoveryAttemptedAt" AS at FROM escrows WHERE id = ${escrowId}`)[0].at?.getTime() ?? null
+    const before = await stampOf()
+    const [{ queued }] = await prisma.$queryRaw<Array<{ queued: number }>>`
+      SELECT count(*)::int AS queued FROM escrows WHERE status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND "txReleaseId" IS NULL`
+    for (let run = 0; run <= Math.ceil(queued / SETTLEMENT_RECOVERY_BATCH); run++) {
+      await reconcilePendingSettlements({ projectionGraceMs: 0 })
+      if ((await stampOf()) !== before) return
+    }
+    throw new Error(`escrow ${escrowId} was not claimed again within ceil(${queued} / ${SETTLEMENT_RECOVERY_BATCH}) + 1 runs`)
+  }
+
   it('SAFE_GUARD_EVM SUBMITTED (bundler-accepted userOpHash, not chain-confirmed): never auto-converges, never resubmits', async () => {
     pg.requirePostgres('SAFE submitted stays manual review')
     const c = await makeEscrow('SAFE_GUARD_EVM', 'COMPLETED')

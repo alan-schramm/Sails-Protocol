@@ -125,30 +125,27 @@ export interface EscrowRepository {
    *  candidate set. */
   findFundsLockedExpiryCandidates(now: Date, types: string[]): Promise<EscrowRow[]>
 
-  /** Missão 11 Fase 9.6 — CONC-03 crash-recovery candidates:
-   *  status already claiming a terminal outcome (COMPLETED/REFUNDED/
-   *  SPLIT — VALID_TRANSITIONS' own terminal set), but txReleaseId was
-   *  never persisted. Reachable only by a process crash between
-   *  claimEscrowTransition() and the later updateXResult() write — see
-   *  escrow-settlement-reconciliation.service.ts's own header comment. */
-  findTerminalWithoutTxReleaseId(): Promise<EscrowRow[]>
+  /** Settlement reconciliation PASS 1 (Missão 11 Fase 9.6, CONC-03) —
+   *  claims up to `limit` escrows whose status already claims a terminal
+   *  outcome (COMPLETED/REFUNDED/SPLIT) but whose txReleaseId was never
+   *  persisted: a crash between claimEscrowTransition() and the later
+   *  updateXResult() write, or a rail with no automated recovery that stays
+   *  in this set for manual review. See claimRecoveryQueue() for the order. */
+  claimSettlementResultRecoveryBatch(limit: number): Promise<EscrowRow[]>
 
-  /** Missão 11 Fase 9.7 — CONC-03's "C5" closure candidates: status
-   *  already claiming a terminal outcome AND txReleaseId already
-   *  persisted (the real fund movement is confirmed) — but the
-   *  downstream completion effects (fee obligation / trade completion /
-   *  reputation / event) may never have run, if a crash landed between
-   *  txReleaseId persistence and emitEscrowTransition() succeeding.
-   *  Reconciliation itself determines, per escrow, whether the
-   *  downstream chain is actually missing (via EscrowEvent existence —
-   *  see escrow-settlement-reconciliation.service.ts) before touching
-   *  anything; this query is intentionally a superset (every settled
-   *  escrow, not just the stuck ones) since there's no cheap way to
-   *  express "missing EscrowEvent" as a single relational filter here
-   *  without a raw anti-join query, which read-only, Prisma-only
-   *  simplicity here was judged worth the extra per-escrow check for a
-   *  reference implementation's escrow volumes. */
-  findTerminalWithTxReleaseId(): Promise<EscrowRow[]>
+  /** Settlement reconciliation PASS 2 (Missão 11 Fase 9.7, CONC-03 "C5")
+   *  — claims up to `limit` terminal escrows whose txReleaseId is persisted
+   *  but whose completion has not been verified yet (completionVerifiedAt
+   *  null). Reconciliation decides per escrow whether anything is actually
+   *  missing. */
+  claimCompletionVerificationBatch(limit: number): Promise<EscrowRow[]>
+
+  /** Sets completionVerifiedAt iff the settlement has converged: the
+   *  EscrowEvent for its terminal status exists and no pending transaction
+   *  row survives (the two facts PASS 2 acts on). One conditional UPDATE,
+   *  so it never marks a settlement that still needs work. Returns whether
+   *  this call marked it. */
+  markCompletionVerifiedIfConverged(escrowId: string): Promise<boolean>
 
   /** isSellerOrAssignedArbiter()'s fallback existence check — the one Dispute-by-this-shape read nobody else owns. */
   findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string): Promise<DisputeRow | null>
@@ -298,16 +295,71 @@ class PrismaEscrowRepository implements EscrowRepository {
     })
   }
 
-  async findTerminalWithoutTxReleaseId() {
-    return prisma.escrow.findMany({
-      where: { status: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] }, txReleaseId: null },
-    })
+  async claimSettlementResultRecoveryBatch(limit: number) {
+    return this.claimRecoveryQueue('RESULT_MISSING', limit)
   }
 
-  async findTerminalWithTxReleaseId() {
-    return prisma.escrow.findMany({
-      where: { status: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] }, txReleaseId: { not: null } },
-    })
+  async claimCompletionVerificationBatch(limit: number) {
+    return this.claimRecoveryQueue('COMPLETION_UNVERIFIED', limit)
+  }
+
+  /**
+   * Claims the next `limit` escrows of one reconciliation queue and stamps
+   * settlementRecoveryAttemptedAt in the same statement.
+   *
+   * Order: never-attempted escrows first, most recently settled first (a
+   * fresh crash is recovered on the next tick even while an old backlog is
+   * being worked through), then escrows already attempted, least recently
+   * attempted first. An escrow that keeps needing attention (a manual-review
+   * rail, a failing provider) therefore moves behind every other candidate
+   * after each attempt instead of holding a slot: every candidate is reached
+   * within ceil(queue / limit) runs, and the stamp is durable, so the order
+   * survives restarts. The stamp decides order only — a crash after it
+   * commits costs the escrow one turn, never its recovery; no lease exists
+   * because nothing is owned. SKIP LOCKED gives concurrent instances
+   * disjoint batches while their claims overlap in time; it only saves
+   * duplicate work, the per-escrow write-once result and emitEscrowTransition()'s
+   * claim are what make recovery safe to run twice. Each queue reads its
+   * own partial index (migration 20260929120000), so the claim never walks
+   * the settlement history.
+   */
+  private async claimRecoveryQueue(queue: 'RESULT_MISSING' | 'COMPLETION_UNVERIFIED', limit: number) {
+    const stampedAt = new Date()
+    const claimed = queue === 'RESULT_MISSING'
+      ? await prisma.$queryRaw<Array<{ id: string }>>`
+          WITH picked AS (
+            SELECT e.id FROM escrows e
+            WHERE e.status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND e."txReleaseId" IS NULL
+            ORDER BY e."settlementRecoveryAttemptedAt" ASC NULLS FIRST, e."updatedAt" DESC, e.id
+            LIMIT ${limit}
+            FOR UPDATE OF e SKIP LOCKED
+          )
+          UPDATE escrows e SET "settlementRecoveryAttemptedAt" = ${stampedAt}
+          FROM picked WHERE e.id = picked.id
+          RETURNING e.id`
+      : await prisma.$queryRaw<Array<{ id: string }>>`
+          WITH picked AS (
+            SELECT e.id FROM escrows e
+            WHERE e.status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND e."txReleaseId" IS NOT NULL AND e."completionVerifiedAt" IS NULL
+            ORDER BY e."settlementRecoveryAttemptedAt" ASC NULLS FIRST, e."updatedAt" DESC, e.id
+            LIMIT ${limit}
+            FOR UPDATE OF e SKIP LOCKED
+          )
+          UPDATE escrows e SET "settlementRecoveryAttemptedAt" = ${stampedAt}
+          FROM picked WHERE e.id = picked.id
+          RETURNING e.id`
+    if (claimed.length === 0) return []
+    return prisma.escrow.findMany({ where: { id: { in: claimed.map((row) => row.id) } } })
+  }
+
+  async markCompletionVerifiedIfConverged(escrowId: string) {
+    const marked = await prisma.$executeRaw`
+      UPDATE escrows e SET "completionVerifiedAt" = ${new Date()}
+      WHERE e.id = ${escrowId} AND e."completionVerifiedAt" IS NULL
+        AND e.status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND e."txReleaseId" IS NOT NULL
+        AND EXISTS (SELECT 1 FROM escrow_events v WHERE v."escrowId" = e.id AND v."toStatus" = e.status)
+        AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = e.id)`
+    return marked === 1
   }
 
   async findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string) {
