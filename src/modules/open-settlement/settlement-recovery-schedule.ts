@@ -30,8 +30,12 @@ import { reconcilePendingSettlements } from './escrow-settlement-reconciliation.
 import { reconcileMissingDispatch } from './dispute-dispatch-recovery'
 
 export interface SettlementRecoverySchedule {
-  /** Stops future ticks. A tick already running finishes on its own; its errors stay contained. */
-  stop: () => void
+  /**
+   * Stops future ticks and resolves once a tick already running has finished, so a graceful shutdown can
+   * drain it before closing Postgres/Redis. Never rejects. If the process is killed before the drain
+   * completes, nothing is lost: an interrupted tick leaves only durable, retryable state.
+   */
+  stop: () => Promise<void>
 }
 
 export async function runSettlementRecoveryTick(log: FastifyBaseLogger): Promise<void> {
@@ -60,13 +64,17 @@ export async function runSettlementRecoveryTick(log: FastifyBaseLogger): Promise
 }
 
 export function startSettlementRecoverySchedule(log: FastifyBaseLogger, intervalMs: number): SettlementRecoverySchedule {
-  let running = false
+  let inFlight: Promise<void> | null = null
   const interval = setInterval(() => {
-    if (running) return
-    running = true
-    runSettlementRecoveryTick(log).finally(() => { running = false })
+    if (inFlight) return
+    inFlight = runSettlementRecoveryTick(log).finally(() => { inFlight = null })
   }, intervalMs)
   // Never keeps the process alive on its own (same convention as every sweeper in app.ts).
   interval.unref()
-  return { stop: () => clearInterval(interval) }
+  return {
+    stop: async () => {
+      clearInterval(interval)
+      await inFlight
+    },
+  }
 }

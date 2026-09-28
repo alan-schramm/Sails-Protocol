@@ -137,27 +137,41 @@ describe('settlement recovery schedule (M9-R/C4 production wiring)', () => {
     }))
   })
 
-  it('stop() ends scheduling: no tick fires afterwards, and a tick already running finishes without starting another', async () => {
+  it('stop() ends scheduling and drains: it resolves only once the tick already running has finished, and no tick fires afterwards', async () => {
     const slow = deferred<ReturnType<typeof emptyDispatchReport>>()
     mockReconcileMissingDispatch.mockReturnValueOnce(slow.promise)
     const schedule = startSettlementRecoverySchedule(makeLog(), INTERVAL)
     await jest.advanceTimersByTimeAsync(INTERVAL)
     expect(mockReconcileMissingDispatch).toHaveBeenCalledTimes(1)
 
-    schedule.stop()
+    let drained = false
+    const stopping = schedule.stop().then(() => { drained = true })
+    await jest.advanceTimersByTimeAsync(INTERVAL * 10)
+    expect(drained).toBe(false) // the in-flight tick is still running
+    expect(jest.getTimerCount()).toBe(0) // but nothing is scheduled any more
+
     slow.resolve(emptyDispatchReport())
+    await stopping
+    expect(drained).toBe(true)
     await jest.advanceTimersByTimeAsync(INTERVAL * 10)
     expect(mockReconcilePendingSettlements).toHaveBeenCalledTimes(1)
     expect(mockReconcileMissingDispatch).toHaveBeenCalledTimes(1)
-    expect(jest.getTimerCount()).toBe(0) // no timer left behind
   })
 
-  it('the interval is unref()\'d - it never keeps the process alive on its own', () => {
+  it('stop() with no tick in flight resolves at once, and never rejects even when the last tick failed', async () => {
+    mockReconcileMissingDispatch.mockRejectedValue(new Error('boom'))
+    const schedule = startSettlementRecoverySchedule(makeLog(), INTERVAL)
+    await jest.advanceTimersByTimeAsync(INTERVAL)
+    await expect(schedule.stop()).resolves.toBeUndefined()
+    await expect(startSettlementRecoverySchedule(makeLog(), INTERVAL).stop()).resolves.toBeUndefined()
+  })
+
+  it('the interval is unref()\'d - it never keeps the process alive on its own', async () => {
     const unref = jest.fn()
     const spy = jest.spyOn(global, 'setInterval').mockReturnValueOnce({ unref } as any)
     const clear = jest.spyOn(global, 'clearInterval').mockImplementation(() => undefined)
     try {
-      startSettlementRecoverySchedule(makeLog(), INTERVAL).stop()
+      await startSettlementRecoverySchedule(makeLog(), INTERVAL).stop()
       expect(unref).toHaveBeenCalledTimes(1)
       expect(clear).toHaveBeenCalledTimes(1)
     } finally {

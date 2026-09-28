@@ -65,10 +65,12 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
   async function boot(env: Record<string, string | undefined>) {
     process.env = { PORT: '0', HOST: '127.0.0.1' }
     for (const [k, v] of Object.entries(env)) if (v !== undefined) process.env[k] = v
-    const stop = jest.fn()
+    // stop() drains an in-flight tick; this one takes a moment, and records when it finished.
+    const events: string[] = []
+    const stop = jest.fn(() => new Promise<void>((resolve) => setTimeout(() => { events.push('recovery drained'); resolve() }, 50)))
     const startSettlementRecoverySchedule = jest.fn(() => ({ stop }))
     jest.doMock('../src/modules/open-settlement/settlement-recovery-schedule', () => ({ startSettlementRecoverySchedule }))
-    const prisma = { $queryRaw: jest.fn(), $disconnect: jest.fn().mockResolvedValue(undefined) }
+    const prisma = { $queryRaw: jest.fn(), $disconnect: jest.fn(async () => { events.push('postgres disconnected') }) }
     const redis = { ping: jest.fn(), quit: jest.fn().mockResolvedValue('OK') }
     jest.doMock('../src/common/database', () => ({ prisma, connectDatabase: jest.fn().mockResolvedValue(undefined) }))
     jest.doMock('../src/common/redis', () => ({ redis, connectRedis: jest.fn().mockResolvedValue(undefined) }))
@@ -79,7 +81,7 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     } finally {
       logSpy.mockRestore()
     }
-    return { config, startSettlementRecoverySchedule, stop, prisma, redis }
+    return { config, startSettlementRecoverySchedule, stop, prisma, redis, events }
   }
 
   async function shutdown(): Promise<void> {
@@ -91,8 +93,8 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
   // Each boot is a full cold require of the app graph, so this file keeps to the three genuinely distinct
   // boots (production, non-production, opted out); the default interval value is covered by
   // tests/configProductionGates.test.ts.
-  it('PRODUCTION: startup schedules the recovery tick once, at the configured interval, with the app logger; SIGTERM stops it before closing the server and disconnecting Postgres/Redis', async () => {
-    const { config, startSettlementRecoverySchedule, stop, prisma, redis } = await boot({ ...PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '15000' })
+  it('PRODUCTION: startup schedules the recovery tick once, at the configured interval, with the app logger; SIGTERM stops it and drains a running tick before disconnecting Postgres/Redis', async () => {
+    const { config, startSettlementRecoverySchedule, stop, redis, events } = await boot({ ...PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '15000' })
     try {
       expect(config.isProduction).toBe(true)
       expect(startSettlementRecoverySchedule).toHaveBeenCalledTimes(1)
@@ -105,7 +107,7 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
       await shutdown()
     }
     expect(stop).toHaveBeenCalledTimes(1)
-    expect(stop.mock.invocationCallOrder[0]).toBeLessThan(prisma.$disconnect.mock.invocationCallOrder[0])
+    expect(events).toEqual(['recovery drained', 'postgres disconnected']) // the drain is awaited, not just started
     expect(redis.quit).toHaveBeenCalled()
   })
 

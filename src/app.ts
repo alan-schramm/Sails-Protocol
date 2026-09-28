@@ -425,8 +425,11 @@ export async function startServer() {
   let settlementRecovery: SettlementRecoverySchedule | undefined
   const shutdown = async (signal: string) => {
     app.log.info({ msg: 'Shutting down gracefully', signal })
-    settlementRecovery?.stop()
+    // Stop scheduling first, then drain a recovery tick already in flight before its Postgres/Redis
+    // connections are closed (an interrupted tick would be safe, only noisier).
+    const recoveryDrained = settlementRecovery?.stop()
     await app.close()
+    await recoveryDrained
     await eventBus.disableCrossInstanceFanout()
     await prisma.$disconnect()
     await redis.quit()

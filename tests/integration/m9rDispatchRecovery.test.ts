@@ -559,7 +559,7 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
 
   interface ScheduledNode {
     log: { warn: jest.Mock; error: jest.Mock; info: jest.Mock; debug: jest.Mock }
-    stop: () => void
+    stop: () => Promise<void>
     shutdown: () => Promise<void>
   }
 
@@ -578,9 +578,7 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
         log,
         stop: () => schedule.stop(),
         shutdown: async () => {
-          schedule.stop()
-          // Let a tick that is already running finish before the pool goes away, as a SIGTERM drain would.
-          await new Promise((r) => setTimeout(r, TICK_MS * 4))
+          await schedule.stop() // same order as startServer()'s SIGTERM: stop, drain the running tick, then disconnect
           await db.prisma.$disconnect()
           await redisModule.redis?.quit?.().catch(() => undefined)
         },
