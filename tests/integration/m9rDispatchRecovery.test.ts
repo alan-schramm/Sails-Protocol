@@ -550,4 +550,128 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
       await second.shutdown()
     }
   })
+  // ─── M9-R/C4 production wiring: the real scheduled tick, real PostgreSQL ───────────────────────────────────
+  //
+  // Each "node" below is an independent module graph running the exact tick startServer() schedules
+  // (settlement-recovery-schedule.ts: reconcilePendingSettlements() then reconcileMissingDispatch()), on a
+  // real timer, with its own PrismaClient, Redis client and event handlers (registered as buildApp() does at
+  // boot). Nothing calls reconcileMissingDispatch() directly: every dispatch below was started by the schedule.
+
+  interface ScheduledNode {
+    log: { warn: jest.Mock; error: jest.Mock; info: jest.Mock; debug: jest.Mock }
+    stop: () => Promise<void>
+    shutdown: () => Promise<void>
+  }
+
+  const TICK_MS = 250
+
+  function startScheduledNode(): ScheduledNode {
+    let node!: ScheduledNode
+    jest.isolateModules(() => {
+      require('../../src/common/events/handlers').registerEventHandlers()
+      const { startSettlementRecoverySchedule } = require('../../src/modules/open-settlement/settlement-recovery-schedule')
+      const db = require('../../src/common/database')
+      const redisModule = require('../../src/common/redis')
+      const log = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
+      const schedule = startSettlementRecoverySchedule(log, TICK_MS)
+      node = {
+        log,
+        stop: () => schedule.stop(),
+        shutdown: async () => {
+          await schedule.stop() // same order as startServer()'s SIGTERM: stop, drain the running tick, then disconnect
+          await db.prisma.$disconnect()
+          await redisModule.redis?.quit?.().catch(() => undefined)
+        },
+      }
+    })
+    return node
+  }
+
+  async function waitUntil(cond: () => Promise<boolean>, deadlineMs: number): Promise<boolean> {
+    const end = Date.now() + deadlineMs
+    while (Date.now() < end) {
+      if (await cond()) return true
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    return cond()
+  }
+
+  const allDispatched = (ids: string[]) => async () =>
+    (await prisma.escrowPendingTransaction.count({ where: { escrowId: { in: ids } } })) === ids.length
+
+  it('WIRING: with no direct call, the production schedule hands a C4 escrow to reconcileMissingDispatch() and it converges to exactly one dispatch at its historical destination', async () => {
+    requirePostgres('C4 production schedule - eventual recovery')
+    const { escrowId } = await makeUndispatchedDisputedEscrow('scheduled', 'RELEASE')
+    const destination = await historicalDestination(escrowId)
+    mockExplorerWithFundedOutpoints([(await prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })).txLockId!])
+
+    const node = startScheduledNode()
+    try {
+      expect(await waitUntil(allDispatched([escrowId]), 90_000)).toBe(true)
+    } finally {
+      await node.shutdown()
+    }
+    const pending = await prisma.escrowPendingTransaction.findMany({ where: { escrowId } })
+    expect(pending).toHaveLength(1)
+    expect(pending[0].toAddress).toBe(destination)
+    expect(node.log.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: 'C4 dispatch recovery completed with findings', module: 'dispute-dispatch-recovery' }))
+    expect(node.log.error).not.toHaveBeenCalledWith(expect.objectContaining({ msg: 'C4 dispatch recovery failed' }))
+  })
+
+  it('WIRING RESTART: a node whose ticks fail through an explorer outage keeps running (failures logged, never thrown), is shut down, and a restarted node converges the same durable state', async () => {
+    requirePostgres('C4 production schedule - outage then restart')
+    const items = []
+    for (let i = 0; i < 3; i++) items.push(await makeUndispatchedDisputedEscrow(`sched-restart-${i}`, 'RELEASE'))
+    const ids = items.map((i) => i.escrowId)
+
+    mockExplorerOutage()
+    const first = startScheduledNode()
+    let claimedDuringOutage = false
+    try {
+      // The outage node keeps ticking; its claims commit durably but no dispatch can happen.
+      claimedDuringOutage = await waitUntil(async () => {
+        const rows = await prisma.dispute.findMany({ where: { escrowId: { in: ids } }, select: { dispatchRecoveryAttemptedAt: true } })
+        return rows.every((r) => r.dispatchRecoveryAttemptedAt !== null)
+      }, 90_000)
+    } finally {
+      await first.shutdown()
+    }
+    expect(claimedDuringOutage).toBe(true)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: { in: ids } } })).toBe(0)
+    expect(first.log.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: 'C4 dispatch recovery completed with findings', failed: expect.any(Number) }))
+
+    // Restart: a brand-new node (new module graph, new pool), explorer back.
+    mockExplorerWithFundedOutpoints(items.map((i) => i.fundingTxid))
+    const second = startScheduledNode()
+    try {
+      expect(await waitUntil(allDispatched(ids), 90_000)).toBe(true)
+    } finally {
+      await second.shutdown()
+    }
+    for (const id of ids) expect(await prisma.escrowPendingTransaction.findMany({ where: { escrowId: id } })).toHaveLength(1)
+  })
+
+  it('WIRING MULTI-INSTANCE: two nodes running the production schedule concurrently over a backlog larger than one batch leave exactly one durable dispatch per escrow', async () => {
+    requirePostgres('C4 production schedule - two instances')
+    const items = []
+    for (let i = 0; i < DISPATCH_RECOVERY_BATCH + 2; i++) items.push(await makeUndispatchedDisputedEscrow(`sched-multi-${i}`, 'RELEASE'))
+    const ids = items.map((i) => i.escrowId)
+    const destinations = new Map<string, string>()
+    for (const id of ids) destinations.set(id, await historicalDestination(id))
+    mockExplorerWithFundedOutpoints(items.map((i) => i.fundingTxid))
+
+    const nodeA = startScheduledNode()
+    const nodeB = startScheduledNode()
+    try {
+      expect(await waitUntil(allDispatched(ids), 90_000)).toBe(true)
+    } finally {
+      await Promise.all([nodeA.shutdown(), nodeB.shutdown()])
+    }
+    for (const id of ids) {
+      const pending = await prisma.escrowPendingTransaction.findMany({ where: { escrowId: id } })
+      expect(pending).toHaveLength(1)
+      expect(pending[0].toAddress).toBe(destinations.get(id))
+    }
+    for (const node of [nodeA, nodeB]) expect(node.log.error).not.toHaveBeenCalledWith(expect.objectContaining({ msg: 'C4 dispatch recovery failed' }))
+  })
 })
