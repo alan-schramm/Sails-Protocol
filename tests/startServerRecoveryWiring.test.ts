@@ -70,6 +70,16 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     const stop = jest.fn(() => new Promise<void>((resolve) => setTimeout(() => { events.push('recovery drained'); resolve() }, 50)))
     const startSettlementRecoverySchedule = jest.fn(() => ({ stop }))
     jest.doMock('../src/modules/open-settlement/settlement-recovery-schedule', () => ({ startSettlementRecoverySchedule }))
+    // The escrow-timelock / fee-confirmation / funding-reorg sweepers: record each scheduled run and
+    // interval; each stop() takes a moment to drain, like a real run in flight.
+    const sweeperStops: jest.Mock[] = []
+    const startGuardedInterval = jest.fn((_run: () => Promise<void>, _intervalMs: number) => {
+      const index = sweeperStops.length
+      const sweeperStop = jest.fn(() => new Promise<void>((resolve) => setTimeout(() => { events.push(`sweeper ${index} drained`); resolve() }, 30)))
+      sweeperStops.push(sweeperStop)
+      return { stop: sweeperStop }
+    })
+    jest.doMock('../src/common/guarded-interval', () => ({ startGuardedInterval }))
     const prisma = { $queryRaw: jest.fn(), $disconnect: jest.fn(async () => { events.push('postgres disconnected') }) }
     const redis = { ping: jest.fn(), quit: jest.fn().mockResolvedValue('OK') }
     jest.doMock('../src/common/database', () => ({ prisma, connectDatabase: jest.fn().mockResolvedValue(undefined) }))
@@ -81,7 +91,7 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     } finally {
       logSpy.mockRestore()
     }
-    return { config, startSettlementRecoverySchedule, stop, prisma, redis, events }
+    return { config, startSettlementRecoverySchedule, stop, prisma, redis, events, startGuardedInterval, sweeperStops }
   }
 
   async function shutdown(): Promise<void> {
@@ -90,9 +100,8 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     expect(exitSpy).toHaveBeenCalledWith(0)
   }
 
-  // Each boot is a full cold require of the app graph, so this file keeps to the three genuinely distinct
-  // boots (production, non-production, opted out); the default interval value is covered by
-  // tests/configProductionGates.test.ts.
+  // Each boot is a full cold require of the app graph, so this file keeps to three boots; the opt-out case
+  // rides on the sweepers boot. Default interval values are covered by tests/configProductionGates.test.ts.
   it('PRODUCTION: startup schedules the recovery tick once, at the configured interval, with the app logger; SIGTERM stops it and drains a running tick before disconnecting Postgres/Redis', async () => {
     const { config, startSettlementRecoverySchedule, stop, redis, events } = await boot({ ...PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '15000' })
     try {
@@ -111,22 +120,39 @@ describe('startServer() — settlement / C4 recovery wiring', () => {
     expect(redis.quit).toHaveBeenCalled()
   })
 
-  it('NON-PRODUCTION: the same on-by-default policy applies (the flag is not production-only)', async () => {
-    const { config, startSettlementRecoverySchedule } = await boot({ NODE_ENV: 'development' })
+  it('PRODUCTION, sweepers enabled: the escrow-timelock, fee-confirmation and funding-reorg sweepers are scheduled through the guarded interval at their configured intervals, each run contains its own failure, and SIGTERM drains every one of them before Postgres disconnects', async () => {
+    const { startGuardedInterval, sweeperStops, events, startSettlementRecoverySchedule } = await boot({
+      ...PROD_ENV,
+      ESCROW_SETTLEMENT_RECONCILER: 'false', // also the opt-out case: no recovery tick is scheduled at all
+      ESCROW_TIMELOCK_SWEEPER: 'true', ESCROW_TIMELOCK_SWEEP_INTERVAL_MS: '111000',
+      MULTISIG_FEE_CONFIRMATION_SWEEPER: 'true', MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS: '222000',
+      MULTISIG_FUNDING_REORG_SWEEPER: 'true', MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS: '333000',
+    })
+    try {
+      expect(startSettlementRecoverySchedule).not.toHaveBeenCalled() // ESCROW_SETTLEMENT_RECONCILER=false is the only way to not schedule it
+      expect(startGuardedInterval).toHaveBeenCalledTimes(3)
+      expect(startGuardedInterval.mock.calls.map((call) => call[1])).toEqual([111000, 222000, 333000])
+      // Run each scheduled sweep for real against this test's stub database (no real Postgres here, so
+      // every sweep fails inside): the run must contain that failure and resolve, never reject.
+      for (const [run] of startGuardedInterval.mock.calls) await expect(run()).resolves.toBeUndefined()
+      for (const sweeperStop of sweeperStops) expect(sweeperStop).not.toHaveBeenCalled()
+    } finally {
+      await shutdown()
+    }
+    for (const sweeperStop of sweeperStops) expect(sweeperStop).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['sweeper 0 drained', 'sweeper 1 drained', 'sweeper 2 drained', 'postgres disconnected'])
+  })
+
+  it('NON-PRODUCTION: the same on-by-default policy applies to the recovery tick (the flag is not production-only), and disabled sweepers (their default) are never scheduled', async () => {
+    const { config, startSettlementRecoverySchedule, startGuardedInterval } = await boot({ NODE_ENV: 'development' })
     try {
       expect(config.isProduction).toBe(false)
       expect(startSettlementRecoverySchedule).toHaveBeenCalledTimes(1)
+      expect(startGuardedInterval).not.toHaveBeenCalled()
     } finally {
       await shutdown()
     }
   })
 
-  it('ESCROW_SETTLEMENT_RECONCILER=false is the only way to not schedule it', async () => {
-    const { startSettlementRecoverySchedule } = await boot({ ...PROD_ENV, ESCROW_SETTLEMENT_RECONCILER: 'false' })
-    try {
-      expect(startSettlementRecoverySchedule).not.toHaveBeenCalled()
-    } finally {
-      await shutdown()
-    }
-  })
+
 })
