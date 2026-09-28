@@ -543,6 +543,16 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     // SemanticTransitionRecord insert and hits its own unique-constraint
     // guard, rather than failing earlier on the unrelated Dispute-state race check.
     await prisma.dispute.update({ where: { id: disputeId }, data: { status: 'APPEALED' } })
+    // Ruling prior-state atomicity: the claim now also pins the SIGNED appeal round, so a round-0 decision
+    // replayed against this round-1 row is refused at the claim itself, before any record insert.
+    const staleRound = await commitAuthoritativeDisputeRuling(
+      { id: disputeId, escrowId, status: 'APPEALED', appealRound: 0 },
+      round0Payload, round0Sig, arbiterPublicKeyHex, '100000', 'BTC', buyerId, sellerId,
+    )
+    expect(staleRound).toEqual({ committed: false, reason: 'DISPUTE_STATE_LOST_RACE' })
+    // To keep proving the RECORD-level guard as well (defense in depth), give the replay a row whose round
+    // matches its signature, so the claim passes and the attempt really reaches the record insert.
+    await prisma.dispute.update({ where: { id: disputeId }, data: { appealRound: 0 } })
     const replay = await commitAuthoritativeDisputeRuling(
       { id: disputeId, escrowId, status: 'APPEALED', appealRound: 0 },
       round0Payload, round0Sig, arbiterPublicKeyHex, '100000', 'BTC', buyerId, sellerId,

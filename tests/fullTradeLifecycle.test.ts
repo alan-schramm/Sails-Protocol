@@ -290,6 +290,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     trade: trades,
     vouch: vouches,
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // The ruling path's SELECT ... FOR UPDATE of the dispute it displaces, answered from the same fake table.
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (!strings.join('?').includes('FROM disputes')) return []
+      const row: any = await disputes.findUnique({ where: { id: values[0] as string } } as any)
+      return row ? [{ status: row.status, appealRound: row.appealRound, arbiterId: row.arbiterId ?? null }] : []
+    },
   })
 )
 

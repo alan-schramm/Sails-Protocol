@@ -411,7 +411,7 @@ export class DisputeService {
   // arbiter's ruling decides economic disposition only; it never again
   // carries any destination-authority channel for these rails either.
   private async applyRuling(
-    dispute: { id: string; escrowId: string; tradeId: string; status: string },
+    dispute: { id: string; escrowId: string; tradeId: string; status: string; appealRound: number },
     ruling: DisputeRuling,
     triggeredBy: string,
     splitBuyerBps?: number,
@@ -449,11 +449,21 @@ export class DisputeService {
     // and the Economic Disposition Commit Gate use (ADR-005 §3) serializes
     // this write too, and the write itself is a conditional claim re-checked
     // AFTER acquiring the lock — never a bare re-use of the pre-lock read.
-    const updated = await prisma.$transaction(async (tx) => {
+    //
+    // The displaced state is read under a row lock inside that same
+    // transaction (the advisory lock alone is not enough: contest, the
+    // expiry sweep, evidence and proposals change the status without it):
+    // it, not the caller's earlier read, is what a failed settlement below
+    // reverts to. The claim also pins the signed appeal round.
+    const { updated, displacedStatus } = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
 
-      const claim = await tx.dispute.updateMany({
-        where: { id: dispute.id, status: { not: 'RESOLVED' }, arbiterId: triggeredBy },
+      const [locked] = await tx.$queryRaw<Array<{ status: DisputeStatus; appealRound: number; arbiterId: string | null }>>`
+        SELECT status::text AS status, "appealRound", "arbiterId" FROM disputes WHERE id = ${dispute.id} FOR UPDATE`
+      const claim = !locked || locked.status === 'RESOLVED' || locked.arbiterId !== triggeredBy || locked.appealRound !== dispute.appealRound
+        ? { count: 0 }
+        : await tx.dispute.updateMany({
+        where: { id: dispute.id, status: locked.status, appealRound: dispute.appealRound, arbiterId: triggeredBy },
         data: {
           status: 'RESOLVED',
           ruling,
@@ -475,7 +485,7 @@ export class DisputeService {
       }
       const row = await tx.dispute.findUnique({ where: { id: dispute.id } })
       if (!row) throw new NotFoundError('Dispute', dispute.id)
-      return row
+      return { updated: row, displacedStatus: locked!.status }
     })
 
     try {
@@ -575,7 +585,7 @@ export class DisputeService {
             ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
           },
           data: {
-            status: dispute.status as DisputeStatus,
+            status: displacedStatus, // what the claim above actually displaced, read under its row lock
             ruling: null,
             resolvedAt: null,
             // Missão 13 Fase 2 — a reverted ruling never leaves a verified
@@ -712,6 +722,15 @@ export class DisputeService {
       // and the newer generation's state stands untouched.
       // revertDisputeRulingRecord() below is already appealRound-scoped
       // by its own unique key and needs no such guard.
+      //
+      // The revert target is the status the commit actually displaced
+      // (read under its row lock), never this call's earlier read: a
+      // contest, sweep, proposal or evidence submission may have moved the
+      // dispute between that read and the commit. Restoring the stale
+      // value could resurrect AUTO_PROPOSED with its deadline already
+      // cleared, or drop a proposal that really was displaced. The
+      // proposal fields themselves need no restoring: the ruling claim
+      // never touches them, and nothing can change them while RESOLVED.
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
 
@@ -724,7 +743,7 @@ export class DisputeService {
             appealRound: dispute.appealRound,
             authoritySignature,
           },
-          data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+          data: { status: commitResult.displacedStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
       })
       await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)

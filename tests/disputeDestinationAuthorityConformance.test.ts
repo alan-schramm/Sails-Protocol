@@ -132,6 +132,15 @@ const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindUnique = jest.fn()
+
+// The ruling path now reads the dispute it is about to displace with SELECT ... FOR UPDATE inside its
+// transaction (tx.$queryRaw). Against this file's stub database that read returns the dispute the test seeded:
+// the last row mockDisputeFindUnique returned (peeked from its results, so no queued value is consumed).
+async function lockedDisputeRead(): Promise<unknown[]> {
+  const results = mockDisputeFindUnique.mock.results
+  const last: any = results.length ? await results[results.length - 1].value : null
+  return last ? [{ status: last.status, appealRound: last.appealRound, arbiterId: last.arbiterId ?? null }] : []
+}
 const mockDisputeUpdate = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null) // no committed arbiter — non-MULTISIG
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
@@ -218,6 +227,7 @@ jest.mock('../src/common/database', () => ({
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        $queryRaw: () => lockedDisputeRead(),
         // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
         escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         dispute: {
