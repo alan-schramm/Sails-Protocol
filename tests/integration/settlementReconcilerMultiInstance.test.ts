@@ -161,8 +161,10 @@ describe('Final closure - reconcilePendingSettlements() is convergent under mult
     expect((await prisma.escrowEvent.findMany({ where: { escrowId: unpublished.escrowId } })).map((e) => e.id)).toEqual([tUnpub.id])
     expect((await prisma.escrowEvent.findMany({ where: { escrowId: published.escrowId } })).map((e) => e.id)).toEqual([tPub.id])
 
-    // PASS 1 / WDK: fail-closed, visible to BOTH instances, no guessed result, no transfer ever started
-    for (const r of [ra, rb]) expect(r.requiresManualReview.some((m) => m.escrowId === wdk.escrowId)).toBe(true)
+    // PASS 1 / WDK: fail-closed and reported, no guessed result, no transfer ever started. Each run
+    // claims its escrows from a durable queue (SKIP LOCKED), so concurrent instances need not both
+    // look at the same escrow in the same round; at least one does, and neither may converge it.
+    expect([ra, rb].some((r) => r.requiresManualReview.some((m) => m.escrowId === wdk.escrowId))).toBe(true)
     const wdkAfter = (await escrowOf(wdk.escrowId))!
     expect(wdkAfter.txReleaseId).toBeNull()
     expect(wdkAfter.status).toBe('COMPLETED')

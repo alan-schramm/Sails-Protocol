@@ -26,6 +26,7 @@
  * round-robin stamp. Several instances may run this tick concurrently.
  */
 import type { FastifyBaseLogger } from 'fastify'
+import { startGuardedInterval } from '../../common/guarded-interval'
 import { reconcilePendingSettlements } from './escrow-settlement-reconciliation.service'
 import { reconcileMissingDispatch } from './dispute-dispatch-recovery'
 
@@ -42,8 +43,8 @@ export async function runSettlementRecoveryTick(log: FastifyBaseLogger): Promise
   try {
     const report = await reconcilePendingSettlements()
     // Moved verbatim from app.ts. (projectionsRecovered is an array, so this condition is always true today.)
-    if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered) {
-      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
+    if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered.length) {
+      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered.length })
     }
   } catch (err) {
     log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err })
@@ -64,17 +65,7 @@ export async function runSettlementRecoveryTick(log: FastifyBaseLogger): Promise
 }
 
 export function startSettlementRecoverySchedule(log: FastifyBaseLogger, intervalMs: number): SettlementRecoverySchedule {
-  let inFlight: Promise<void> | null = null
-  const interval = setInterval(() => {
-    if (inFlight) return
-    inFlight = runSettlementRecoveryTick(log).finally(() => { inFlight = null })
-  }, intervalMs)
-  // Never keeps the process alive on its own (same convention as every sweeper in app.ts).
-  interval.unref()
-  return {
-    stop: async () => {
-      clearInterval(interval)
-      await inFlight
-    },
-  }
+  // The canonical guarded lifecycle every background sweeper uses: no overlapping tick, unref()'d,
+  // stop() drains a tick in flight.
+  return startGuardedInterval(() => runSettlementRecoveryTick(log), intervalMs)
 }

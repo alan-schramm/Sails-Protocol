@@ -506,6 +506,22 @@ model Escrow {
   // the order survives restarts and a row that keeps failing moves behind
   // the rest instead of holding its place; null = never attempted.
   releaseBaselineAttemptedAt            DateTime?
+  // Settlement reconciliation (escrow-settlement-reconciliation.service.ts)
+  // — when a PASS 1 or PASS 2 run last claimed this terminal escrow. Queue
+  // position only, never authority: every claimed escrow is still handled
+  // by the same write-once / idempotent per-escrow recovery. Durable so the
+  // round-robin order survives restarts and a row that keeps needing
+  // attention moves behind the rest; null = never attempted. Partial
+  // indexes on it (migration 20260929120000) keep each pass's claim
+  // proportional to its own queue, not to the settlement history.
+  settlementRecoveryAttemptedAt         DateTime?
+  // PASS 2 found this settlement fully converged: the completion
+  // EscrowEvent for its terminal status exists and no pending transaction
+  // row survives. Both facts are permanent for a terminal escrow (events
+  // are append-only; no pending row is ever created once the result is
+  // written), so PASS 2 never needs to look at it again. Null = not yet
+  // verified.
+  completionVerifiedAt                  DateTime?
 
   events             EscrowEvent[]
   disputes           Dispute[]

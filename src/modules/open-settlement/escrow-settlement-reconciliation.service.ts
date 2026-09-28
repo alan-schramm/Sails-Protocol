@@ -66,6 +66,15 @@ const log = childLogger('escrow-settlement-reconciliation')
  * transaction (verified against chain truth first); PASS 2 never
  * double-applies a downstream effect (gated by emitEscrowTransition()'s
  * own atomic per-transition claim) and safely catches up a missing one.
+ *
+ * BOUNDED PER RUN: PASS 1 and PASS 2 each claim at most
+ * SETTLEMENT_RECOVERY_BATCH escrows per run from their own durable,
+ * round-robin queue (escrowRepository.claimRecoveryQueue()), instead of
+ * loading every matching escrow — for PASS 2 that used to be every
+ * settlement ever made, on every tick. PASS 2 marks a settlement it finds
+ * fully converged (completionVerifiedAt), so it leaves the queue for good.
+ * The per-escrow recovery below is unchanged; what a claim adds is only
+ * which escrows a run looks at.
  */
 
 export interface ReconciliationReport {
@@ -87,6 +96,8 @@ export interface ReconciliationReport {
   alreadyClaimedConcurrently: string[]
   // Issue #298 - PASS 3: claimed-but-not-fully-projected transitions that were re-driven.
   projectionsRecovered: Array<{ escrowId: string; transitionId: string; action: 'REPUBLISHED' | 'REDELIVERED' }>
+  // PASS 2: settlements found fully converged this run and marked verified — PASS 2 never claims them again.
+  completionVerified: string[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -248,6 +259,17 @@ async function applyDownstreamCompletionEffects(
 }
 
 const NON_TERMINAL_QUERY_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
+
+/**
+ * Escrows each of PASS 1 and PASS 2 claims per run. A PASS 1 escrow can cost
+ * a few explorer/provider reads (and, for MULTISIG, one idempotent broadcast
+ * of an already fully signed transaction), each under its own request
+ * timeout; a PASS 2 escrow is usually two indexed reads. 50 keeps a run well
+ * inside the 60 s default tick while draining a backlog of 3,000 escrows per
+ * pass per hour, and matches the release-reorg sweep's first-observation
+ * batch.
+ */
+export const SETTLEMENT_RECOVERY_BATCH = 50
 
 // PASS 0 (Sails Core Implementation Program M9-R, Recovery Closure,
 // Part 3) — crash window C8, found during the M9 analytical gate: every
@@ -1054,20 +1076,23 @@ async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; 
  * sweepExpiredEscrows()/sweepMultisigFundingReorgs(): a plain async
  * function, not wired to an HTTP route, callable from a cron/ops
  * process). Idempotent by construction on both passes: PASS 1 only ever
- * returns an escrow whose txReleaseId is still null (an already-
- * converged escrow is structurally excluded from a later run); PASS 2's
- * actual double-fire protection is emitEscrowTransition()'s own atomic
- * per-transition claim, not this function's own peek.
+ * claims an escrow whose txReleaseId is still null (an already-
+ * converged escrow is structurally excluded from a later run), and its
+ * result write is write-once; PASS 2's actual double-fire protection is
+ * emitEscrowTransition()'s own atomic per-transition claim, not this
+ * function's own peek. Neither pass depends on the other having drained
+ * its queue: an escrow PASS 1 converges simply moves to PASS 2's queue,
+ * which finds its completion already done and marks it verified.
  */
 export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
 
-  const txReleaseIdCandidates = await escrowRepository.findTerminalWithoutTxReleaseId()
+  const txReleaseIdCandidates = await escrowRepository.claimSettlementResultRecoveryBatch(SETTLEMENT_RECOVERY_BATCH)
   for (const escrow of txReleaseIdCandidates) {
     try {
       await reconcileTxReleaseId(escrow, report)
@@ -1076,10 +1101,17 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
     }
   }
 
-  const completionEffectCandidates = await escrowRepository.findTerminalWithTxReleaseId()
+  const completionEffectCandidates = await escrowRepository.claimCompletionVerificationBatch(SETTLEMENT_RECOVERY_BATCH)
   for (const escrow of completionEffectCandidates) {
     try {
+      // Already converged (the common case for a settlement the live path completed): nothing
+      // to recover, and PASS 2 never needs to look at it again.
+      if (await escrowRepository.markCompletionVerifiedIfConverged(escrow.id)) {
+        report.completionVerified.push(escrow.id)
+        continue
+      }
       await reconcileMissingCompletionEffects(escrow, report)
+      if (await escrowRepository.markCompletionVerifiedIfConverged(escrow.id)) report.completionVerified.push(escrow.id)
     } catch (err) {
       report.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
     }

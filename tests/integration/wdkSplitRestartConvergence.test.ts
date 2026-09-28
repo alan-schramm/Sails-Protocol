@@ -53,6 +53,7 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
   let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
+  let SETTLEMENT_RECOVERY_BATCH: number
   let instanceB: { reconcile: typeof reconcilePendingSettlements; prisma: PrismaClient; redis: { quit(): Promise<unknown> } } | undefined
 
   beforeAll(async () => {
@@ -63,7 +64,7 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
     ;({ prisma } = require('../../src/common/database'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
-    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+    ;({ reconcilePendingSettlements, SETTLEMENT_RECOVERY_BATCH } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -176,6 +177,23 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
 
   // ── neither leg submitted / not started ────────────────────────────────────────────────────────
 
+
+  // PASS 1 claims a bounded batch per run from a durable round-robin queue, so a later run reaches a
+  // given escrow again only after the escrows ahead of it (the shared database keeps other suites'
+  // rows). Runs reconciliation until this escrow has been claimed again, within the queue's own
+  // bound, so "a later tick" really looked at it.
+  async function reconcileUntilClaimedAgain(escrowId: string): Promise<void> {
+    const stampOf = async () => (await prisma.$queryRaw<Array<{ at: Date | null }>>`SELECT "settlementRecoveryAttemptedAt" AS at FROM escrows WHERE id = ${escrowId}`)[0].at?.getTime() ?? null
+    const before = await stampOf()
+    const [{ queued }] = await prisma.$queryRaw<Array<{ queued: number }>>`
+      SELECT count(*)::int AS queued FROM escrows WHERE status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND "txReleaseId" IS NULL`
+    for (let run = 0; run <= Math.ceil(queued / SETTLEMENT_RECOVERY_BATCH); run++) {
+      await reconcilePendingSettlements({ projectionGraceMs: 0 })
+      if ((await stampOf()) !== before) return
+    }
+    throw new Error(`escrow ${escrowId} was not claimed again within ceil(${queued} / ${SETTLEMENT_RECOVERY_BATCH}) + 1 runs`)
+  }
+
   it('neither leg submitted (no attempts at all): fails closed, zero transfer() calls', async () => {
     pg.requirePostgres('neither leg submitted')
     const c = await makeSplitEscrow()
@@ -223,7 +241,7 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
     expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
 
     // repeated ticks: still no resubmission, still unresolved
-    await reconcilePendingSettlements({ projectionGraceMs: 0 })
+    await reconcileUntilClaimedAgain(c.escrowId)
     expect(mockTransfer).not.toHaveBeenCalled()
     expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
   })
