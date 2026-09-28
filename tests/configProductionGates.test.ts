@@ -490,6 +490,8 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'multisigFeeConfirmationSweepIntervalMs', 300000],
       ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'multisigFundingReorgSweepIntervalMs', 300000],
       ['DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 'disputeAutoResolutionSweepIntervalMs', 300000],
+      ['MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 'multisigFeeReorgSweepIntervalMs', 300000],
+      ['MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 'multisigReleaseReorgSweepIntervalMs', 300000],
     ]
 
     it.each(HARDENED_INTERVALS)('%s keeps its existing default when unset', (envName, key, expected) => {

@@ -554,18 +554,22 @@ export async function startServer() {
 
   // Missão 11 Fase 8.1 LB-08 — off by default, same reasoning as the
   // sweepers above. Structurally inert until a real COLLECTED/DISTRIBUTED
-  // MULTISIG obligation exists — safe to enable ahead of that.
+  // MULTISIG obligation exists — safe to enable ahead of that. Each pass
+  // only re-checks obligations inside the reorg window, and every reorg
+  // decision is taken under the obligation's row lock per confirmation
+  // generation, so a concurrent node or a late pass never records or
+  // reverts twice (multisig-fee-reorg-sweep.ts); the guard only keeps this
+  // process from overlapping its own passes.
   if (config.features.multisigFeeReorgSweeper) {
-    const feeReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFeeReorgs()
-        .then(({ reverted, flaggedDistributed, failed }) => {
-          if (reverted.length || flaggedDistributed.length || failed.length) {
-            app.log.info({ msg: 'MULTISIG fee reorg sweep completed', module: 'multisig-fee-reorg-sweeper', reverted: reverted.length, flaggedDistributed: flaggedDistributed.length, failed: failed.length })
+        .then(({ reverted, flaggedDistributed, superseded, failed }) => {
+          if (reverted.length || flaggedDistributed.length || superseded.length || failed.length) {
+            app.log.info({ msg: 'MULTISIG fee reorg sweep completed', module: 'multisig-fee-reorg-sweeper', reverted: reverted.length, flaggedDistributed: flaggedDistributed.length, superseded: superseded.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG fee reorg sweep failed', module: 'multisig-fee-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFeeReorgSweepIntervalMs)
-    feeReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee reorg sweep failed', module: 'multisig-fee-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFeeReorgSweepIntervalMs))
   }
 
   // Missão 11 Fase 8.1 LB-08(A) — off by default, same reasoning. Detects
@@ -591,21 +595,25 @@ export async function startServer() {
   // MAIN MULTISIG release/refund/split payout (never previously
   // monitored at all — only the fee sub-output was). Detection +
   // durable evidence recording only; see that sweep's own header
-  // comment for why it never attempts an automatic rebroadcast.
+  // comment for why it never attempts an automatic rebroadcast. Bounded
+  // per pass (in-window escrows plus a durable, round-robin batch of
+  // first observations), and every write is checked against the escrow's
+  // latest evidence under the escrow lock, so concurrent nodes never
+  // record the same fact twice; the guard only keeps this process from
+  // overlapping its own passes.
   if (config.features.multisigReleaseReorgSweeper) {
-    const releaseReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigReleaseReorgs()
-        .then(({ reconfirmed, requiresManualReview, failed }) => {
-          if (reconfirmed.length || requiresManualReview.length || failed.length) {
+        .then(({ reconfirmed, requiresManualReview, superseded, failed }) => {
+          if (reconfirmed.length || requiresManualReview.length || superseded.length || failed.length) {
             app.log.info({
               msg: 'MULTISIG release-leg reorg sweep completed', module: 'multisig-release-reorg-sweeper',
-              reconfirmed: reconfirmed.length, requiresManualReview: requiresManualReview.length, failed: failed.length,
+              reconfirmed: reconfirmed.length, requiresManualReview: requiresManualReview.length, superseded: superseded.length, failed: failed.length,
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG release-leg reorg sweep failed', module: 'multisig-release-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigReleaseReorgSweepIntervalMs)
-    releaseReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG release-leg reorg sweep failed', module: 'multisig-release-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigReleaseReorgSweepIntervalMs))
   }
 
   return app

@@ -276,32 +276,90 @@ export class FeeCollectionRecognitionService {
    * reversal unless the architecture already supports it... detect and
    * surface as an exceptional reconciliation condition." A logged error
    * (not a throw — the reorg is a real chain event that already
-   * happened; refusing to even record it would be worse) is that surface
-   * today; a real remediation workflow for this specific case is
-   * explicitly out of this phase's scope.
+   * happened; refusing to even record it would be worse) plus the durable
+   * REORGED_OUT row (fee-obligation-reconciliation.ts's
+   * findUnresolvedChainEvents() reports it) is that surface today; a real
+   * remediation workflow for this specific case is explicitly out of this
+   * phase's scope.
+   *
+   * One reorg decision per confirmation generation (the CONFIRMED row the
+   * observation was made against, `observedConfirmationId`; when omitted,
+   * the latest CONFIRMED row whose txid is `txid`). Everything happens in
+   * ONE transaction holding the obligation's row lock, which every
+   * collectionStatus writer (recognizeConfirmation(), distribution, this
+   * method) also needs for its own conditional update:
+   * - the observation is refused as `superseded` if that generation is no
+   *   longer the latest CONFIRMED one (the obligation was reverted and
+   *   reconfirmed after the caller looked — a stale observation must
+   *   never revert the newer generation);
+   * - REORGED_OUT is recorded at most once per generation, so concurrent
+   *   or repeated sweeps (every tick while a DISTRIBUTED obligation is
+   *   still inside the reorg window) neither duplicate evidence nor
+   *   re-raise the alarm (`alreadyRecorded`);
+   * - COLLECTED -> IN_PROGRESS commits with its evidence or not at all.
    */
-  async recordReorgAndRevert(feeObligationId: string, txid: string): Promise<{ reverted: boolean }> {
-    const obligation = await this.obligationRepo.findById(feeObligationId)
-    if (!obligation) {
-      throw new EscrowError(`recordReorgAndRevert: FeeObligation ${feeObligationId} not found`)
-    }
-    await this.evidenceRepo.record({ feeObligationId, kind: 'REORGED_OUT', txid })
+  async recordReorgAndRevert(
+    feeObligationId: string,
+    txid: string,
+    observedConfirmationId?: string
+  ): Promise<{ reverted: boolean; outcome: ReorgOutcome }> {
+    return this.runInTransaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ collectionStatus: string | null }>>`
+        SELECT "collectionStatus"::text AS "collectionStatus" FROM fee_obligations WHERE id = ${feeObligationId} FOR UPDATE`
+      if (locked.length === 0) {
+        throw new EscrowError(`recordReorgAndRevert: FeeObligation ${feeObligationId} not found`)
+      }
+      const collectionStatus = locked[0].collectionStatus
 
-    if (obligation.collectionStatus === 'DISTRIBUTED') {
-      log.error({
-        msg: 'Reorg detected on an ALREADY-DISTRIBUTED FeeObligation — NOT auto-reverting (would require improvising a financial reversal this architecture does not support). Flagging as an exceptional reconciliation condition requiring manual review.',
-        feeObligationId, txid,
-      })
-      return { reverted: false }
-    }
-    if (obligation.collectionStatus === 'COLLECTED') {
-      await this.obligationService.transitionCollectionStatus(feeObligationId, 'COLLECTED', 'IN_PROGRESS')
-      return { reverted: true }
-    }
-    // Already IN_PROGRESS (or earlier) — evidence recorded for the
-    // forensic trail, nothing to revert since it was never COLLECTED.
-    return { reverted: false }
+      const evidence = await this.evidenceRepo.listForObligation(feeObligationId, tx)
+      // Latest by (recordedAt, id) — the same order the reorg sweep's candidate query uses.
+      const generation = evidence
+        .filter((e) => e.kind === 'CONFIRMED')
+        .reduce<(typeof evidence)[number] | undefined>((latest, e) => {
+          if (!latest) return e
+          const byTime = e.recordedAt.getTime() - latest.recordedAt.getTime()
+          return byTime > 0 || (byTime === 0 && e.id > latest.id) ? e : latest
+        }, undefined)
+      if (!generation || generation.txid !== txid || (observedConfirmationId !== undefined && generation.id !== observedConfirmationId)) {
+        return { reverted: false, outcome: 'SUPERSEDED' as const }
+      }
+
+      const generationTag = reorgGenerationNote(generation.id)
+      const alreadyRecorded = evidence.some((e) =>
+        e.kind === 'REORGED_OUT' &&
+        (e.note === generationTag ||
+          // Rows written before the generation tag existed: same txid, recorded after this generation's confirmation.
+          (e.note === null && e.txid === txid && e.recordedAt.getTime() > generation.recordedAt.getTime())))
+      if (alreadyRecorded) {
+        return { reverted: false, outcome: 'ALREADY_RECORDED' as const }
+      }
+
+      await this.evidenceRepo.record({ feeObligationId, kind: 'REORGED_OUT', txid, note: generationTag }, tx)
+
+      if (collectionStatus === 'DISTRIBUTED') {
+        log.error({
+          msg: 'Reorg detected on an ALREADY-DISTRIBUTED FeeObligation — NOT auto-reverting (would require improvising a financial reversal this architecture does not support). Flagging as an exceptional reconciliation condition requiring manual review.',
+          feeObligationId, txid, confirmationEvidenceId: generation.id,
+        })
+        return { reverted: false, outcome: 'FLAGGED_DISTRIBUTED' as const }
+      }
+      if (collectionStatus === 'COLLECTED') {
+        await this.obligationService.transitionCollectionStatus(feeObligationId, 'COLLECTED', 'IN_PROGRESS', tx)
+        return { reverted: true, outcome: 'REVERTED' as const }
+      }
+      // Already IN_PROGRESS (or earlier) — evidence recorded for the
+      // forensic trail, nothing to revert since it was never COLLECTED.
+      return { reverted: false, outcome: 'NOT_COLLECTED' as const }
+    })
   }
+}
+
+/** What recordReorgAndRevert() did with one reorg observation. */
+export type ReorgOutcome = 'REVERTED' | 'FLAGGED_DISTRIBUTED' | 'NOT_COLLECTED' | 'ALREADY_RECORDED' | 'SUPERSEDED'
+
+/** The REORGED_OUT note naming the confirmation generation it invalidates — the per-generation dedupe key. */
+export function reorgGenerationNote(confirmationEvidenceId: string): string {
+  return `Reorg of confirmation generation ${confirmationEvidenceId}`
 }
 
 export const feeCollectionRecognitionService = new FeeCollectionRecognitionService()

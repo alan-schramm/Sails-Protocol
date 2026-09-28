@@ -505,7 +505,7 @@ export const config = {
     multisigFeeConfirmationSweepIntervalMs: requiredIntervalMs('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 8.1 reorg sweeper (when enabled) re-checks
     // recently-collected MULTISIG fee obligations. Same 5-minute default.
-    multisigFeeReorgSweepIntervalMs: requiredInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
     // Missão 11 Fase 8.1 LB-08 — once a COLLECTED/DISTRIBUTED obligation's
     // confirming block is this many blocks deep, the reorg sweeper stops
     // re-checking it — a reorg past this depth is not a real operational
@@ -521,7 +521,7 @@ export const config = {
     // reorg sweeper (when enabled) re-checks terminal MULTISIG escrows'
     // main payout. Same 5-minute default as every other sweeper here.
     // Reuses multisigReorgSafetyWindowBlocks above for its own depth cutoff.
-    multisigReleaseReorgSweepIntervalMs: requiredInt('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigReleaseReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
