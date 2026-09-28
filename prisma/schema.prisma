@@ -1481,6 +1481,15 @@ model Dispute {
   authorityIssuedAt  DateTime?
   authorityBuyerBps  Int?
 
+  // M9-R bounded recovery — when reconcileMissingDispatch()
+  // (dispute-dispatch-recovery.ts) last claimed this dispute for a
+  // resume-dispatch attempt. Queue position only, never authority or
+  // eligibility: every attempt still re-derives eligibility from durable
+  // facts, and duplicate dispatch is still prevented by
+  // EscrowPendingTransaction's own @@unique(escrowId). Durable so the
+  // round-robin order survives restarts; null = never attempted.
+  dispatchRecoveryAttemptedAt DateTime?
+
   moduleId        String   @default("opensettlement")
   protocolVersion String   @default("0.1")
   createdAt       DateTime @default(now())
