@@ -18,6 +18,8 @@
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
+// persistEvidence()'s write is one conditional UPDATE through $executeRaw (the new entry bound as a JSON array).
+const mockExecuteRaw = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
@@ -33,8 +35,15 @@ jest.mock('../src/common/database', () => ({
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
+    $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
   },
 }))
+
+// The entries persistEvidence() appended in its (single) write.
+function persistedEntries(): any[] {
+  const [, ...values] = mockExecuteRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+  return JSON.parse(values.find((v) => typeof v === 'string' && v.startsWith('[')) as string)
+}
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
@@ -67,6 +76,13 @@ function seedDispute(overrides: Partial<{ id: string; tradeId: string; status: s
   }
   mockDisputeFindUnique.mockResolvedValue(dispute)
   mockDisputeUpdate.mockImplementation(async ({ data }: any) => ({ ...dispute, ...data }))
+  // Same effect as persistEvidence()'s real conditional UPDATE on this seeded row: append, then EVIDENCE_SUBMITTED.
+  mockExecuteRaw.mockImplementation(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+    const entries = JSON.parse(values.find((v) => typeof v === 'string' && v.startsWith('[')) as string)
+    dispute.evidence = [...(dispute.evidence as unknown[]), ...entries]
+    dispute.status = 'EVIDENCE_SUBMITTED'
+    return 1
+  })
   return dispute
 }
 
@@ -107,7 +123,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
     })
 
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
-    const persistedEvidence = mockDisputeUpdate.mock.calls[0][0].data.evidence
+    const persistedEvidence = persistedEntries()
     expect(persistedEvidence[0]).toMatchObject({
       type: 'chat_log', uri: 'https://example.com/receipt.png', note: 'see attached',
       externalReference: true, submittedBy: 'buyer-1',
@@ -129,6 +145,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
       service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', uri: 'https://example.com/receipt.png' })
     ).rejects.toThrow(/must either reference OpenProof.*or be explicitly declared as an external/)
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
   })
 
@@ -139,6 +156,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
       service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', evidenceReferenceId: 'ref-1', externalReference: true })
     ).rejects.toThrow(/mutually exclusive/)
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
   })
 
@@ -153,6 +171,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
       service.submitEvidence('dispute-1', 'buyer-1', { type: 'verbal_confirmation', note: 'confirmed by phone', externalReference: true })
     ).rejects.toThrow(/externalReference: true requires a uri/)
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   // A pure text note (no uri, no evidenceReferenceId, no
@@ -165,7 +184,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
     const result = await service.submitEvidence('dispute-1', 'buyer-1', { type: 'verbal_confirmation', note: 'seller confirmed via phone call' })
 
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
-    const persistedEvidence = mockDisputeUpdate.mock.calls[0][0].data.evidence
+    const persistedEvidence = persistedEntries()
     expect(persistedEvidence[0]).toMatchObject({ type: 'verbal_confirmation', note: 'seller confirmed via phone call', submittedBy: 'buyer-1' })
     expect(persistedEvidence[0].uri).toBeUndefined()
     expect(persistedEvidence[0].evidenceReferenceId).toBeUndefined()
@@ -180,7 +199,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
     const result = await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', evidenceReferenceId: 'ref-1' })
 
     expect(mockAssertEvidenceReferenceBelongsToTrade).toHaveBeenCalledWith('ref-1', 'trade-1')
-    const persistedEvidence = mockDisputeUpdate.mock.calls[0][0].data.evidence
+    const persistedEvidence = persistedEntries()
     expect(persistedEvidence[0]).toMatchObject({ type: 'payment_receipt', evidenceReferenceId: 'ref-1', submittedBy: 'buyer-1' })
     // Never a second copy of OpenProof's own facts — provider/uri/sha256
     // are NOT duplicated into the descriptor.
@@ -199,6 +218,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
       service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', evidenceReferenceId: 'nope' })
     ).rejects.toThrow(NotFoundError)
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   // Property 6 — reference from another trade/economic scope is rejected.
@@ -212,6 +232,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
       service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', evidenceReferenceId: 'ref-foreign' })
     ).rejects.toThrow(ForbiddenError)
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   // Property 7 — unrelated authenticated participant is rejected.
@@ -223,6 +244,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
     ).rejects.toThrow(/is not a party to trade/)
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   // Property 8 — superseded arbiter cannot use stale authority.
@@ -252,6 +274,7 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
     ).rejects.toThrow(/cannot include both uri and evidenceReferenceId/)
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   // Property 12 — #265 provider/error semantics remain intact: this
