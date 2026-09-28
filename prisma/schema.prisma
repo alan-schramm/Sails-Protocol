@@ -498,6 +498,14 @@ model Escrow {
   releasedAt                            DateTime?
   createdAt                             DateTime          @default(now())
   updatedAt                             DateTime          @updatedAt
+  // Release-reorg sweep (multisig-release-reorg-sweep.ts) — when a pass
+  // last claimed this terminal escrow for its FIRST release-leg
+  // observation (no EscrowReleaseEvidence yet). Queue position only,
+  // never evidence or authority: the observation is still written under
+  // the escrow lock and only if no evidence appeared meanwhile. Durable so
+  // the order survives restarts and a row that keeps failing moves behind
+  // the rest instead of holding its place; null = never attempted.
+  releaseBaselineAttemptedAt            DateTime?
 
   events             EscrowEvent[]
   disputes           Dispute[]
