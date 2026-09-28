@@ -88,9 +88,19 @@ const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 // eventProjectionClaim.createMany defaults to `{ count: 1 }` (a fresh, unclaimed claim) so the existing
 // recordRuling()/slash()/appeal-fee assertions below continue to observe those calls actually happening.
 const mockEventProjectionClaimCreateMany = jest.fn().mockResolvedValue({ count: 1 })
+
+// The ruling path now reads the dispute it is about to displace with SELECT ... FOR UPDATE inside its
+// transaction (tx.$queryRaw). Against this file's stub database that read returns the dispute the test seeded:
+// the last row mockDisputeFindUnique returned (peeked from its results, so no queued value is consumed).
+async function lockedDisputeRead(): Promise<unknown[]> {
+  const results = mockDisputeFindUnique.mock.results
+  const last: any = results.length ? await results[results.length - 1].value : null
+  return last ? [{ status: last.status, appealRound: last.appealRound, arbiterId: last.arbiterId ?? null }] : []
+}
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    $queryRaw: () => lockedDisputeRead(),
     disputeAppealFee: {
       create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
       updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
