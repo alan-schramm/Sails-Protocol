@@ -2612,6 +2612,19 @@ model EventProjectionClaim {
   projectionKey String
   subjectId     String
   appliedAt     DateTime @default(now())
+  // Used only on 'transition.claimed' rows (the settlement reconciler's PASS 3
+  // queue, migration 20260930120000); null on every other projection key.
+  // Set in the same transaction that writes the transition's
+  // 'transition.projected' marker: all of the transition's projections
+  // completed, so it leaves the PASS 3 queue for good. The marker stays the
+  // authority for "projected"; this column only keeps completed transitions
+  // out of the queue's partial index.
+  transitionProjectedAt         DateTime?
+  // When a PASS 3 run last claimed this transition. Queue position only,
+  // never authority: re-driving it is still serialized by the per-transition
+  // publish lock and made idempotent by the projection claims. Durable, so
+  // the round-robin order survives restarts and is shared by every node.
+  projectionRecoveryAttemptedAt DateTime?
 
   @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
   @@index([projectionKey, subjectId])

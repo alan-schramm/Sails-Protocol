@@ -1,5 +1,5 @@
 import { prisma } from '../database'
-import { applyEventProjectionOnce, TRANSITION_PROJECTED_KEY, type ProjectionTx } from './event-projection'
+import { applyEventProjectionOnce, recordTransitionProjected, TRANSITION_PROJECTED_KEY, type ProjectionTx } from './event-projection'
 import { tradeRepository } from '../../modules/open-p2p/trade-repository'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
@@ -306,11 +306,11 @@ async function projectTrade(event: { eventId: string }, tradeId: string, escrowI
   })
 }
 
-/** Records that ALL projections of this escrow transition completed (recovery reads this). */
+/** Records that ALL projections of this escrow transition completed, and takes it out of the reconciler's PASS 3 queue in the same transaction. */
 async function markTransitionProjected(event: { eventId: string; payload: { transitionId?: string } }): Promise<void> {
   const transitionId = event.payload.transitionId
   if (!transitionId) return
-  await applyEventProjectionOnce(event.eventId, TRANSITION_PROJECTED_KEY, transitionId, async () => {})
+  await applyEventProjectionOnce(event.eventId, TRANSITION_PROJECTED_KEY, transitionId, (tx) => recordTransitionProjected(tx, transitionId))
 }
 
 // States at which an Intent transition to the key is already applied / superseded (nothing left to do).

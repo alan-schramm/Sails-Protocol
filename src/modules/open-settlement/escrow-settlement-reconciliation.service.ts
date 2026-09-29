@@ -4,7 +4,7 @@ import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
 import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
 import { eventBus } from '../../common/events/event-bus'
-import { TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
+import { claimTransitionRecoveryBatch, markProjectedTransitions, type ClaimedTransition } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -986,60 +986,43 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
 // is idempotent per (eventId, projectionKey, subject), so redelivery completes what is missing and
 // never repeats what already committed. Publish is serialized per transition so two workers cannot
 // mint two durable events (two delivery identities) for one transition.
+//
+// Queue (claimTransitionRecoveryBatch(), event-projection.ts): claimed transitions whose
+// 'transition.projected' marker is not written yet. The handlers take a transition out of it in the
+// marker's own transaction, so the queue holds only transitions still owed work and never the projected
+// history. Its round-robin position is durable and shared by every node; it decides only WHICH
+// transitions a run looks at, never whether re-driving one is safe (the publish lock and the projection
+// claims do that).
 const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
-const PROJECTION_RECOVERY_BATCH = 200
-const PROJECTION_RECOVERY_MAX_PAGES = 50
 
-// Bound per invocation: BATCH x MAX_PAGES = 10,000 INCOMPLETE transitions. Only incomplete ones (claimed and NOT yet
-// projected) are paged - completed history never consumes the budget. Because a permanently stuck transition stays
-// incomplete forever, every invocation resumes AFTER where the previous one stopped (a per-process rotating cursor)
-// and wraps to the oldest only after a short page, so a backlog larger than the bound is worked through across ticks
-// instead of the same first 10,000 stuck rows being revisited forever. The cursor is a pure optimization: correctness
-// of each re-drive comes from the per-transition advisory lock and the projection-claim identity, not from it.
-let projectionRecoveryCursor: { appliedAt: Date; id: string } | null = null
+/**
+ * Transitions PASS 3 claims per run: at most this many re-drives, each one short transaction plus one
+ * publish or redelivery (the handlers then run asynchronously, on the event bus). No external calls.
+ */
+export const PROJECTION_RECOVERY_BATCH = 200
 
-export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number, opts: { maxPages?: number } = {}): Promise<void> {
-  const cutoff = new Date(Date.now() - graceMs)
-  const maxPages = opts.maxPages ?? PROJECTION_RECOVERY_MAX_PAGES
-  for (let page = 0; page < maxPages; page++) {
-    const after = projectionRecoveryCursor
-    const claimed = await prisma.$queryRaw<Array<{ id: string; eventId: string; subjectId: string; appliedAt: Date }>>`
-      SELECT c.id, c."eventId", c."subjectId", c."appliedAt"
-      FROM event_projection_claims c
-      WHERE c."projectionKey" = ${TRANSITION_CLAIMED_KEY}
-        AND c."appliedAt" < ${cutoff}
-        AND (${after === null} OR (c."appliedAt", c.id) > (${after?.appliedAt ?? new Date(0)}, ${after?.id ?? ''}))
-        AND NOT EXISTS (
-          SELECT 1 FROM event_projection_claims p
-          WHERE p."projectionKey" = ${TRANSITION_PROJECTED_KEY} AND p."subjectId" = c."eventId")
-      ORDER BY c."appliedAt" ASC, c.id ASC
-      LIMIT ${PROJECTION_RECOVERY_BATCH}`
-    if (claimed.length === 0) { projectionRecoveryCursor = null; return }
-    const last = claimed[claimed.length - 1]
-    projectionRecoveryCursor = { appliedAt: last.appliedAt, id: last.id }
-    await redriveClaimedPage(claimed, report)
-    if (claimed.length < PROJECTION_RECOVERY_BATCH) { projectionRecoveryCursor = null; return }
-  }
-  // Bound reached: keep the cursor so the next invocation continues from here.
+export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number, opts: { limit?: number } = {}): Promise<void> {
+  const claimed = await claimTransitionRecoveryBatch(opts.limit ?? PROJECTION_RECOVERY_BATCH, new Date(Date.now() - graceMs))
+  const alreadyProjected = await markProjectedTransitions(claimed.map((c) => c.id))
+  await redriveClaimedTransitions(claimed.filter((c) => !alreadyProjected.has(c.eventId)), report)
 }
 
-async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; subjectId: string }>, report: ReconciliationReport): Promise<void> {
-
-  const projected = await prisma.eventProjectionClaim.findMany({
-    where: { projectionKey: TRANSITION_PROJECTED_KEY, subjectId: { in: claimed.map((c) => c.eventId) } },
-    select: { subjectId: true },
-  })
-  const done = new Set(projected.map((p) => p.subjectId))
-
+async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: ReconciliationReport): Promise<void> {
   for (const claim of claimed) {
     const transitionId = claim.eventId // for transition markers eventId holds the EscrowEvent (transition) id
-    if (done.has(transitionId)) continue
     try {
       const transition = await prisma.escrowEvent.findUnique({ where: { id: transitionId } })
-      if (!transition) continue
-      const eventName = EVENT_NAME_BY_TARGET_STATUS[transition.toStatus as string]
-      const escrow = await prisma.escrow.findUnique({ where: { id: transition.escrowId } })
-      if (!eventName || !escrow) continue
+      const eventName = transition ? EVENT_NAME_BY_TARGET_STATUS[transition.toStatus as string] : undefined
+      const escrow = transition ? await prisma.escrow.findUnique({ where: { id: transition.escrowId } }) : null
+      if (!transition || !eventName || !escrow) {
+        // The marker is written in the same transaction as its EscrowEvent and nothing deletes escrow
+        // events, so this means rows were removed by hand. Nothing can be re-driven; the row keeps its
+        // turn in the queue (it cannot starve anything) and stays visible here.
+        const reason = `PASS 3: transition ${transitionId} is claimed but ${!transition ? 'its EscrowEvent' : !escrow ? 'its escrow' : 'an event for its target status'} does not exist; nothing to re-drive`
+        log.warn({ msg: reason, escrowId: claim.subjectId, transitionId })
+        report.requiresManualReview.push({ escrowId: claim.subjectId, reason })
+        continue
+      }
 
       const action = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'transition-publish:' + transitionId})::bigint)`

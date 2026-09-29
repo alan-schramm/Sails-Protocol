@@ -20,6 +20,12 @@ import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// PASS 3 claims a bounded batch per run from a durable round-robin queue ordered by a transition's last
+// visit, or its claim time if never visited. The shared database holds other suites' queued transitions;
+// a fixture claimed at QUEUE_HEAD is ahead of all of them, so the run under test is the one that claims it.
+// Queue order, restarts and convergence under load are proven in projectionRecoveryQueue.test.ts.
+const QUEUE_HEAD = new Date('2000-01-01T00:00:00.000Z')
+
 describe('Issue #298 - durable event projections are replay-safe (real PostgreSQL)', () => {
   jest.setTimeout(90_000)
 
@@ -30,6 +36,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
   let emitEscrowTransition: typeof import('../../src/modules/open-settlement/escrow-lifecycle').emitEscrowTransition
   let reconcileIncompleteProjections: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcileIncompleteProjections
   let applyEventProjectionOnce: typeof import('../../src/common/events/event-projection').applyEventProjectionOnce
+  let PROJECTION_RECOVERY_BATCH: number
   let tradeRepository: typeof import('../../src/modules/open-p2p/trade-repository').tradeRepository
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
@@ -44,7 +51,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     ;({ prisma } = require('../../src/common/database'))
     ;({ eventBus } = require('../../src/common/events/event-bus'))
     ;({ emitEscrowTransition } = require('../../src/modules/open-settlement/escrow-lifecycle'))
-    ;({ reconcileIncompleteProjections } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+    ;({ reconcileIncompleteProjections, PROJECTION_RECOVERY_BATCH } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     ;({ applyEventProjectionOnce } = require('../../src/common/events/event-projection'))
     ;({ tradeRepository } = require('../../src/modules/open-p2p/trade-repository'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
@@ -98,6 +105,8 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     }
     throw new Error('timed out waiting for condition')
   }
+  const queueRow = async (transitionId: string) =>
+    (await prisma.eventProjectionClaim.findFirst({ where: { eventId: transitionId, projectionKey: 'transition.claimed' } }))!
   const projectedCount = (transitionId: string) => prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })
   const projected = (transitionId: string) => async () =>
     (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })) > 0
@@ -214,7 +223,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: QUEUE_HEAD } })
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(0)
 
     const report = { requiresManualReview: [], failed: [], projectionsRecovered: [] } as any
@@ -225,6 +234,9 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
 
     await expectEffectsAppliedOnce(ctx)
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
+
+    // projected: the handler took it out of the PASS 3 queue in the marker's own transaction
+    expect((await queueRow(transition.id)).transitionProjectedAt).not.toBeNull()
 
     const again = { requiresManualReview: [], failed: [], projectionsRecovered: [] } as any
     await reconcileIncompleteProjections(again, 0)
@@ -238,7 +250,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: QUEUE_HEAD } })
     const eventId = randomUUID()
     await prisma.durableEventRecord.create({
       data: {
@@ -256,13 +268,16 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1) // redelivered, NOT re-published
   })
 
+  // The queue gives the 5 workers disjoint batches, so exactly one of them re-drives the transition. The
+  // publish lock underneath (a stale worker re-driving the same transition concurrently) is proven with a
+  // deterministic barrier in projectionRecoveryQueue.test.ts.
   it('5 CONCURRENT recovery workers on a claimed-but-unpublished transition mint exactly ONE durable event (one delivery identity) and one effect', async () => {
     requirePostgres('concurrent recovery workers')
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: QUEUE_HEAD } })
 
     const reports = Array.from({ length: 5 }, () => ({ requiresManualReview: [], failed: [], projectionsRecovered: [] } as any))
     await Promise.all(reports.map((r) => reconcileIncompleteProjections(r, 0)))
@@ -270,6 +285,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     await sleep(500)
 
     expect(reports.flatMap((r) => r.failed)).toEqual([])
+    expect(reports.flatMap((r) => r.projectionsRecovered).filter((r: any) => r.transitionId === transition.id)).toHaveLength(1)
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
     await expectEffectsAppliedOnce(ctx)
   })
@@ -368,23 +384,22 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     await expectEffectsAppliedOnce(ctx)
   })
 
-  // ── Final closure: PASS 3 pagination across the REAL 200 boundary ───────────────────────────────
+  // ── PASS 3 queue across the REAL batch boundary ────────────────────────────────────────────────────
 
-  // 205 permanently-unresolvable claimed transitions (a 'transition.claimed' marker whose EscrowEvent does not
-  // exist: nothing to re-drive, so they stay incomplete forever) all OLDER than one genuinely recoverable
-  // transition (claimed, durable event published, projection never applied). The recoverable one is therefore
-  // strictly after row 200 of the oldest-first incomplete ordering.
+  // BATCH + 5 permanently-unresolvable claimed transitions (a 'transition.claimed' marker whose EscrowEvent does
+  // not exist: nothing to re-drive, so they stay queued forever) all queued AHEAD of one genuinely recoverable
+  // transition (claimed, durable event published, projection never applied), and every one of them ahead of the
+  // shared database's own queued rows. The recoverable one is therefore strictly beyond the first run's batch.
   async function stuckAheadOfRecoverable() {
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
     })
-    const now = Date.now()
-    const stuckIds = Array.from({ length: 205 }, () => randomUUID())
+    const stuckIds = Array.from({ length: PROJECTION_RECOVERY_BATCH + 5 }, () => randomUUID())
     await prisma.eventProjectionClaim.createMany({
-      data: stuckIds.map((id, i) => ({ eventId: id, projectionKey: 'transition.claimed', subjectId: 'orphan-' + id, appliedAt: new Date(now - 3_600_000 - (205 - i) * 1000) })),
+      data: stuckIds.map((id, i) => ({ eventId: id, projectionKey: 'transition.claimed', subjectId: 'orphan-' + id, appliedAt: new Date(QUEUE_HEAD.getTime() + i * 1000) })),
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(now - 1_800_000) } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(QUEUE_HEAD.getTime() + 3_600_000) } })
     const eventId = randomUUID()
     await prisma.durableEventRecord.create({
       data: {
@@ -397,27 +412,27 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     return { ctx, transition, eventId, stuckIds, cleanup }
   }
   const newReport = () => ({ requiresManualReview: [], failed: [], projectionsRecovered: [] }) as any
+  const recoveredIn = (r: any, transitionId: string) => r.projectionsRecovered.filter((x: any) => x.transitionId === transitionId)
 
-  it('PASS 3 PAGINATION (real 200 boundary): 205 stuck transitions ahead of a recoverable one do not hide it; it is reached, projected once, and a second run is idempotent', async () => {
-    requirePostgres('pass 3 pagination across 200')
+  it('PASS 3 BATCH BOUNDARY: stuck transitions ahead of a recoverable one do not hide it - run 1 claims one batch of them, run 2 reaches it; projected once, it leaves the queue, a third run is a no-op', async () => {
+    requirePostgres('pass 3 across the batch boundary')
     const f = await stuckAheadOfRecoverable()
     try {
-      // the recoverable transition really is beyond the first 200-row batch of the incomplete ordering
-      const olderIncomplete = await prisma.$queryRaw<Array<{ n: bigint }>>`
-        SELECT COUNT(*)::bigint AS n FROM event_projection_claims c
-        WHERE c."projectionKey" = 'transition.claimed' AND c."appliedAt" < (SELECT "appliedAt" FROM event_projection_claims WHERE "eventId" = ${f.transition.id} AND "projectionKey" = 'transition.claimed')
-          AND NOT EXISTS (SELECT 1 FROM event_projection_claims p WHERE p."projectionKey" = 'transition.projected' AND p."subjectId" = c."eventId")`
-      expect(Number(olderIncomplete[0].n)).toBeGreaterThan(200)
-
       const first = newReport()
       await reconcileIncompleteProjections(first, 0)
-      expect(first.projectionsRecovered.filter((r: any) => r.transitionId === f.transition.id)).toEqual([{ escrowId: f.ctx.escrowId, transitionId: f.transition.id, action: 'REDELIVERED' }])
-      await waitFor(projected(f.transition.id))
-      await expectEffectsAppliedOnce(f.ctx)
+      expect(recoveredIn(first, f.transition.id)).toEqual([]) // one batch: the oldest BATCH stuck rows only
+      expect(first.requiresManualReview.filter((m: any) => m.escrowId.startsWith('orphan-'))).toHaveLength(PROJECTION_RECOVERY_BATCH) // reported, not skipped silently
 
       const second = newReport()
       await reconcileIncompleteProjections(second, 0)
-      expect(second.projectionsRecovered.filter((r: any) => r.transitionId === f.transition.id)).toEqual([])
+      expect(recoveredIn(second, f.transition.id)).toEqual([{ escrowId: f.ctx.escrowId, transitionId: f.transition.id, action: 'REDELIVERED' }])
+      await waitFor(projected(f.transition.id))
+      await expectEffectsAppliedOnce(f.ctx)
+      expect((await queueRow(f.transition.id)).transitionProjectedAt).not.toBeNull()
+
+      const third = newReport()
+      await reconcileIncompleteProjections(third, 0)
+      expect(recoveredIn(third, f.transition.id)).toEqual([])
       await sleep(300)
       await expectEffectsAppliedOnce(f.ctx)
       expect(await prisma.durableEventRecord.count({ where: { correlationId: f.ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
@@ -427,22 +442,18 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     }
   })
 
-  it('PASS 3 BOUND (max-pages): when the per-invocation page budget is exhausted the NEXT invocation resumes after it - a backlog beyond the bound is worked through across ticks, never starved', async () => {
-    requirePostgres('pass 3 max pages resume')
+  it('PASS 3 RESTART: the queue position is durable - after one run on this node, an independent module graph (a restarted process) continues where it stopped instead of starting over', async () => {
+    requirePostgres('pass 3 durable progress across restart')
     const f = await stuckAheadOfRecoverable()
     try {
-      // instanceB is an independent module graph = an independent process cursor. Budget: ONE page (200 rows).
-      const budget = { maxPages: 1 }
-      const r1 = newReport()
-      await instanceB!.reconcileIncompleteProjections(r1, 0, budget)
-      expect(r1.projectionsRecovered.filter((r: any) => r.transitionId === f.transition.id)).toEqual([]) // beyond the first page of this invocation
-      let recoveredAtTick = 0
-      for (let tick = 2; tick <= 12 && !recoveredAtTick; tick++) {
-        const r = newReport()
-        await instanceB!.reconcileIncompleteProjections(r, 0, budget)
-        if (r.projectionsRecovered.some((x: any) => x.transitionId === f.transition.id)) recoveredAtTick = tick
-      }
-      expect(recoveredAtTick).toBeGreaterThanOrEqual(2) // reached by a LATER tick although the stuck rows are never removed
+      const first = newReport()
+      await reconcileIncompleteProjections(first, 0)
+      expect(recoveredIn(first, f.transition.id)).toEqual([])
+
+      // instanceB never ran PASS 3 before: it has no memory of run 1, only the database does.
+      const second = newReport()
+      await instanceB!.reconcileIncompleteProjections(second, 0)
+      expect(recoveredIn(second, f.transition.id)).toEqual([{ escrowId: f.ctx.escrowId, transitionId: f.transition.id, action: 'REDELIVERED' }])
       await waitFor(projected(f.transition.id))
       await expectEffectsAppliedOnce(f.ctx)
       expect(await prisma.durableEventRecord.count({ where: { correlationId: f.ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
