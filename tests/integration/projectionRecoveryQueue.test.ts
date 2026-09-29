@@ -175,6 +175,15 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
   }
   const allLeftQueue = (transitionIds: string[]) => async () =>
     (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.claimed', eventId: { in: transitionIds }, transitionProjectedAt: null } })) === 0
+  /**
+   * Production runs are a tick apart (60 s), far longer than a re-drive's handlers take; runs here are
+   * milliseconds apart. Let the fixtures this run re-drove finish projecting (leave the queue) before the
+   * next run, as they would between ticks. Without it, a short queue hands the same still-in-flight rows to
+   * the next run again - correct (a redundant REDELIVER is a no-op) but not what these scenarios measure.
+   */
+  async function settle(r: Report, among: Fixture[]): Promise<void> {
+    await waitFor(allLeftQueue(redriven(r).filter((t) => ids(among).includes(t))))
+  }
 
   /** Every fixture converged exactly once: one durable event, one trade projection, one projected marker, out of the queue. */
   async function expectConvergedOnce(fs: Fixture[]): Promise<void> {
@@ -199,10 +208,13 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
     expect(index.indexdef).toMatch(/COALESCE\("projectionRecoveryAttemptedAt", "appliedAt"\)/)
     expect(index.indexdef).toMatch(/WHERE .*'transition\.claimed'.*"transitionProjectedAt" IS NULL/)
 
-    // With sequential scans priced out, a plan that still scans the table would mean the claim's
-    // predicate does not imply the index's, i.e. the index could never serve it at any size.
+    // With sequential and bitmap scans priced out, the only remaining path is an ordered index scan. A
+    // plan that still reads the table, or still sorts, would mean the claim's predicate does not imply
+    // the index's or the index cannot yield queue order, i.e. it could never serve the claim at any size.
+    // (On a small table the planner may legitimately prefer a bitmap scan plus a sort.)
     const plan = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off')
+      await tx.$executeRawUnsafe('SET LOCAL enable_bitmapscan = off')
       return tx.$queryRawUnsafe<unknown[]>(`EXPLAIN (FORMAT JSON)
         SELECT c.id FROM event_projection_claims c
         WHERE c."projectionKey" = 'transition.claimed' AND c."transitionProjectedAt" IS NULL AND c."appliedAt" < now()
@@ -242,6 +254,7 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
     const fs = await claimedLocks(13)
     const r1 = await node.run({ limit: 10 })
     expect(redriven(r1).sort()).toEqual(ids(fs.slice(0, 10)).sort())
+    await settle(r1, fs)
     const r2 = await node.run({ limit: 10 })
     expect(redriven(r2).filter((t) => ids(fs).includes(t)).sort()).toEqual(ids(fs.slice(10)).sort())
     await expectConvergedOnce(fs)
@@ -252,7 +265,11 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
     const node = startNode()
     const fs = await claimedLocks(35)
     const seen: string[][] = []
-    for (let i = 0; i < 4; i++) seen.push(redriven(await node.run({ limit: 10 })).filter((t) => ids(fs).includes(t)))
+    for (let i = 0; i < 4; i++) {
+      const r = await node.run({ limit: 10 })
+      seen.push(redriven(r).filter((t) => ids(fs).includes(t)))
+      await settle(r, fs)
+    }
     expect(seen.map((s) => s.length)).toEqual([10, 10, 10, 5])
     for (let i = 0; i < 4; i++) expect(seen[i].sort()).toEqual(ids(fs.slice(i * 10, i * 10 + 10)).sort())
     expect(new Set(seen.flat()).size).toBe(35)
@@ -267,7 +284,9 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
     const seen: string[] = []
     for (let i = 0; i < 4; i++) {
       const node = startNode() // a new process: no memory of any earlier run
-      seen.push(...redriven(await node.run({ limit: 10 })).filter((t) => ids(fs).includes(t)))
+      const r = await node.run({ limit: 10 })
+      seen.push(...redriven(r).filter((t) => ids(fs).includes(t)))
+      await settle(r, fs)
       await node.shutdown(); nodes.splice(nodes.indexOf(node), 1)
     }
     expect(seen.sort()).toEqual(ids(fs).sort()) // every one exactly once, in 4 restarts
@@ -388,13 +407,17 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
     const r1 = await node.run({ limit: 10 })
     expect(r1.projectionsRecovered.find((p) => p.transitionId === poison.transitionId)!.action).toBe('REPUBLISHED')
     expect(r1.requiresManualReview.find((m) => m.escrowId === 'p3q-orphan-' + orphan)!.reason).toMatch(/EscrowEvent does not exist/)
+    await settle(r1, fs)
     const r2 = await node.run({ limit: 10 })
+    await settle(r2, fs)
     const r3 = await node.run({ limit: 10 })
-    for (const r of [r2, r3]) {
-      expect(redriven(r)).not.toContain(poison.transitionId) // behind every older row now
-      expect(r.requiresManualReview.map((m) => m.escrowId)).not.toContain('p3q-orphan-' + orphan)
-    }
+    // r2 is filled by fixtures still queued ahead of the two poison rows (17 left, batch 10)
+    expect(redriven(r2)).not.toContain(poison.transitionId)
+    expect(r2.requiresManualReview.map((m) => m.escrowId)).not.toContain('p3q-orphan-' + orphan)
     expect([...redriven(r1), ...redriven(r2), ...redriven(r3)].filter((t) => ids(fs).includes(t)).sort()).toEqual(ids(fs).sort())
+    // a poison row comes back only once everything queued ahead of it has had its turn (in a short queue,
+    // that can already be r3)
+    if (redriven(r3).includes(poison.transitionId)) expect([...redriven(r2), ...redriven(r3)].filter((t) => ids(fs.slice(8)).includes(t)).sort()).toEqual(ids(fs.slice(8)).sort())
     await expectConvergedOnce(fs)
 
     // still queued, and retried within one lap of the whole queue

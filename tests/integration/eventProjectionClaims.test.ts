@@ -268,9 +268,10 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1) // redelivered, NOT re-published
   })
 
-  // The queue gives the 5 workers disjoint batches, so exactly one of them re-drives the transition. The
-  // publish lock underneath (a stale worker re-driving the same transition concurrently) is proven with a
-  // deterministic barrier in projectionRecoveryQueue.test.ts.
+  // Claims that overlap in time get disjoint batches (SKIP LOCKED), but a worker whose claim starts after
+  // another's committed can claim the same transition again when the queue is short. Either way exactly one
+  // worker publishes; every other re-drive finds that durable event and redelivers it. The publish lock
+  // itself is proven with a deterministic barrier in projectionRecoveryQueue.test.ts (H2).
   it('5 CONCURRENT recovery workers on a claimed-but-unpublished transition mint exactly ONE durable event (one delivery identity) and one effect', async () => {
     requirePostgres('concurrent recovery workers')
     const ctx = await makeCompletedEscrow()
@@ -285,7 +286,9 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     await sleep(500)
 
     expect(reports.flatMap((r) => r.failed)).toEqual([])
-    expect(reports.flatMap((r) => r.projectionsRecovered).filter((r: any) => r.transitionId === transition.id)).toHaveLength(1)
+    const actions = reports.flatMap((r) => r.projectionsRecovered).filter((r: any) => r.transitionId === transition.id).map((r: any) => r.action)
+    expect(actions.filter((a: string) => a === 'REPUBLISHED')).toHaveLength(1)
+    expect(actions.every((a: string) => a === 'REPUBLISHED' || a === 'REDELIVERED')).toBe(true)
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
     await expectEffectsAppliedOnce(ctx)
   })
