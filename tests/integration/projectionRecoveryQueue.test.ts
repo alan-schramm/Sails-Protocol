@@ -278,18 +278,22 @@ describe('Settlement reconciliation PASS 3 — durable, bounded, fair projection
 
   // ═══ F–H: restart, two nodes, stale worker ═══════════════════════════════════════════════════════════
 
-  it('F. restart every run: each fresh node continues from the durable queue position; the backlog drains as if nothing restarted', async () => {
+  it('F. restart every run, with transitions that never converge queued AHEAD of recoverable ones (the old cursor\'s failure): each fresh node continues from the durable queue position and every recoverable transition is reached within ceil(backlog / batch) restarts', async () => {
     requirePostgres('F')
-    const fs = await claimedLocks(35)
+    const stuck = await orphans(15) // never leave the queue: only a durable position gets a restarted node past them
+    const fs = await claimedLocks(20)
     const seen: string[] = []
+    const stuckSeen = new Set<string>()
     for (let i = 0; i < 4; i++) {
       const node = startNode() // a new process: no memory of any earlier run
       const r = await node.run({ limit: 10 })
       seen.push(...redriven(r).filter((t) => ids(fs).includes(t)))
+      for (const m of r.requiresManualReview) stuckSeen.add(m.escrowId)
       await settle(r, fs)
       await node.shutdown(); nodes.splice(nodes.indexOf(node), 1)
     }
-    expect(seen.sort()).toEqual(ids(fs).sort()) // every one exactly once, in 4 restarts
+    expect(stuck.every((id) => stuckSeen.has('p3q-orphan-' + id))).toBe(true)
+    expect(seen.sort()).toEqual(ids(fs).sort()) // every recoverable one exactly once, in 4 restarts
     await expectConvergedOnce(fs)
   })
 
