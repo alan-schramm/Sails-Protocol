@@ -7,9 +7,13 @@
 // PASS 1 queue: terminal escrows with no settlement result (txReleaseId null).
 // PASS 2 queue: terminal escrows with a result whose completion is not verified yet.
 //
-// Each "node" is an independent module graph (jest.isolateModules): its own Prisma pool and
-// singletons, i.e. another application instance, or this one after a restart. Barriers are placed on
-// a node's own repository/service objects, so interleavings are forced, not raced.
+// Each "node" is an independent module graph (jest.isolateModules): its own singletons and
+// module-level state, i.e. another application instance, or this one after a restart. Barriers are
+// placed on a node's own repository/service objects, so interleavings are forced, not raced.
+// (Corrected 2026-09-29: this said "its own Prisma pool". The PrismaClient is shared across module
+// graphs - src/common/database caches it on global.__prisma outside production, and Prisma 7 cannot
+// run two clients in one jest worker - so nodes share one pool, each query on its own pooled
+// connection. The claims under test are single SQL statements, so what they prove is unchanged.)
 //
 // The shared test database keeps other suites' rows. Each test first lets the queues observe every
 // leftover escrow once (observeLeftovers()), which puts them behind anything created afterwards, and

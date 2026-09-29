@@ -112,7 +112,9 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
       if (disputeIds.length) await prisma.disputeAppealFee.deleteMany({ where: { disputeId: { in: disputeIds } } })
       await prisma.dispute.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       const transitions = await prisma.escrowEvent.findMany({ where: { escrowId: { in: createdEscrowIds } }, select: { id: true } })
-      if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: transitions.map((t) => t.id) } } })
+      // 'transition.projected' is keyed subjectId = transition; 'transition.claimed' eventId = transition (subjectId = escrow)
+      const transitionIds = transitions.map((t) => t.id)
+      if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { OR: [{ subjectId: { in: transitionIds } }, { eventId: { in: transitionIds } }] } })
       await prisma.escrowEvent.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
     }
     if (createdTradeIds.length) {
