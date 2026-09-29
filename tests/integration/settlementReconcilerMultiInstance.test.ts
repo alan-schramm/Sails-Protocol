@@ -20,6 +20,12 @@ import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// PASS 3 claims a bounded batch per run from a durable round-robin queue ordered by a transition's last
+// visit, or its claim time if never visited. The shared database holds other suites' queued transitions;
+// a fixture claimed at QUEUE_HEAD is ahead of all of them, so the run under test is the one that claims it.
+// Queue order and convergence themselves are proven in projectionRecoveryQueue.test.ts.
+const QUEUE_HEAD = new Date('2000-01-01T00:00:00.000Z')
+
 describe('Final closure - reconcilePendingSettlements() is convergent under multi-instance concurrency (real PostgreSQL)', () => {
   jest.setTimeout(120_000)
 
@@ -119,12 +125,12 @@ describe('Final closure - reconcilePendingSettlements() is convergent under mult
     // PASS 3a: claimed, durable event never published
     const unpublished = await makeEscrow('MOCK')
     const tUnpub = await prisma.escrowEvent.create({ data: { escrowId: unpublished.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: unpublished.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' } })
-    await prisma.eventProjectionClaim.create({ data: { eventId: tUnpub.id, projectionKey: 'transition.claimed', subjectId: unpublished.escrowId, appliedAt: new Date(Date.now() - 600_000) } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: tUnpub.id, projectionKey: 'transition.claimed', subjectId: unpublished.escrowId, appliedAt: QUEUE_HEAD } })
 
     // PASS 3b: durable event published, projection never applied
     const published = await makeEscrow('MOCK')
     const tPub = await prisma.escrowEvent.create({ data: { escrowId: published.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: published.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' } })
-    await prisma.eventProjectionClaim.create({ data: { eventId: tPub.id, projectionKey: 'transition.claimed', subjectId: published.escrowId, appliedAt: new Date(Date.now() - 600_000) } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: tPub.id, projectionKey: 'transition.claimed', subjectId: published.escrowId, appliedAt: QUEUE_HEAD } })
     await prisma.durableEventRecord.create({
       data: {
         id: randomUUID(), eventName: 'settlement.escrow.released', correlationId: published.tradeId,

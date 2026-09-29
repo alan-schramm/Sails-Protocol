@@ -32,6 +32,12 @@ import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// PASS 3 claims a bounded batch per run from a durable round-robin queue ordered by a transition's last
+// visit, or its claim time if never visited. The shared database holds other suites' queued transitions;
+// a fixture claimed at QUEUE_HEAD is ahead of all of them, so the run under test is the one that claims it.
+// Queue order and convergence themselves are proven in projectionRecoveryQueue.test.ts.
+const QUEUE_HEAD = new Date('2000-01-01T00:00:00.000Z')
+
 describe('Issue #253 - durable downstream projection completion (real PostgreSQL)', () => {
   jest.setTimeout(90_000)
 
@@ -155,7 +161,7 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'FUNDS_LOCKED', toStatus: 'DISPUTED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: QUEUE_HEAD } })
     const eventId = randomUUID()
     await prisma.durableEventRecord.create({
       data: {

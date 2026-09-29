@@ -111,7 +111,9 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
     if (createdEscrowIds.length) {
       await prisma.wdkTransferAttempt.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       const transitions = await prisma.escrowEvent.findMany({ where: { escrowId: { in: createdEscrowIds } }, select: { id: true } })
-      if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: transitions.map((t) => t.id) } } })
+      // 'transition.projected' is keyed subjectId = transition; 'transition.claimed' eventId = transition (subjectId = escrow)
+      const transitionIds = transitions.map((t) => t.id)
+      if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { OR: [{ subjectId: { in: transitionIds } }, { eventId: { in: transitionIds } }] } })
       await prisma.escrowEvent.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
     }
     if (createdTradeIds.length) {

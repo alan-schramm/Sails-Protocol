@@ -165,9 +165,9 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
 )
 jest.mock('../src/common/database', () => ({
   prisma: {
-    // Issue #298 - PASS 3 scans for claimed-but-unprojected transitions; none by default.
     eventProjectionClaim: { findMany: jest.fn().mockResolvedValue([]) },
-    // PASS 3 now pages incomplete claimed transitions with one raw anti-join query; none by default.
+    // Issue #298 - PASS 3 claims its queue of claimed-but-unprojected transitions with one raw
+    // statement (event-projection.ts's claimTransitionRecoveryBatch()); none by default.
     $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     escrowPendingTransaction: {
