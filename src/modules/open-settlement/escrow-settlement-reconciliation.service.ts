@@ -1031,7 +1031,7 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
           WHERE "correlationId" = ${escrow.tradeId} AND "eventName" = ${eventName} AND payload->>'transitionId' = ${transitionId}
           ORDER BY "publishedAt" ASC LIMIT 1`
         if (existing.length === 0) {
-          await eventBus.emit(eventName as any, {
+          const outcome = await eventBus.publish(eventName as any, {
             escrowId: escrow.id,
             tradeId: escrow.tradeId,
             from: transition.fromStatus,
@@ -1040,6 +1040,12 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
             ...(escrow.txReleaseId ? { txId: escrow.txReleaseId } : {}),
             transitionId,
           } as any, escrow.tradeId)
+          // The live publisher does not take this lock: if it published between the check above and this
+          // publish, the event store mints nothing and returns that event, which is redelivered instead.
+          if (outcome && !outcome.minted) {
+            await eventBus.redeliver(outcome.eventId)
+            return 'REDELIVERED' as const
+          }
           return 'REPUBLISHED' as const
         }
         await eventBus.redeliver(existing[0].id)
