@@ -8,6 +8,15 @@ import { prisma } from '../database'
 
 const log = childLogger('event-store')
 
+/** The unique index allowing one durable event per escrow transition (migration 20260930130000). */
+const TRANSITION_EVENT_UNIQUE_INDEX = 'durable_events_transition_id_key'
+
+function isTransitionEventUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; meta?: unknown }
+  const text = `${e?.code ?? ''} ${e?.message ?? ''} ${JSON.stringify(e?.meta ?? {})}`
+  return text.includes(TRANSITION_EVENT_UNIQUE_INDEX)
+}
+
 // Missão 08B — cross-instance real-time fan-out. One shared channel for
 // every event type (simpler than one channel per eventName, and this
 // codebase has no need yet to subscribe to a subset) — the eventName
@@ -59,6 +68,16 @@ export interface DurableEvent<K extends SailsEventName = SailsEventName> {
   prevHash: string
 }
 
+/**
+ * What a durable publish did. `minted: false`: the event's escrow transition was already published
+ * (see PostgresEventStore.publish()), so nothing was written or dispatched and `eventId` is the existing
+ * canonical event. Non-durable stores return nothing.
+ */
+export interface PublishOutcome {
+  eventId: string
+  minted: boolean
+}
+
 export interface EventStore {
   readonly storeName: string
   // Explicit, not inferred from the class name — so a caller/operator can
@@ -68,7 +87,7 @@ export interface EventStore {
     eventName: K,
     payload: SailsEventMap[K],
     correlationId: string
-  ): Promise<void>
+  ): Promise<PublishOutcome | void>
   subscribe<K extends SailsEventName>(
     eventName: K,
     handler: (event: DurableEvent<K>) => void | Promise<void>
@@ -351,11 +370,22 @@ export class PostgresEventStore implements EventStore {
     eventName: K,
     payload: SailsEventMap[K],
     correlationId: string
-  ): Promise<void> {
+  ): Promise<PublishOutcome> {
     const eventId = uuidv4()
     let prevHash = GENESIS_HASH
     let entryHash = ''
     let publishedAt = ''
+    // One semantic escrow transition is published as ONE durable event (Issue #298's transitionId: the
+    // EscrowEvent claim id). Two publishers can reach this for the same transition: the live path
+    // (emitEscrowTransition(), after it wins the claim) and settlement reconciliation PASS 3 (a claimed
+    // transition whose projections never completed, after its grace period). Projections are idempotent
+    // per durable event id, so a second event would apply every downstream effect again. Both publish
+    // under the transition's tradeId, so the correlationId lock below serializes them and the check runs
+    // in the same transaction as the insert; a unique index on the transitionId (migration
+    // 20260930130000) is the backstop for any publisher that does not share that lock.
+    const transitionId = (payload as { transitionId?: unknown }).transitionId
+    const semanticId = typeof transitionId === 'string' ? transitionId : null
+    const alreadyPublished: { id: string | null } = { id: null }
 
     await this.client.$transaction(async (tx) => {
       // $executeRaw, not $queryRaw — Missão 06 (2026-08-16) real-Postgres
@@ -369,6 +399,12 @@ export class PostgresEventStore implements EventStore {
       // the correct tool for a call whose only purpose is the side
       // effect (the lock itself), with no row data ever needed back.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+
+      if (semanticId) {
+        const [existing] = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM durable_events WHERE payload->>'transitionId' = ${semanticId} LIMIT 1`
+        if (existing) { alreadyPublished.id = existing.id; return }
+      }
 
       // Real prevHash: this correlationId's own last row, not a
       // separately maintained counter — same read-then-write shape
@@ -422,7 +458,20 @@ export class PostgresEventStore implements EventStore {
           prevHash,
         },
       })
+    }).catch(async (err: unknown) => {
+      if (!semanticId || !isTransitionEventUniqueViolation(err)) throw err
+      const [existing] = await this.client.$transaction((tx) => tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM durable_events WHERE payload->>'transitionId' = ${semanticId} LIMIT 1`)
+      if (!existing) throw err
+      alreadyPublished.id = existing.id
     })
+
+    // Nothing written, nothing dispatched: the transition's canonical event already exists (a caller that
+    // needs it delivered again redelivers that event, see SailsEventBus.redeliver()).
+    if (alreadyPublished.id) {
+      log.info({ msg: 'Transition already published - no second durable event minted', eventName, correlationId, transitionId: semanticId, eventId: alreadyPublished.id })
+      return { eventId: alreadyPublished.id, minted: false }
+    }
 
     // Same log-level reasoning InMemoryEventStore.publish() already
     // states — debug, not info, since this dumps full event payloads
@@ -456,6 +505,7 @@ export class PostgresEventStore implements EventStore {
         log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
       })
     }
+    return { eventId, minted: true }
   }
 
   subscribe<K extends SailsEventName>(

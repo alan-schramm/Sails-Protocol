@@ -1,5 +1,5 @@
 import type { EventStore } from './event-store'
-import { PostgresEventStore } from './event-store'
+import { PostgresEventStore, type PublishOutcome } from './event-store'
 
 /**
  * Sails Protocol — Event Contract
@@ -493,6 +493,16 @@ export class SailsEventBus {
     correlationId: string
   ): Promise<void> {
     await this.store.publish(event, payload, correlationId)
+  }
+
+  // emit(), returning what a durable store did: an escrow transition that was already published is
+  // not minted again (PublishOutcome.minted false, eventId = the existing canonical event).
+  async publish<K extends SailsEventName>(
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<PublishOutcome | void> {
+    return this.store.publish(event, payload, correlationId)
   }
 
   // Handler signature is unchanged from pre-RFC-010 (still receives the bare
