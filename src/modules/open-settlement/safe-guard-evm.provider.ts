@@ -638,11 +638,27 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     }, {
       timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs,
     })
-    const body = await res.json().catch(() => ({}))
+    let body: { result?: unknown; error?: { message?: string } }
+    try {
+      body = await res.json()
+    } catch (err) {
+      // An accepted (2xx) answer that cannot be read - a body that timed out or is malformed - is not a
+      // rejection and not a txid: the submission's outcome is unknown. Throwing leaves the durable row
+      // at SUBMISSION_UNKNOWN (finalize's own contract), which blocks any resubmission.
+      if (res.ok) {
+        throw new EscrowError(
+          `SAFE_GUARD_EVM provider: bundler answered ${res.status} for sender ${userOp.sender} but the response could not be read (${err instanceof Error ? err.message : String(err)}) - submission outcome unknown`
+        )
+      }
+      body = {}
+    }
     if (!res.ok || body.error) {
       throw new EscrowError(
         `SAFE_GUARD_EVM provider: bundler rejected the UserOperation for sender ${userOp.sender}: ${body.error?.message ?? res.statusText}`
       )
+    }
+    if (typeof body.result !== 'string') {
+      throw new EscrowError(`SAFE_GUARD_EVM provider: bundler answered ${res.status} for sender ${userOp.sender} without a userOpHash - submission outcome unknown`)
     }
     return { txId: body.result }
   }
