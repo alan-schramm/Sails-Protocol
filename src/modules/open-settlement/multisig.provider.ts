@@ -102,8 +102,8 @@ const EXPLORER_READ_RETRY = { attempts: 3, backoffMs: 250 }
  * Longest reconcilePendingSettlement() can spend on the explorer for one operation: the existence read
  * and the UTXO read, each up to EXPLORER_READ_RETRY.attempts timed-out attempts plus the backoff between
  * them (backoffMs x attempt number), then one broadcast (no retry). 57.5 s at the default 8 s timeout.
- * Response bodies are read after the timeout is cleared, so a server that sends headers and then stalls
- * mid-body is not covered by this bound.
+ * Each attempt's timeout covers its headers AND its body (boundedFetch() keeps the deadline armed until
+ * the body is read), so a server that answers and then stalls the body cannot extend this bound.
  */
 export function pendingSettlementReconciliationWorstCaseMs(timeoutMs: number = config.multisig.explorerRequestTimeoutMs): number {
   const { attempts, backoffMs } = EXPLORER_READ_RETRY
