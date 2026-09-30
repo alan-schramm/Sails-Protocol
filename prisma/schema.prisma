@@ -2331,6 +2331,13 @@ model EscrowPendingTransaction {
   requiredSigners     String[]
   triggeredBy         String
   createdAt           DateTime @default(now())
+  // When settlement reconciliation PASS 0 last claimed this operation (a
+  // fully-signed operation whose escrow never claimed its transition,
+  // migration 20260930140000). Queue position only, never authority: what
+  // PASS 0 does with it is still decided by chain truth, the atomic
+  // transition claim and the write-once settlement result. Durable, so the
+  // round-robin order survives restarts and is shared by every node.
+  unclaimedRecoveryAttemptedAt DateTime?
 
   // ADR-005 / #218 — durable ruling-generation provenance, snapshotted at
   // the moment a DISPUTED ruling creates this pending operation (never

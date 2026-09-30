@@ -9,7 +9,7 @@ import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
-import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
+import { multisigProvider, identifyFeeOutput, networkFor, pendingSettlementReconciliationWorstCaseMs, type MultisigEscrowInput } from './multisig.provider'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
@@ -258,8 +258,6 @@ async function applyDownstreamCompletionEffects(
   return { obligationSkipped, emitted }
 }
 
-const NON_TERMINAL_QUERY_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
-
 /**
  * Escrows each of PASS 1 and PASS 2 claims per run. A PASS 1 escrow can cost
  * a few explorer/provider reads (and, for MULTISIG, one idempotent broadcast
@@ -297,13 +295,40 @@ export const SETTLEMENT_RECOVERY_BATCH = 50
 // gated primitive every live signer call already uses) and run the same
 // shared downstream effects PASS 1 and PASS 2 both already use. No new
 // finalize/retry primitive was invented.
-async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport): Promise<void> {
-  const candidates = await prisma.escrowPendingTransaction.findMany({
-    where: { escrow: { type: 'MULTISIG', status: { notIn: [...NON_TERMINAL_QUERY_STATUSES] } } },
-    include: { signatures: true, escrow: true },
-  })
+//
+// BOUNDED PER RUN: candidates come one at a time from a durable round-robin
+// queue (escrowRepository.claimUnclaimedSignedPendingOperation()), at most
+// UNCLAIMED_RECOVERY_BATCH per run, each at most once per run, and a new one
+// starts only while the run can still finish within one scheduler interval.
+// This pass used to load
+// every pending row of every open MULTISIG escrow on every run (all of them
+// still collecting signatures, bar the rare C8 case) and to ask the explorer
+// about every fully-signed one, in the same order, on every run and on
+// every node.
+/** Pending operations PASS 0 claims per run at most: the per-pass run size PASS 1/2 already use. */
+export const UNCLAIMED_RECOVERY_BATCH = SETTLEMENT_RECOVERY_BATCH
 
-  for (const pending of candidates) {
+/**
+ * PASS 0 starts another candidate only while elapsed time + one candidate's worst-case explorer time
+ * (pendingSettlementReconciliationWorstCaseMs()) still fits in one scheduler interval: 60 s - 57.5 s =
+ * 2.5 s with the defaults. Fast candidates keep flowing; at most one that could hit every explorer
+ * timeout runs. The first candidate always runs, so every run makes progress.
+ */
+export function unclaimedRecoveryStartBudgetMs(): number {
+  return Math.max(0, config.trade.settlementReconcileIntervalMs - pendingSettlementReconciliationWorstCaseMs())
+}
+
+export async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport): Promise<void> {
+  const startedAt = new Date()
+  const startBudgetMs = unclaimedRecoveryStartBudgetMs()
+  for (let claimed = 0; claimed < UNCLAIMED_RECOVERY_BATCH; claimed++) {
+    if (claimed > 0 && Date.now() - startedAt.getTime() > startBudgetMs) break
+    // Never the same operation twice in one run: in a short queue, an operation that stays a candidate
+    // (an explorer outage, an anomaly) would otherwise be the oldest again right after its own claim.
+    const pendingId = await escrowRepository.claimUnclaimedSignedPendingOperation(startedAt)
+    if (!pendingId) break
+    const [pending] = await prisma.escrowPendingTransaction.findMany({ where: { id: pendingId }, include: { signatures: true, escrow: true } })
+    if (!pending) continue
     const escrow = pending.escrow
     try {
       const signedList = pending.requiredSigners.map(

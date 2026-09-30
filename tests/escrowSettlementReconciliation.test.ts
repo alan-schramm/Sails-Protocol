@@ -16,7 +16,8 @@ jest.mock('../src/config', () => ({
   // failure path (recordEscrowConflict()); this mock previously omitted
   // it entirely because nothing in this file called claimEscrowTransition()
   // before this pass. Real production defaults, not arbitrary test values.
-  config: { multisig: { network: 'testnet' }, escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 } },
+  // PASS 0's per-run time budget is derived from the reconciliation interval and the explorer timeout.
+  config: { multisig: { network: 'testnet', explorerRequestTimeoutMs: 8000 }, trade: { settlementReconcileIntervalMs: 60_000 }, escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 } },
 }))
 
 const mockClaimResultRecoveryBatch = jest.fn()
@@ -32,6 +33,10 @@ const mockClaimTransition = jest.fn()
 // every PASS 2 case below runs the per-escrow recovery exactly as before the bounded queue existed.
 const mockMarkCompletionVerifiedIfConverged = jest.fn()
 const mockUpdateSignatureCollectionResult = jest.fn()
+// PASS 0 claims its candidates one at a time from a durable queue (real PostgreSQL proof of the
+// eligibility predicate and the order: tests/integration/unclaimedSignedRecoveryQueue.test.ts), then
+// loads the claimed row. None by default; a C8 test below stages exactly one claim.
+const mockClaimUnclaimedSignedPendingOperation = jest.fn()
 // Issue #251 - reconcileWdkTerminalTransfer()'s own write-once path.
 const mockUpdateReleaseResult = jest.fn()
 const mockUpdateRefundResult = jest.fn()
@@ -41,6 +46,7 @@ jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
     claimSettlementResultRecoveryBatch: (...args: unknown[]) => mockClaimResultRecoveryBatch(...args),
     claimCompletionVerificationBatch: (...args: unknown[]) => mockClaimCompletionVerificationBatch(...args),
     markCompletionVerifiedIfConverged: (...args: unknown[]) => mockMarkCompletionVerifiedIfConverged(...args),
+    claimUnclaimedSignedPendingOperation: (...args: unknown[]) => mockClaimUnclaimedSignedPendingOperation(...args),
     claimTransition: (...args: unknown[]) => mockClaimTransition(...args),
     updateSignatureCollectionResult: (...args: unknown[]) => mockUpdateSignatureCollectionResult(...args),
     updateReleaseResult: (...args: unknown[]) => mockUpdateReleaseResult(...args),
@@ -88,6 +94,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: { reconcilePendingSettlement: (...args: unknown[]) => mockReconcilePendingSettlement(...args) },
   identifyFeeOutput: jest.fn(() => ({ vout: 0, scriptPubKeyHex: 'deadbeef', amountSats: 1000 })),
   networkFor: jest.fn(() => 'testnet'),
+  // PASS 0's per-run time budget: the real value at the default 8 s explorer timeout.
+  pendingSettlementReconciliationWorstCaseMs: jest.fn(() => 57_500),
 }))
 
 const mockRecordObligation = jest.fn()
@@ -243,7 +251,8 @@ beforeEach(() => {
   mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'NO_ATTEMPT', reason: 'no attempt' })
   mockFinalizationAttemptFindUnique.mockResolvedValue(null)
   // PASS 0 (M9-R, C8) candidates default to none — tests that specifically
-  // want one set mockPendingTxFindMany explicitly.
+  // want one stage a claim and set mockPendingTxFindMany (the claimed row's load) explicitly.
+  mockClaimUnclaimedSignedPendingOperation.mockResolvedValue(null)
   mockPendingTxFindMany.mockResolvedValue([])
   // PASS 2 (Fase 9.7) candidates default to none, so every PASS-1-only
   // (Fase 9.6) test below exercises exactly the scenario it names —
@@ -269,6 +278,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('a pending row still collecting signatures (not fully signed) is silently not a candidate — the ordinary C7 state', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }],
       escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
@@ -283,6 +293,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('fully signed, escrow non-terminal — asks the chain FIRST, then claims the transition and runs the shared downstream effects', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
@@ -306,6 +317,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
@@ -320,6 +332,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('NEWLY_BROADCAST recovery fails closed when ADR-005 commit gate rejects before the provider side effect', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
@@ -339,6 +352,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('ANOMALY (unexpected outpoint spend) — fails closed, transition never claimed, reported for manual review as C8', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
@@ -353,6 +367,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('duplicate workers: claimEscrowTransition losing the atomic race is reported as a benign concurrent claim, not a failure', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])

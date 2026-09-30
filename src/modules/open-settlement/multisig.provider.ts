@@ -98,6 +98,19 @@ import { boundedFetch } from './bounded-rpc'
 // mutating/submission call) — see bounded-rpc.ts's own header.
 const EXPLORER_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
+/**
+ * Longest reconcilePendingSettlement() can spend on the explorer for one operation: the existence read
+ * and the UTXO read, each up to EXPLORER_READ_RETRY.attempts timed-out attempts plus the backoff between
+ * them (backoffMs x attempt number), then one broadcast (no retry). 57.5 s at the default 8 s timeout.
+ * Response bodies are read after the timeout is cleared, so a server that sends headers and then stalls
+ * mid-body is not covered by this bound.
+ */
+export function pendingSettlementReconciliationWorstCaseMs(timeoutMs: number = config.multisig.explorerRequestTimeoutMs): number {
+  const { attempts, backoffMs } = EXPLORER_READ_RETRY
+  const read = attempts * timeoutMs + backoffMs * ((attempts - 1) * attempts) / 2
+  return 2 * read + timeoutMs
+}
+
 bitcoin.initEccLib(ecc)
 const bip32 = BIP32Factory(ecc)
 const log = childLogger('multisig-provider')
