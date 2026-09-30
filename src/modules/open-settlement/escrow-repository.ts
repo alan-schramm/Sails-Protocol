@@ -147,6 +147,15 @@ export interface EscrowRepository {
    *  this call marked it. */
   markCompletionVerifiedIfConverged(escrowId: string): Promise<boolean>
 
+  /** Settlement reconciliation PASS 0 (M9-R, crash window C8) — claims the
+   *  next fully-signed pending operation of an open MULTISIG escrow (the
+   *  escrow never claimed its transition) and returns its id, or null when
+   *  there is none. One per call, so a run stops between candidates without
+   *  having moved any unprocessed one back in the queue. Operations claimed
+   *  at or after `runStartedAt` (by this run, or by another instance's run
+   *  since) are not claimed again: one visit per operation per run. */
+  claimUnclaimedSignedPendingOperation(runStartedAt: Date): Promise<string | null>
+
   /** isSellerOrAssignedArbiter()'s fallback existence check — the one Dispute-by-this-shape read nobody else owns. */
   findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string): Promise<DisputeRow | null>
 
@@ -360,6 +369,45 @@ class PrismaEscrowRepository implements EscrowRepository {
         AND EXISTS (SELECT 1 FROM escrow_events v WHERE v."escrowId" = e.id AND v."toStatus" = e.status)
         AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = e.id)`
     return marked === 1
+  }
+
+  /**
+   * Candidate: a pending operation on an open (non-terminal) MULTISIG escrow
+   * whose every required signer has a stored signature. Order: by the
+   * operation's last claim, or its creation if never claimed, oldest first,
+   * stamped in the same statement. Keys only grow, so an operation that stays
+   * a candidate (an anomaly, an explorer outage) moves behind every other one
+   * after each claim, and each candidate is reached within ceil(rows ahead /
+   * claims per run) runs: old and new candidates cannot starve each other,
+   * across restarts and instances. SKIP LOCKED gives overlapping claims
+   * different rows. The stamp decides order only: what happens to a claimed
+   * operation is still decided by chain truth, claimEscrowTransition() and
+   * the write-once result, and a crash after the claim only moves it back one
+   * lap. The escrows side reads escrows_open_multisig_idx (migration
+   * 20260930140000), never the settled history.
+   */
+  async claimUnclaimedSignedPendingOperation(runStartedAt: Date) {
+    const [claimed] = await prisma.$queryRaw<Array<{ id: string }>>`
+      WITH open_escrows AS MATERIALIZED (
+        -- First, and separately: the open MULTISIG escrows (escrows_open_multisig_idx). Left to itself
+        -- the planner may instead start from every pending row ever written (leaked history included)
+        -- and run the signature check against each one.
+        SELECT id FROM escrows WHERE type = 'MULTISIG' AND status NOT IN ('COMPLETED', 'REFUNDED', 'SPLIT')
+      ), picked AS (
+        SELECT p.id FROM open_escrows o
+        JOIN escrow_pending_transactions p ON p."escrowId" = o.id
+        WHERE (p."unclaimedRecoveryAttemptedAt" IS NULL OR p."unclaimedRecoveryAttemptedAt" < ${runStartedAt})
+          AND NOT EXISTS (
+            SELECT 1 FROM unnest(p."requiredSigners") AS r(id)
+            WHERE NOT EXISTS (SELECT 1 FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id AND s."participantId" = r.id))
+        ORDER BY COALESCE(p."unclaimedRecoveryAttemptedAt", p."createdAt"), p.id
+        LIMIT 1
+        FOR UPDATE OF p SKIP LOCKED
+      )
+      UPDATE escrow_pending_transactions p SET "unclaimedRecoveryAttemptedAt" = ${new Date()}
+      FROM picked WHERE p.id = picked.id
+      RETURNING p.id`
+    return claimed?.id ?? null
   }
 
   async findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string) {
