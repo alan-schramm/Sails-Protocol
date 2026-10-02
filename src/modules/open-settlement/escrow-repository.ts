@@ -105,25 +105,13 @@ export interface EscrowRepository {
   /** Same include shape as findByIdWithDetails(), keyed by tradeId — getEscrowByTrade()'s own shape. */
   findByTradeIdWithDetails(tradeId: string): Promise<EscrowWithDetailsRow | null>
 
-  /** status = FUNDS_LOCKED and expiresAt in the past — sweepExpiredEscrows()'s
-   *  own shape, feeding ONLY its refund branch as of M4 (Sails Core
-   *  Implementation Program). Deliberately left with its original strict
-   *  `<` predicate and unchanged scope — that branch's authority has not
-   *  migrated to Core, so this query's meaning must stay exactly what it
-   *  always was. See findFundsLockedExpiryCandidates() below for the
-   *  disjoint, Core-authoritative candidate query. */
-  findExpiredFundsLocked(now: Date): Promise<EscrowRow[]>
-
-  /** M4 (Sails Core Implementation Program) — candidate discovery ONLY
-   *  for the FUNDS_LOCKED -> EXPIRED target slice. Deliberately broader
-   *  than findExpiredFundsLocked() (`<=` instead of `<`, so the exact
-   *  deadline instant can actually reach the Core evaluator — legacy's
-   *  strict `<` structurally hid equality from ever being decided) and
-   *  deliberately scoped to `types` (the signature-collection providers,
-   *  the only escrow class VALID_TRANSITIONS ever lets reach EXPIRED) so
-   *  this broadening can never pull a refund-branch escrow into this
-   *  candidate set. */
-  findFundsLockedExpiryCandidates(now: Date, types: string[]): Promise<EscrowRow[]>
+  /** The timelock sweep's candidates: claims up to `limit` FUNDS_LOCKED escrows
+   *  with expiresAt <= now, stamping expirySweepAttemptedAt in the same
+   *  statement (see the implementation for the order). `<=`, not `<`, so the
+   *  exact deadline instant reaches the Core evaluator (M4); the refund
+   *  branch keeps its own strict `<` in sweepExpiredEscrows(). Queue position
+   *  only — every claimed escrow is still decided by the expiry authority. */
+  claimExpiryCandidates(now: Date, limit: number): Promise<EscrowRow[]>
 
   /** Settlement reconciliation PASS 1 (Missão 11 Fase 9.6, CONC-03) —
    *  claims up to `limit` escrows whose status already claims a terminal
@@ -294,14 +282,32 @@ class PrismaEscrowRepository implements EscrowRepository {
     })
   }
 
-  async findExpiredFundsLocked(now: Date) {
-    return prisma.escrow.findMany({ where: { status: 'FUNDS_LOCKED', expiresAt: { lt: now } } })
-  }
-
-  async findFundsLockedExpiryCandidates(now: Date, types: string[]) {
-    return prisma.escrow.findMany({
-      where: { status: 'FUNDS_LOCKED', type: { in: types as any }, expiresAt: { lte: now } },
-    })
+  /**
+   * Order: by a candidate's last claim, or by its expiry if never claimed, oldest first. A claimed
+   * candidate's key becomes the claim time, later than every key of a row due at that time, so a
+   * candidate that keeps failing (a provider refusing its refund, a fail-closed integrity check) moves
+   * behind every other one after each claim instead of holding a slot: each candidate is reached within
+   * ceil(rows ahead / limit) claims, a backlog cannot starve new expiries and new expiries cannot starve a
+   * backlog, across restarts and instances. SKIP LOCKED gives overlapping claims disjoint rows. The stamp
+   * decides order only: a crash after the claim costs the escrow one turn, nothing is owned, and the
+   * expiry itself is still decided by evaluateExpiryAuthority(), the status CAS and the atomic transition
+   * claim. The claim reads escrows_expiry_sweep_queue_idx (migration 20261002120000) in key order and
+   * stops after `limit` due rows.
+   */
+  async claimExpiryCandidates(now: Date, limit: number) {
+    const claimed = await prisma.$queryRaw<Array<{ id: string }>>`
+      WITH picked AS (
+        SELECT e.id FROM escrows e
+        WHERE e.status = 'FUNDS_LOCKED' AND e."expiresAt" <= ${now}
+        ORDER BY COALESCE(e."expirySweepAttemptedAt", e."expiresAt"), e.id
+        LIMIT ${limit}
+        FOR UPDATE OF e SKIP LOCKED
+      )
+      UPDATE escrows e SET "expirySweepAttemptedAt" = ${new Date()}
+      FROM picked WHERE e.id = picked.id
+      RETURNING e.id`
+    if (claimed.length === 0) return []
+    return prisma.escrow.findMany({ where: { id: { in: claimed.map((row) => row.id) } } })
   }
 
   async claimSettlementResultRecoveryBatch(limit: number) {

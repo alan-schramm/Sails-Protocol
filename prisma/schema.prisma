@@ -522,6 +522,15 @@ model Escrow {
   // written), so PASS 2 never needs to look at it again. Null = not yet
   // verified.
   completionVerifiedAt                  DateTime?
+  // Timelock expiry sweep (escrowService.sweepExpiredEscrows()) — when a
+  // sweep pass last claimed this expired FUNDS_LOCKED escrow. Queue position
+  // only, never authority: whether it expires (or refunds) is still decided
+  // by the expiry authority, the status CAS and the atomic transition claim.
+  // Durable so the round-robin order survives restarts and a candidate that
+  // keeps failing moves behind the rest; null = never attempted. A partial
+  // index on it (migration 20261002120000) keeps each claim proportional to
+  // its batch, not to the escrow history.
+  expirySweepAttemptedAt                DateTime?
 
   events             EscrowEvent[]
   disputes           Dispute[]

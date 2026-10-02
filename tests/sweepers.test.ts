@@ -83,6 +83,7 @@ type EscrowRow = {
   status: string
   expiresAt: Date | null
   txReleaseId: string | null
+  expirySweepAttemptedAt?: Date | null
 }
 const fakeDb = {
   escrows: new Map<string, EscrowRow>(),
@@ -97,6 +98,7 @@ const fakeDb = {
 const mockEscrowFindMany = jest.fn(async ({ where }: any) => {
   const result: EscrowRow[] = []
   fakeDb.escrows.forEach((row) => {
+    if (where.id?.in && !where.id.in.includes(row.id)) return
     if (where.status && row.status !== where.status) return
     if (where.expiresAt?.lt && (!row.expiresAt || row.expiresAt >= where.expiresAt.lt)) return
     // M4 (Sails Core Implementation Program) — findFundsLockedExpiryCandidates()'s
@@ -160,9 +162,25 @@ const mockSemanticTransitionRecordCreate = jest.fn(async ({ data }: any) => {
   return row
 })
 
+// claimExpiryCandidates() (escrow-repository.ts) is one SQL statement: FUNDS_LOCKED and expiresAt <= now,
+// ordered by COALESCE(expirySweepAttemptedAt, expiresAt), id, LIMIT, stamped. Its interpolated values are
+// (now, limit, stamp), in that order; this applies exactly those rules to the fake rows.
+const mockExpiryClaim = jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  if (!strings.join('?').includes('"expirySweepAttemptedAt"')) throw new Error(`unexpected raw query in this suite: ${strings.join('?')}`)
+  const [now, limit, stamp] = values as [Date, number, Date]
+  const key = (r: EscrowRow) => (r.expirySweepAttemptedAt ?? r.expiresAt)!.getTime()
+  const due = [...fakeDb.escrows.values()]
+    .filter((r) => r.status === 'FUNDS_LOCKED' && r.expiresAt !== null && r.expiresAt.getTime() <= now.getTime())
+    .sort((a, b) => key(a) - key(b) || a.id.localeCompare(b.id))
+    .slice(0, limit)
+  for (const r of due) r.expirySweepAttemptedAt = stamp
+  return due.map((r) => ({ id: r.id }))
+})
+
 jest.mock('../src/common/database', () => {
   return {
     prisma: {
+      $queryRaw: ((...args: unknown[]) => (mockExpiryClaim as any)(...args)) as any,
       escrow: {
         findMany: ((...args: unknown[]) => (mockEscrowFindMany as any)(...args)) as any,
         findUnique: ((...args: unknown[]) => (mockEscrowFindUnique as any)(...args)) as any,
@@ -465,11 +483,12 @@ describe('escrowService.sweepExpiredEscrows — RFC-007 timelock proactive sweep
         expect(record.deadlineMs).toBe(BigInt(now))
         expect(record.evaluationTimeMs).toBe(BigInt(now))
         // I. Candidate discovery design, proven directly against the
-        // literal query Prisma received: `<=`, never `<`, scoped to the
-        // signature-collection types only.
-        expect(mockEscrowFindMany).toHaveBeenCalledWith({
-          where: { status: 'FUNDS_LOCKED', type: { in: ['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'] }, expiresAt: { lte: new Date(now) } },
-        })
+        // literal claim PostgreSQL received: `<=`, never `<`, at this
+        // exact `now` (the refund-branch types are scoped out by the
+        // sweep's own branch check, T12/T13).
+        const [claimSql, claimNow] = mockExpiryClaim.mock.calls[0] as unknown as [TemplateStringsArray, Date]
+        expect(claimSql.join('?')).toMatch(/WHERE e\.status = 'FUNDS_LOCKED' AND e\."expiresAt" <= \?/)
+        expect(claimNow).toEqual(new Date(now))
       } finally {
         jest.useRealTimers()
       }
