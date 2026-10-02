@@ -322,6 +322,18 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
   return explicitType ?? recommendedEscrowType(asset)
 }
 
+/**
+ * Expired FUNDS_LOCKED escrows one timelock sweep pass claims (claimExpiryCandidates()). The pass takes
+ * one claim and is never re-run inside the same tick, so this bounds every pass:
+ * - a Core candidate (MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM) costs one trade read, one transaction
+ *   (state + record + claimed transition) and one publish, no external call: measured ~15 ms each against
+ *   local PostgreSQL (2,000 in 29.5 s), so a full batch is ~1.5 s of a 300 s default interval;
+ * - a refund-branch candidate (MOCK, WDK_USDT_EVM, LIQUID_COVENANT) runs refundFunds(), a provider call
+ *   whose own transport bounds its time; this caps how many of those one pass can start.
+ * 100 per pass is 1,200 per hour per instance at the default interval, and instances claim disjoint batches.
+ */
+export const EXPIRY_SWEEP_BATCH = 100
+
 export class EscrowService {
   constructor(private readonly repo: EscrowRepository = escrowRepository) {}
 
@@ -1075,7 +1087,7 @@ export class EscrowService {
   // existing `agent:{label}:{participantId}` shape — deliberately never
   // matching isPartyOrAgent()'s own regex, since no participant
   // authorization check applies to observing a real timestamp having
-  // passed). Idempotent by construction: findExpiredFundsLocked() only
+  // passed). Idempotent by construction: claimExpiryCandidates() only
   // ever queries status='FUNDS_LOCKED', so an escrow already transitioned
   // to EXPIRED is structurally excluded from every later sweep tick —
   // the same idempotency mechanism (query-scoped, not a separate flag)
@@ -1101,7 +1113,12 @@ export class EscrowService {
     const requiresManualRecovery: string[] = []
     const failed: Array<{ escrowId: string; error: string }> = []
     const SYSTEM_SWEEPER_ID = 'system:expiry-sweeper'
-    const SIGNATURE_COLLECTION_TYPES = Object.keys(SIGNATURE_COLLECTION_PROVIDERS)
+
+    // One bounded claim per pass (claimExpiryCandidates(), escrow-repository.ts): at most
+    // EXPIRY_SWEEP_BATCH expired FUNDS_LOCKED escrows, in durable round-robin order, disjoint from what a
+    // concurrent pass on another instance claims. A larger backlog drains over the following passes.
+    // Both branches below take their candidates from it, each with its own predicate.
+    const candidates = await this.repo.claimExpiryCandidates(now, EXPIRY_SWEEP_BATCH)
 
     // ---- Target slice (Sails Core Implementation Program M4): --------
     // FUNDS_LOCKED -> EXPIRED, now exclusively Core-authoritative. This
@@ -1109,17 +1126,12 @@ export class EscrowService {
     // ever lets reach EXPIRED — the disjoint refund branch below can
     // never overlap with it. evaluateExpiryAuthority() (expiry-authority.ts)
     // is the sole decision-maker for whether each candidate is eligible;
-    // findFundsLockedExpiryCandidates()'s `<=` filter only ever WIDENS
-    // the candidate set relative to Core's own `>=` rule, so it can never
-    // silently decide a case Core doesn't get to rule on.
-    const expiryCandidates = await this.repo.findFundsLockedExpiryCandidates(now, SIGNATURE_COLLECTION_TYPES)
-    for (const escrow of expiryCandidates) {
-      // Defense in depth — the query already filters by type, but
-      // re-checking here (same discipline claimEscrowTransition() below
-      // already applies to its own caller-validated transition) means a
-      // typo or future refactor of SIGNATURE_COLLECTION_TYPES surfaces as
-      // a silent, harmless skip here, never as accidentally granting
-      // Core authority over the disjoint refund branch's escrow types.
+    // the claim's `<=` filter only ever WIDENS the candidate set relative
+    // to Core's own `>=` rule, so it can never silently decide a case Core
+    // doesn't get to rule on.
+    for (const escrow of candidates) {
+      // Only the signature-collection types: never granting Core authority
+      // over the disjoint refund branch's escrow types.
       if (!this.isSignatureCollectionType(escrow.type)) continue
       if (!escrow.expiresAt) {
         failed.push({ escrowId: escrow.id, error: 'FUNDS_LOCKED escrow has no expiresAt — cannot evaluate expiry eligibility' })
@@ -1202,9 +1214,11 @@ export class EscrowService {
     // Signature-collection types are explicitly skipped: they were
     // already fully handled above, and legacy no longer decides anything
     // for them.
-    const expired = await this.repo.findExpiredFundsLocked(now)
-    for (const escrow of expired) {
+    for (const escrow of candidates) {
       if (this.isSignatureCollectionType(escrow.type)) continue
+      // The claim is `<=`; this branch keeps its strict `<` (an escrow due exactly now is refunded on a
+      // later pass).
+      if (!escrow.expiresAt || !(escrow.expiresAt < now)) continue
       // M3 shadow observation continues here as pure diagnostic evidence
       // for this still-unmigrated transition — never gating it.
       if (escrow.expiresAt) observeExpiryShadow(escrow.id, escrow.expiresAt, now)
