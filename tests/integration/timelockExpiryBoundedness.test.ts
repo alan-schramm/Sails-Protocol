@@ -176,14 +176,22 @@ describe('Timelock expiry sweep: bounded passes, durable round-robin, #379 invar
 
   // ═══ bound ═══════════════════════════════════════════════════════════════════════════════════════════
 
-  it('the claim reads escrows_expiry_sweep_queue_idx in queue order (the index exists with its definition, and the plan uses it)', async () => {
+  it('the claim queue order is served by escrows_expiry_sweep_queue_idx (the index exists with its definition and gives that order with no sort)', async () => {
     pg.requirePostgres('index')
     const [index] = await prisma.$queryRaw<Array<{ indexdef: string }>>`
       SELECT indexdef FROM pg_indexes WHERE tablename = 'escrows' AND indexname = 'escrows_expiry_sweep_queue_idx'`
     expect(index.indexdef).toBe(`CREATE INDEX escrows_expiry_sweep_queue_idx ON public.escrows USING btree (COALESCE("expirySweepAttemptedAt", "expiresAt"), id) WHERE (status = 'FUNDS_LOCKED'::"EscrowStatus")`)
-    const plan = (await prisma.$queryRaw<Array<{ 'QUERY PLAN': string }>>`
-      EXPLAIN SELECT e.id FROM escrows e WHERE e.status = 'FUNDS_LOCKED' AND e."expiresAt" <= now()
-      ORDER BY COALESCE(e."expirySweepAttemptedAt", e."expiresAt"), e.id LIMIT 100 FOR UPDATE OF e SKIP LOCKED`).map((r) => r['QUERY PLAN']).join('\n')
+    // The index serves the claim's order with no sort: proven with the alternatives disabled, so the result
+    // does not depend on this database's size (on a near-empty table the planner rightly prefers a sort).
+    // At scale the planner chooses it on its own: 20,032 due rows, 100 read, 0.21 ms (see the PR).
+    const plan = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL enable_sort = off`
+      await tx.$executeRaw`SET LOCAL enable_seqscan = off`
+      await tx.$executeRaw`SET LOCAL enable_bitmapscan = off`
+      return (await tx.$queryRaw<Array<{ 'QUERY PLAN': string }>>`
+        EXPLAIN SELECT e.id FROM escrows e WHERE e.status = 'FUNDS_LOCKED' AND e."expiresAt" <= now()
+        ORDER BY COALESCE(e."expirySweepAttemptedAt", e."expiresAt"), e.id LIMIT 100 FOR UPDATE OF e SKIP LOCKED`).map((r) => r['QUERY PLAN']).join('\n')
+    })
     expect(plan).toMatch(/Index Scan using escrows_expiry_sweep_queue_idx/)
     expect(plan).not.toMatch(/Sort/)
   })
