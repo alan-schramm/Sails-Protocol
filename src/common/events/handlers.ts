@@ -439,6 +439,13 @@ export function registerEventHandlers(): void {
     await markTransitionProjected(event)
   })
 
+  // The timelock expiry projects nothing else: its canonical durable event is itself the downstream fact
+  // (the Timeline and every other reader of the event log learn of the expiry from it). Marking it
+  // projected on delivery takes it out of PASS 3's queue, which re-publishes it if it was never published.
+  eventBus.onDurable('settlement.escrow.expired', async (event) => {
+    await markTransitionProjected(event)
+  })
+
   eventBus.onDurable('settlement.escrow.refunded', async (event) => {
     const payload = event.payload
     if (await projectTrade(event, payload.tradeId, payload.escrowId)) escrowsRefundedTotal.inc()

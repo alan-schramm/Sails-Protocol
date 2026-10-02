@@ -28,6 +28,7 @@ import {
   settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
+  publishEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
@@ -1167,7 +1168,12 @@ export class EscrowService {
         const trade = await tradeRepository.findById(escrow.tradeId)
         if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
 
-        const commitResult = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', verdict.record)
+        // State, Record and the claimed transition commit together; the publish after it is the live
+        // path's job, and PASS 3 re-publishes from the durable claim if it never happens.
+        const note = 'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+        const commitResult = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', verdict.record, {
+          triggeredBy: SYSTEM_SWEEPER_ID, eventName: 'settlement.escrow.expired', note,
+        })
         if (!commitResult.committed) {
           // A concurrent caller already transitioned this escrow — same
           // circuit-breaker feed claimEscrowTransition() already gives
@@ -1178,11 +1184,11 @@ export class EscrowService {
           recordEscrowConflict(escrow.id)
           continue
         }
-        await emitEscrowTransition(
+        await publishEscrowTransition(
           escrow.id, escrow.tradeId, 'FUNDS_LOCKED', 'EXPIRED', SYSTEM_SWEEPER_ID,
           'settlement.escrow.expired',
           { type: escrow.type, sellerId: trade.sellerId },
-          'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+          commitResult.transitionId
         )
         requiresManualRecovery.push(escrow.id)
       } catch (err) {
