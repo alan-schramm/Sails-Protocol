@@ -1,7 +1,5 @@
-import { TRANSITION_CLAIMED_KEY } from '../../common/events/event-projection'
 import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
-import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, SettlementResultConflictError } from '../../common/errors'
 import { AssetType } from '../../common/types'
@@ -13,6 +11,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
+import { claimEscrowTransitionRecord, computeEscrowEventHash } from './escrow-transition-claim'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -396,18 +395,10 @@ export function assertEscrowTransition(current: string, next: string) {
   }
 }
 
-// RFC-008 D2 amendment (Missão 05.5, 2026-08-15) — EscrowEvent's own hash
-// chain, same composition and same reasoning as intent-engine.ts's
-// writeIntentEvent(): sha256(fromStatus + toStatus + triggeredBy +
-// prevHash). Deliberately excludes `note` and `createdAt` from the hash —
-// mirroring IntentEvent's own precedent exactly, not inventing a new
-// composition. Exported so verifyEscrowEventChain() below (and its own
-// tests) can recompute and compare against the stored entryHash — the
-// only way to catch an entry mutated in place, not just prevHash links
-// reordered.
-export function computeEscrowEventHash(fromStatus: string, toStatus: string, triggeredBy: string, prevHash: string): string {
-  return createHash('sha256').update(`${fromStatus}|${toStatus}|${triggeredBy}|${prevHash}`).digest('hex')
-}
+// computeEscrowEventHash(), the recoverable-transition sets and the transition claim itself live in
+// escrow-transition-claim.ts (no event bus / service imports, so the timelock-expiry commit can claim its
+// transition in its own transaction); re-exported here for every existing importer.
+export { computeEscrowEventHash, RECOVERABLE_TRANSITION_EVENTS, EVENT_NAME_BY_TARGET_STATUS } from './escrow-transition-claim'
 
 // Missão 11 Fase 9.7 — CONC-03's "C5" closure (found auditing this exact
 // function while investigating whether Fase 9.6's own crash-recovery
@@ -437,24 +428,6 @@ export function computeEscrowEventHash(fromStatus: string, toStatus: string, tri
 // already had). No existing caller inspects the return value — this is
 // purely additive; every existing `await emitEscrowTransition(...)`
 // site is unaffected.
-// Issue #298 - escrow transitions whose downstream (Trade/Intent/counters/reputation) projections
-// must converge, keyed to the event name each publishes. Other transitions are untouched.
-export const RECOVERABLE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
-  'settlement.escrow.locked',
-  'settlement.escrow.disputed',
-  'settlement.escrow.released',
-  'settlement.escrow.refunded',
-  'settlement.escrow.split',
-])
-// EscrowEvent.toStatus -> the event name emitEscrowTransition() publishes for it.
-export const EVENT_NAME_BY_TARGET_STATUS: Record<string, string> = {
-  FUNDS_LOCKED: 'settlement.escrow.locked',
-  DISPUTED: 'settlement.escrow.disputed',
-  COMPLETED: 'settlement.escrow.released',
-  REFUNDED: 'settlement.escrow.refunded',
-  SPLIT: 'settlement.escrow.split',
-}
-
 export async function emitEscrowTransition(
   escrowId: string,
   tradeId: string,
@@ -465,41 +438,36 @@ export async function emitEscrowTransition(
   eventExtra: Record<string, unknown> = {},
   note?: string
 ): Promise<boolean> {
-  // entryHash/prevHash are never accepted from a caller — this function's
-  // own signature has no such parameters, so they can only ever be what
-  // the server itself derives here.
-  const claimed = await withEscrowFundingLock<string | false>(escrowId, async (tx) => {
-    const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
-    if (alreadyEmitted) return false
-
-    const last = await tx.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
-    const prevHash = last?.entryHash ?? 'genesis'
-    const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
-
-    const transition = await tx.escrowEvent.create({
-      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
-    })
-    // Issue #298 - claim != publish != projection. For the transitions whose downstream projections
-    // must converge, record atomically WITH the claim that a projection is now owed. Its completion
-    // ('transition.projected', written by the handler) is a separate fact, so recovery can tell
-    // "claimed but never published" and "published but not fully projected" apart from "done".
-    // eventId here holds the transition (EscrowEvent) id - no durable event exists yet.
-    if (RECOVERABLE_TRANSITION_EVENTS.has(eventName as string)) {
-      await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_CLAIMED_KEY, subjectId: escrowId } })
-    }
-    return transition.id as string
-  })
-
+  const claimed = await withEscrowFundingLock<string | false>(escrowId, (tx) =>
+    claimEscrowTransitionRecord(tx, { escrowId, from, to, triggeredBy, eventName: eventName as string, note })
+  )
   if (!claimed) return false
-  const transitionId = claimed
+  await publishEscrowTransition(escrowId, tradeId, from, to, triggeredBy, eventName, eventExtra, claimed)
+  return true
+}
 
+/**
+ * Publishes an already-claimed escrow transition (claimEscrowTransitionRecord()) as its canonical durable
+ * event, carrying the transition's id. If this never happens (a crash, a failed publish), PASS 3
+ * re-publishes it from the durable claim for every RECOVERABLE_TRANSITION_EVENTS transition.
+ */
+export async function publishEscrowTransition(
+  escrowId: string,
+  tradeId: string,
+  from: string,
+  to: string,
+  triggeredBy: string,
+  eventName: Parameters<typeof eventBus.emit>[0],
+  eventExtra: Record<string, unknown>,
+  transitionId: string
+): Promise<void> {
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
-  // Deliberately outside the lock/transaction above — this cascades into
+  // Deliberately outside the lock/transaction of the claim — this cascades into
   // several other modules' own writes (OpenP2P, OpenReputation), and
   // holding a Postgres advisory lock open across that whole chain would
   // be a real architectural liability for no added safety once the
-  // EscrowEvent claim above has already made this the sole winner.
+  // EscrowEvent claim has already made this the sole winner.
   await eventBus.emit(eventName as any, {
     escrowId,
     tradeId,
@@ -509,7 +477,6 @@ export async function emitEscrowTransition(
     ...eventExtra,
     transitionId,
   }, tradeId)
-  return true
 }
 
 // RFC-008 D2 amendment — Fase 5's own verification primitive. Same shape

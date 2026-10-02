@@ -1049,6 +1049,11 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
         continue
       }
 
+      // The timelock expiry's live event also carries the escrow type and seller (sweepExpiredEscrows());
+      // read here from the durable escrow and trade rows, so a re-published expiry is the same event.
+      const expiryExtra = transition.toStatus === 'EXPIRED'
+        ? { type: escrow.type, sellerId: (await prisma.trade.findUniqueOrThrow({ where: { id: escrow.tradeId }, select: { sellerId: true } })).sellerId }
+        : {}
       const action = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'transition-publish:' + transitionId})::bigint)`
         const existing = await tx.$queryRaw<Array<{ id: string }>>`
@@ -1063,6 +1068,7 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
             to: transition.toStatus,
             triggeredBy: transition.triggeredBy,
             ...(escrow.txReleaseId ? { txId: escrow.txReleaseId } : {}),
+            ...expiryExtra,
             transitionId,
           } as any, escrow.tradeId)
           // The live publisher does not take this lock: if it published between the check above and this
