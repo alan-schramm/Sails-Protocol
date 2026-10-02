@@ -32,6 +32,14 @@ export class BoundedRpcTimeoutError extends Error {
   }
 }
 
+/** The response body exceeded the caller's maxResponseBytes: the result is unknown, never a value. */
+export class BoundedResponseTooLargeError extends Error {
+  constructor(label: string, maxResponseBytes: number) {
+    super(`Bounded RPC response exceeded ${maxResponseBytes} bytes: ${label}`)
+    this.name = 'BoundedResponseTooLargeError'
+  }
+}
+
 export interface BoundedRetryPolicy {
   /** Total attempts, including the first — e.g. 3 means up to 2 retries. */
   attempts: number
@@ -41,6 +49,11 @@ export interface BoundedRetryPolicy {
 
 export interface BoundedFetchOptions {
   timeoutMs: number
+  /**
+   * The most response-body bytes this call will accept. Required: every caller states the size of the
+   * response it legitimately expects, with headroom (see each call site's constant for its derivation).
+   */
+  maxResponseBytes: number
   /** Omit for any write/broadcast/submission call — see file header. */
   retry?: BoundedRetryPolicy
 }
@@ -74,9 +87,16 @@ function delay(ms: number): Promise<void> {
  * BoundedRpcTimeoutError. Every timer therefore ends within timeoutMs of its
  * attempt's start, including for a caller that never reads the body.
  *
- * A body-phase timeout is not retried here: the Response has already been
- * handed to the caller, and a timeout means "result unknown", never
- * "absent" or "failed".
+ * The body is also bounded in BYTES: reading more than maxResponseBytes fails
+ * with BoundedResponseTooLargeError. The count is of the bytes actually
+ * received, before they reach the caller's .json()/.text()/.arrayBuffer(), so
+ * an oversized body is never accumulated; a declared Content-Length above the
+ * limit fails the read before any body byte is taken. A response whose body
+ * is never read (e.g. a status-only 404) is not affected.
+ *
+ * Neither a body-phase timeout nor an oversized body is retried here: the
+ * Response has already been handed to the caller, and both mean "result
+ * unknown", never "absent" or "failed".
  */
 export async function boundedFetch(url: string, init: RequestInit, options: BoundedFetchOptions): Promise<Response> {
   const attempts = options.retry?.attempts ?? 1
@@ -95,7 +115,10 @@ export async function boundedFetch(url: string, init: RequestInit, options: Boun
         await delay(backoffMs * attempt)
         continue
       }
-      return bindBodyToDeadline(res, timer, controller.signal, () => new BoundedRpcTimeoutError(url, options.timeoutMs))
+      return bindBody(res, timer, controller.signal, options.maxResponseBytes, {
+        timeout: () => new BoundedRpcTimeoutError(url, options.timeoutMs),
+        tooLarge: () => new BoundedResponseTooLargeError(url, options.maxResponseBytes),
+      })
     } catch (err) {
       clearTimeout(timer)
       lastError = controller.signal.aborted ? new BoundedRpcTimeoutError(url, options.timeoutMs) : err
@@ -110,30 +133,50 @@ export async function boundedFetch(url: string, init: RequestInit, options: Boun
 }
 
 /**
- * The same Response, with a body whose reading ends the attempt's deadline:
- * the timer is cleared when the body is read to the end, cancelled or
- * fails; if the deadline fires first, the body fails with timeoutError().
+ * The same Response, with a body bounded by the attempt's deadline and by maxBytes:
+ * - the timer is cleared when the body is read to the end, cancelled or fails; if the deadline fires
+ *   first, the body fails with errors.timeout();
+ * - a declared Content-Length above maxBytes fails the first read before any body byte is taken;
+ * - each received chunk is counted BEFORE it is handed on, so the chunk that crosses maxBytes is
+ *   dropped, the connection is cancelled and the body fails with errors.tooLarge(): the caller never
+ *   holds more than maxBytes of it.
  * A response without a body has nothing left to wait for.
  */
-function bindBodyToDeadline(res: Response, timer: ReturnType<typeof setTimeout>, signal: AbortSignal, timeoutError: () => Error): Response {
+function bindBody(
+  res: Response,
+  timer: ReturnType<typeof setTimeout>,
+  signal: AbortSignal,
+  maxBytes: number,
+  errors: { timeout: () => Error; tooLarge: () => Error }
+): Response {
   if (!res.body) {
     clearTimeout(timer)
     return res
   }
   const reader = res.body.getReader()
+  const declaredLength = Number(res.headers.get('content-length') ?? NaN)
+  let received = 0
+  const fail = (stream: ReadableStreamDefaultController<Uint8Array>, error: Error) => {
+    clearTimeout(timer)
+    stream.error(error)
+    void reader.cancel(error).catch(() => undefined)
+  }
   const body = new ReadableStream<Uint8Array>({
     async pull(stream) {
+      if (declaredLength > maxBytes) return fail(stream, errors.tooLarge())
       try {
         const { done, value } = await reader.read()
         if (done) {
           clearTimeout(timer)
           stream.close()
-        } else {
-          stream.enqueue(value)
+          return
         }
+        received += value.byteLength
+        if (received > maxBytes) return fail(stream, errors.tooLarge())
+        stream.enqueue(value)
       } catch (err) {
         clearTimeout(timer)
-        stream.error(signal.aborted ? timeoutError() : err)
+        stream.error(signal.aborted ? errors.timeout() : err)
       }
     },
     cancel(reason) {

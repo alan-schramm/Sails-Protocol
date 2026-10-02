@@ -130,6 +130,12 @@ import { ensureFinalizationAttempt, recordFinalizationOutcome } from './signatur
 // provider() below.
 const RPC_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
+// Most response-body bytes the bundler's eth_sendUserOperation answer may have (bounded-rpc.ts's
+// maxResponseBytes): a JSON-RPC envelope carrying a 32-byte userOpHash is 102 B at its widest
+// (tests/httpBoundaryCallSites.test.ts recomputes it). 16 KiB is 160x that, and leaves room for a
+// bundler's JSON-RPC error message.
+export const BUNDLER_RESPONSE_MAX_BYTES = 16 * 1024
+
 const ZERO_BYTES32 = '0x' + '00'.repeat(32)
 
 // Verified byte-for-byte against a live eth_call to the real, deployed factory (this file's own header comment) — do not hand-edit.
@@ -637,6 +643,7 @@ export class SafeGuardEvmProvider implements SettlementProvider {
       }),
     }, {
       timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs,
+      maxResponseBytes: BUNDLER_RESPONSE_MAX_BYTES,
     })
     let body: { result?: unknown; error?: { message?: string } }
     try {

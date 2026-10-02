@@ -98,6 +98,20 @@ import { boundedFetch } from './bounded-rpc'
 // mutating/submission call) — see bounded-rpc.ts's own header.
 const EXPLORER_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
+// Most response-body bytes each explorer call accepts (bounded-rpc.ts's maxResponseBytes). Derived from
+// the esplora/mempool.space response shapes with every field at its widest (tests/httpBoundaryCallSites.test.ts
+// recomputes them):
+// - small: tx status 148 B, outspend 263 B, tip height 10 B, fee estimates 119 B, broadcast txid 64 B. 16 KiB
+//   is 62x the largest, and leaves room for an explorer's broadcast-rejection text.
+// - transaction: GET /tx/{txid} is only asked for this provider's own spends (one 2-of-3 P2WSH input, at
+//   most 3 outputs), 2,747 B at their widest. 64 KiB is 23x that.
+// - UTXO list: grows with the number of outputs paying the escrow address, which anyone can add to; the
+//   protocol itself needs one (the funding output). 277 B per entry at its widest: 1 MiB tolerates 3,785
+//   entries before the read fails closed.
+export const EXPLORER_SMALL_RESPONSE_MAX_BYTES = 16 * 1024
+export const EXPLORER_TRANSACTION_MAX_BYTES = 64 * 1024
+export const EXPLORER_UTXO_LIST_MAX_BYTES = 1024 * 1024
+
 /**
  * Longest reconcilePendingSettlement() can spend on the explorer for one operation: the existence read
  * and the UTXO read, each up to EXPLORER_READ_RETRY.attempts timed-out attempts plus the backoff between
@@ -257,6 +271,7 @@ export interface TransactionExistence {
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (res.status === 404) return { exists: false, confirmed: false }
@@ -275,6 +290,7 @@ export async function fetchTransactionExistence(txid: string): Promise<Transacti
 export async function fetchTransactionConfirmationStatus(txid: string): Promise<TransactionConfirmationStatus> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -305,6 +321,7 @@ export interface BroadcastTransactionOutput {
 export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTransactionOutput[]> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_TRANSACTION_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -338,6 +355,7 @@ export interface OutpointSpendStatus {
 export async function fetchOutpointSpendStatus(txid: string, vout: number): Promise<OutpointSpendStatus> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/outspend/${vout}`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -355,6 +373,7 @@ export async function fetchOutpointSpendStatus(txid: string, vout: number): Prom
 export async function fetchChainTipHeight(): Promise<number> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/blocks/tip/height`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -698,6 +717,7 @@ export class MultisigProvider implements SettlementProvider {
   private async fetchUtxos(address: string): Promise<ExplorerUtxo[]> {
     const res = await boundedFetch(`${config.multisig.explorerApiUrl}/address/${address}/utxo`, {}, {
       timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      maxResponseBytes: EXPLORER_UTXO_LIST_MAX_BYTES,
       retry: EXPLORER_READ_RETRY,
     })
     if (!res.ok) {
@@ -947,6 +967,7 @@ export class MultisigProvider implements SettlementProvider {
   private async broadcast(txHex: string): Promise<string> {
     const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
       timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     })
     if (!res.ok) {
       throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
@@ -971,6 +992,7 @@ export class MultisigProvider implements SettlementProvider {
     try {
       res = await boundedFetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`, {}, {
         timeoutMs: config.multisig.explorerRequestTimeoutMs,
+        maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
         retry: EXPLORER_READ_RETRY,
       })
     } catch (err) {
