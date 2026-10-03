@@ -363,9 +363,14 @@ describe('Ruling prior-state / revert-target atomicity (real Postgres)', () => {
 
   // ─── F. two competing rulings ────────────────────────────────────────────────────────────────────────────
 
-  it('F — two rulings both read the dispute before either acquired authority: exactly one commits (one record, one dispatch, one event); the other is refused', async () => {
-    requirePostgres('F two rulings')
-    const f = await makeDispute('f')
+  // F races two VALID rulings: each beneficiary has a registered payout address, so a ruling can lose only to
+  // the other one, never fail on its own. (With only the buyer's address, a REFUND that reached the lock first
+  // was refused for the seller's missing address instead, and the RELEASE then won: the outcome was the same,
+  // the loser's error depended on which transaction the scheduler let through first.)
+  async function twoValidRulings(suffix: string) {
+    const f = await makeDispute(suffix)
+    await payoutAddressService.setPayoutAddress(f.sellerId, 'BTC', testnetAddress(`ruling-prior-${suffix}-seller-${Date.now()}`))
+    const priorStatus = (await row(f)).status
     const gateA = holdAfterPreLockRead()
     const release = rule(f, 'RELEASE')
     await reachedOrSettled(gateA, release)
@@ -373,19 +378,44 @@ describe('Ruling prior-state / revert-target atomicity (real Postgres)', () => {
     const refund = rule(f, 'REFUND')
     await reachedOrSettled(gateB, refund)
     mockExplorer([f.fundingTxid])
-    gateA.release()
-    gateB.release()
-    const outcomes = await Promise.allSettled([release, refund])
+    return { f, priorStatus, release, refund, gateA, gateB }
+  }
 
+  /** Exactly one ruling committed and it is `winner`: one record (naming the state it displaced), one dispatch, one event; the other was refused as already resolved. */
+  async function assertOneRulingWon(f: Fixture, priorStatus: string, winner: 'RELEASE' | 'REFUND', outcomes: PromiseSettledResult<unknown>[]): Promise<void> {
     expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1)
     const rejected = outcomes.find((o): o is PromiseRejectedResult => o.status === 'rejected')!
     expect(String(rejected.reason?.message)).toMatch(/already resolved/)
     const r = await row(f)
     expect(r.status).toBe('RESOLVED')
+    expect(r.ruling).toBe(winner)
     expect(await prisma.semanticTransitionRecord.count({ where: { interactionId: f.escrowId, transitionType: 'escrow.dispute.rule' } })).toBe(1)
+    expect((await rulingRecord(f))!.fromState).toBe(priorStatus)
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrowId } })).toBe(1)
     expect(await resolvedEvents(f)).toBe(1)
+  }
+
+  it('F — two rulings both read the dispute before either acquired authority: exactly one commits (one record, one dispatch, one event); the other is refused', async () => {
+    requirePostgres('F two rulings')
+    const { f, priorStatus, release, refund, gateA, gateB } = await twoValidRulings('f')
+    gateA.release()
+    gateB.release()
+    const outcomes = await Promise.allSettled([release, refund])
+    // either may take authority first; whichever did is the one durable ruling
+    await assertOneRulingWon(f, priorStatus, outcomes[0].status === 'fulfilled' ? 'RELEASE' : 'REFUND', outcomes)
   })
+
+  for (const first of ['RELEASE', 'REFUND'] as const) {
+    it(`F (${first} takes authority first) — the first ruling commits and the other cannot overwrite it`, async () => {
+      requirePostgres(`F ${first} first`)
+      const { f, priorStatus, release, refund, gateA, gateB } = await twoValidRulings(`f-${first.toLowerCase()}`)
+      const [winner, loser] = first === 'RELEASE' ? [{ gate: gateA, ruling: release }, { gate: gateB, ruling: refund }] : [{ gate: gateB, ruling: refund }, { gate: gateA, ruling: release }]
+      winner.gate.release()
+      await winner.ruling // committed and dispatched before the other ruling takes the lock
+      loser.gate.release()
+      await assertOneRulingWon(f, priorStatus, first, await Promise.allSettled([release, refund]))
+    })
+  }
 
   // ─── G. a ruling signed for round 0 after the dispute moved to round 1 ───────────────────────────────────
 
