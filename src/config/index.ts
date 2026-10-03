@@ -513,7 +513,11 @@ export const config = {
     // Bitcoin Core's own coinbase-maturity constant — a widely-recognized,
     // independently-justified reference point for "practically
     // immutable" in the Bitcoin ecosystem, not an arbitrary pick.
-    multisigReorgSafetyWindowBlocks: requiredInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
+    // Strict positive integer: both reorg sweeps monitor heights >= tip -
+    // window + 1, so 0 or a negative window starts the range above the tip
+    // and silently disables reorg detection for every confirmed fee and
+    // release; '1.5' or '100abc' must not be read as something else either.
+    multisigReorgSafetyWindowBlocks: requiredPositiveInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
     // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
     // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
     multisigFundingReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
