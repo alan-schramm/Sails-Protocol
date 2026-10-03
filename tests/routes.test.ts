@@ -578,6 +578,8 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
 
     it('rejects a JSON body above the global Fastify limit before the handler runs', async () => {
+      // The bound is a reviewed 1 MiB, pinned here rather than derived only from the exported constant.
+      expect(HTTP_BODY_LIMIT_BYTES).toBe(1024 * 1024)
       const redisSet = redis.set as jest.Mock
       const baseBody = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: '' })
       const bodyAtLimit = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: 'x'.repeat(HTTP_BODY_LIMIT_BYTES - baseBody.length) })
@@ -1448,6 +1450,30 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       releaseTradeLookup()
       mockTradeFindUnique.mockReset()
       expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('closes when a second frame arrives before ticket resolution completes', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      let releaseSessionLookup!: () => void
+      const sessionLookupBlocked = new Promise<void>((resolve) => { releaseSessionLookup = resolve })
+      const realGet = redis.get as jest.Mock
+      const originalImpl = realGet.getMockImplementation()
+      realGet.mockImplementationOnce(async (key: string) => {
+        await sessionLookupBlocked
+        return originalImpl ? originalImpl(key) : null
+      })
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: { message?: string } }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+      ws.send(JSON.stringify({ type: 'PING', payload: {} }))
+      ws.send(JSON.stringify({ type: 'PING', payload: {} }))
+
+      await closed
+      releaseSessionLookup()
+      expect(frames.map((frame) => frame.payload?.message)).toEqual(['Too many messages before authentication'])
     })
 
     // Security review, 2026-08-15 (P1) — closes the gap the Codex threat
@@ -2365,7 +2391,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         method: 'POST',
         url: '/v1/capabilities/register',
         headers: { authorization: `Bearer ${token}` },
-        payload: { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering', 'intent.extra', 'intent.too_many'] },
+        // Every entry is canonical for this capability (the registry accepts repeats), so only the
+        // schema's scope-count bound can reject this collection.
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering', 'intent.created', 'intent.discovering'] },
       })
 
       expect(res.statusCode).toBe(400)
