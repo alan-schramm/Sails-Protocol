@@ -524,6 +524,51 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  // Both MULTISIG reorg sweeps monitor heights >= tip - window + 1. A window of 0 or less starts that range
+  // above the chain tip, so every confirmed fee and release silently drops out of reorg detection while
+  // the sweeps keep reporting success: an explicit value must be a strict positive integer or the config fails.
+  describe('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS — an explicit value is a positive integer or the config refuses to load', () => {
+    const window = (value: string | undefined) => loadConfig({ NODE_ENV: 'test', MULTISIG_REORG_SAFETY_WINDOW_BLOCKS: value })
+    const fresh = () => { jest.resetModules(); process.env = {} }
+
+    it('absent keeps the documented default of 100', () => {
+      expect(window(undefined)().trade.multisigReorgSafetyWindowBlocks).toBe(100)
+    })
+
+    it('accepts a positive integer, including 1, and an operator value with surrounding whitespace', () => {
+      expect(window('144')().trade.multisigReorgSafetyWindowBlocks).toBe(144)
+      fresh()
+      expect(window('1')().trade.multisigReorgSafetyWindowBlocks).toBe(1)
+      fresh()
+      expect(window(' 50 ')().trade.multisigReorgSafetyWindowBlocks).toBe(50)
+    })
+
+    it.each([
+      ['0', 'zero: the window would start above the tip'],
+      ['-1', 'negative'],
+      ['-1000', 'negative'],
+      ['1.5', 'decimal: not truncated to 1'],
+      ['1e3', 'exponent: not read as 1'],
+      ['100abc', 'trailing garbage: not read as 100'],
+      ['abc', 'non-numeric'],
+      ['NaN', 'non-numeric'],
+      ['Infinity', 'not finite'],
+      ['', 'explicitly empty: not the default'],
+      ['   ', 'whitespace only: not the default'],
+      ['9007199254740993', 'beyond exact integer range'],
+    ])('rejects %j (%s)', (value) => {
+      expect(window(value)).toThrow(/MULTISIG_REORG_SAFETY_WINDOW_BLOCKS must be a positive integer/)
+    })
+
+    it('an invalid window cannot wire either reorg sweep: loading them fails, nothing runs with the protection disabled', () => {
+      for (const sweep of ['multisig-fee-reorg-sweep', 'multisig-release-reorg-sweep']) {
+        fresh()
+        loadConfig({ NODE_ENV: 'test', MULTISIG_REORG_SAFETY_WINDOW_BLOCKS: '0' })
+        expect(() => require(`../src/modules/open-settlement/${sweep}`)).toThrow(/MULTISIG_REORG_SAFETY_WINDOW_BLOCKS must be a positive integer/)
+      }
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
