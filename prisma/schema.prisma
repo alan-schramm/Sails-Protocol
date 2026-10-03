@@ -1491,6 +1491,10 @@ model Dispute {
   autoResolutionConfidence     Float?
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
+  // #309 — monotonic evidence snapshot version. Incremented in the same statement that appends an
+  // evidence entry (dispute.service.ts persistEvidence()), so a QVAC assessment can only propose an
+  // automated resolution for the exact snapshot it assessed.
+  evidenceGeneration           Int                @default(0)
   autoResolved                 Boolean            @default(false)
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.

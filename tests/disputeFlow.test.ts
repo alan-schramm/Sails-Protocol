@@ -135,6 +135,9 @@ jest.mock('../src/common/database', () => ({
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    // #309 — the evidence append is one UPDATE ... RETURNING "evidenceGeneration" ($queryRaw). It shares
+    // mockExecuteRaw's queued results and recorded SQL: a count of 1 is one committed row, 0 none.
+    $queryRaw: async (...args: unknown[]) => ((await mockExecuteRaw(...args)) ? [{ evidenceGeneration: 1 }] : []),
   },
 }))
 

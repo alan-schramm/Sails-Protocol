@@ -230,6 +230,9 @@ export interface DisputeAppealedEvent extends DisputeEvent {
 // DisputeResolvedEvent already extend the base shape with it.
 export interface DisputeEvidenceSubmittedEvent extends DisputeEvent {
   tradeId: string
+  // #309 — the evidence snapshot this submission committed. Optional only for replay of events
+  // persisted before generation binding existed.
+  evidenceGeneration?: number
 }
 
 // dispute.auto_resolution_proposed's real payload — RFC-021 D8. QVAC's

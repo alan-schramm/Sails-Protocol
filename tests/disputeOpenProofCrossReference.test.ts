@@ -18,7 +18,7 @@
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
-// persistEvidence()'s write is one conditional UPDATE through $executeRaw (the new entry bound as a JSON array).
+// persistEvidence()'s write is one conditional UPDATE ... RETURNING "evidenceGeneration" ($queryRaw), the new entry bound as a JSON array.
 const mockExecuteRaw = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
@@ -36,6 +36,9 @@ jest.mock('../src/common/database', () => ({
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    // #309 — the evidence append is one UPDATE ... RETURNING "evidenceGeneration" ($queryRaw). It shares
+    // mockExecuteRaw's queued results and recorded SQL: a count of 1 is one committed row, 0 none.
+    $queryRaw: async (...args: unknown[]) => ((await mockExecuteRaw(...args)) ? [{ evidenceGeneration: 1 }] : []),
   },
 }))
 
