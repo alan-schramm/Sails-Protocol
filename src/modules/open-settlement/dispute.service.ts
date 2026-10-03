@@ -1305,12 +1305,15 @@ export class DisputeService {
     // else from the read (the trade and its parties never change), so a
     // dispute that left and re-entered an evidence-accepting state (e.g.
     // proposed, then contested) is genuinely open again.
-    const appended = await prisma.$executeRaw`
+    // #309 — the same statement increments evidenceGeneration and returns the generation it committed,
+    // so the event names exactly this snapshot (a re-read could already see a later append).
+    const [appended] = await prisma.$queryRaw<Array<{ evidenceGeneration: number }>>`
       UPDATE disputes
       SET evidence = (CASE WHEN jsonb_typeof(evidence) = 'array' THEN evidence ELSE '[]'::jsonb END) || ${JSON.stringify([entry])}::jsonb,
-          status = 'EVIDENCE_SUBMITTED', "updatedAt" = ${new Date()}
-      WHERE id = ${disputeId} AND status IN ('OPENED', 'EVIDENCE_SUBMITTED')`
-    if (appended === 0) {
+          status = 'EVIDENCE_SUBMITTED', "evidenceGeneration" = "evidenceGeneration" + 1, "updatedAt" = ${new Date()}
+      WHERE id = ${disputeId} AND status IN ('OPENED', 'EVIDENCE_SUBMITTED')
+      RETURNING "evidenceGeneration"`
+    if (!appended) {
       const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
       throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${current?.status ?? 'unknown'}`)
     }
@@ -1324,7 +1327,8 @@ export class DisputeService {
     // same pre-update fetch, never from `prisma.dispute.update()`'s own
     // return value) regardless of whether a given Prisma client/mock/
     // future `select` clause happens to return the full row.
-    return { ...dispute, ...updated }
+    // #309 — evidenceGeneration is the one this append committed (RETURNING), never the re-read's.
+    return { ...dispute, ...updated, evidenceGeneration: appended.evidenceGeneration }
   }
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the evidence is
@@ -1344,6 +1348,7 @@ export class DisputeService {
       settlementId: dispute.escrowId,
       tradeId: dispute.tradeId,
       triggeredBy: submittedBy,
+      evidenceGeneration: dispute.evidenceGeneration,
     }, dispute.tradeId)
   }
 
@@ -1359,14 +1364,22 @@ export class DisputeService {
    * this never overwrites a real decision, it can only ever act on a
    * dispute still genuinely open.
    */
-  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string) {
+  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string, assessedEvidenceGeneration?: number) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
     const deadline = new Date(Date.now() + config.settlement.qvacAutoResolutionWindowHours * 3600 * 1000)
 
     const claim = await prisma.dispute.updateMany({
-      where: { id: disputeId, status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] }, ruling: null },
+      where: {
+        id: disputeId,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+        ruling: null,
+        // #309 — a recommendation QVAC made for a specific evidence snapshot may only affect that exact
+        // snapshot; newer evidence makes it stale. Direct callers without a generation keep the existing
+        // advisory-only behavior.
+        ...(assessedEvidenceGeneration === undefined ? {} : { evidenceGeneration: assessedEvidenceGeneration }),
+      },
       data: {
         status: 'AUTO_PROPOSED',
         autoResolutionRecommendation: recommendation,

@@ -170,7 +170,7 @@ describe('persistEvidence() — authority and lost-update races decided by the d
   let interceptorInstalled = false
 
   // Holds the next evidence write — the conditional `UPDATE disputes SET evidence = ...` persistEvidence() issues
-  // now, or the `prisma.dispute.update({ data: { evidence } })` it issued before — until release(). One write per
+  // now (with RETURNING since #309), or the `prisma.dispute.update({ data: { evidence } })` it issued before — until release(). One write per
   // gate, in gate order; every other statement passes straight through.
   function holdNextEvidenceWrite(): Gate {
     let signalReached!: () => void
@@ -181,16 +181,20 @@ describe('persistEvidence() — authority and lost-update races decided by the d
     if (!interceptorInstalled) {
       interceptorInstalled = true
       const client = prisma as any
-      const originalRaw = client.$executeRaw.bind(client)
-      jest.spyOn(client, '$executeRaw').mockImplementation(async (...args: unknown[]) => {
-        const [strings, ...values] = args as [TemplateStringsArray, ...unknown[]]
-        if (Array.isArray(strings) && strings.join('?').includes('UPDATE disputes') && strings.join('?').includes('SET evidence') && writeGates.length > 0) {
-          const gate = writeGates.shift()!
-          gate.signalReached()
-          await gate.released
-        }
-        return originalRaw(strings, ...values)
-      })
+      // The write is a raw `UPDATE disputes SET evidence = ...`: through $executeRaw, or through $queryRaw since
+      // #309 added `RETURNING "evidenceGeneration"` to it. Both are held the same way.
+      for (const method of ['$executeRaw', '$queryRaw'] as const) {
+        const originalRaw = client[method].bind(client)
+        jest.spyOn(client, method).mockImplementation(async (...args: unknown[]) => {
+          const [strings, ...values] = args as [TemplateStringsArray, ...unknown[]]
+          if (Array.isArray(strings) && strings.join('?').includes('UPDATE disputes') && strings.join('?').includes('SET evidence') && writeGates.length > 0) {
+            const gate = writeGates.shift()!
+            gate.signalReached()
+            await gate.released
+          }
+          return originalRaw(strings, ...values)
+        })
+      }
       const delegate = client.dispute
       const originalUpdate = delegate.update.bind(delegate)
       jest.spyOn(delegate, 'update').mockImplementation(async (args: any) => {
