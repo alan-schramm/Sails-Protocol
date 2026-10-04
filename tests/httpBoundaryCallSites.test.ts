@@ -132,7 +132,8 @@ describe('HTTP boundary — economic call sites fail closed on stalled or unread
   // ─── SAFE_GUARD_EVM bundler submission (economic write) ────────────────────────────────────────────────
 
   const userOp = { sender: '0x' + '11'.repeat(20), nonce: 1n, initCode: '0x', callData: '0x', accountGasLimits: '0x' + '00'.repeat(32), preVerificationGas: 1n, gasFees: '0x' + '00'.repeat(32), paymasterAndData: '0x' }
-  const submit = () => (mod.safeGuard.safeGuardEvmProvider as any).broadcast(userOp, '0xsig')
+  const expectedUserOpHash = 'ab'.repeat(32)
+  const submit = () => (mod.safeGuard.safeGuardEvmProvider as any).broadcast(userOp, '0xsig', expectedUserOpHash)
 
   it('bundler: an accepted (200) response whose body stalls is "outcome unknown" (throws -> SUBMISSION_UNKNOWN), never a txid, never retried', async () => {
     reply = stalledBody(200, '{"jsonrpc":"2.0","result":"0x')
@@ -155,8 +156,8 @@ describe('HTTP boundary — economic call sites fail closed on stalled or unread
     await expect(submit()).rejects.toThrow(/bundler rejected the UserOperation.*AA21/)
     reply = (_q, res) => { res.writeHead(502); res.end('<html>bad gateway</html>') }
     await expect(submit()).rejects.toThrow(/bundler rejected the UserOperation/)
-    reply = (_q, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"jsonrpc":"2.0","id":1,"result":"0xuserophash"}') }
-    await expect(submit()).resolves.toEqual({ txId: '0xuserophash' })
+    reply = (_q, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(`{"jsonrpc":"2.0","id":1,"result":"0x${expectedUserOpHash}"}`) }
+    await expect(submit()).resolves.toEqual({ txId: `0x${expectedUserOpHash}` })
   })
 
   // ─── Response size: every caller's byte bound, against its widest legitimate response ──────────────────
@@ -225,7 +226,7 @@ describe('HTTP boundary — economic call sites fail closed on stalled or unread
     reply = (_q, res) => { res.writeHead(200); res.end(widest.broadcast) }
     expect(await (mod.multisig.multisigProvider as any).broadcast('00')).toBe(h64)
     reply = json(widest.bundler)
-    expect(await submit()).toEqual({ txId: '0x' + h64 })
+    expect(await (mod.safeGuard.safeGuardEvmProvider as any).broadcast(userOp, '0xsig', h64)).toEqual({ txId: '0x' + h64 })
   })
 
   /** A body `bytes` long, sent as fast as the socket takes it. */

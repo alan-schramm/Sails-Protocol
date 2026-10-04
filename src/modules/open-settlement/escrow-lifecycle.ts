@@ -6,7 +6,7 @@ import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { payoutAddressService } from './payout-address.service'
-import { escrowRepository } from './escrow-repository'
+import { escrowRepository, type DirectExecutionDisposition, type DirectExecutionIntent } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
@@ -325,8 +325,10 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
 
 /** Atomic escrow.status transition — the same conditional updateMany +
  *  count === 0 → throw + revert idiom every mutating method below uses
- *  (the robustness-audit fix from 2026-07-20). */
-export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<void> {
+ *  (the robustness-audit fix from 2026-07-20).
+ *  #247/#248 - `intent` is passed only by the direct-call releaseFunds()/refundFunds()/splitFunds():
+ *  the claim then also freezes (or must identically match) that execution's economic intent. */
+export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, intent?: DirectExecutionIntent): Promise<void> {
   // 2026-08-15 — checked first and cheaply, before any real work: once
   // this escrow's circuit is open, every further attempt should fail
   // fast, not pay for an authorization check + DB round trip first. See
@@ -340,13 +342,39 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
-  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+  const claimedCount = intent
+    ? await escrowRepository.claimDirectExecution(escrowId, fromStatus, toStatus as DirectExecutionDisposition, intent)
+    : await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
   if (claimedCount === 0) {
     // A real, concrete anomaly on this specific escrow — not a heuristic
     // guess — so it feeds the circuit breaker directly.
     recordEscrowConflict(escrowId)
+    if (intent) await assertNoDivergentFrozenIntent(escrowId, fromStatus, toStatus, intent)
     throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
   }
+}
+
+// #247/#248 - first economic intent wins within an authority phase: a direct-call attempt whose
+// intent differs from the one this phase already froze (even after that attempt's provider call failed
+// and the status was reverted) is refused with the frozen intent named, never allowed to replace it.
+// Cooperative intent includes its actor; arbitrated intent does not - who may execute it is the
+// current assigned arbiter, already enforced by loadEscrowWithAuthorization() before any claim.
+async function assertNoDivergentFrozenIntent(escrowId: string, fromStatus: string, toStatus: string, intent: DirectExecutionIntent): Promise<void> {
+  const row = await escrowRepository.findById(escrowId)
+  if (!row) return
+  const requestedBps = intent.splitBuyerBps ?? null
+  if (fromStatus === 'DISPUTED') {
+    if (!row.arbitratedDisposition || (row.arbitratedDisposition === toStatus && row.splitBuyerBps === requestedBps)) return
+    throw new EscrowError(
+      `Escrow ${escrowId} already froze its arbitrated execution intent (${row.arbitratedDisposition}${row.splitBuyerBps === null ? '' : ` at buyerBps=${row.splitBuyerBps}`}); ` +
+      `refusing a divergent ${toStatus}${requestedBps === null ? '' : ` at buyerBps=${requestedBps}`}.`
+    )
+  }
+  if (!row.cooperativeDisposition || (row.cooperativeDisposition === toStatus && row.cooperativeTriggeredBy === intent.triggeredBy)) return
+  throw new EscrowError(
+    `Escrow ${escrowId} already froze its cooperative execution intent (${row.cooperativeDisposition} by ${row.cooperativeTriggeredBy}); ` +
+    `refusing a divergent ${toStatus} by ${intent.triggeredBy}.`
+  )
 }
 
 const lifecycleLog = childLogger('escrow-lifecycle')

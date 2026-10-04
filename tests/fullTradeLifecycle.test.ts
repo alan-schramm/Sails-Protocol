@@ -91,12 +91,17 @@ function makeTable(idPrefix: string, defaults: Record<string, unknown> = {}) {
     // matchesWhereClause rather than adding a second updateMany variant —
     // same "real conditional-update semantics, not a stub" discipline this
     // table's own comment above already commits to.
+    // #247/#248 - escrow-repository.ts's claimDirectExecution() matches `OR: [...]` alternatives and
+    // `field: null`; a column this fake row never set reads as NULL, as an unset column does in SQL.
     updateMany: jest.fn(async ({ where, data }: any) => {
-      const matchesWhereClause = (r: any) =>
-        Object.entries(where).every(([k, v]) =>
-          v && typeof v === 'object' && 'not' in (v as any) ? r[k] !== (v as any).not : r[k] === v
+      const matchesWhereClause = (r: any, clause: any = where): boolean =>
+        Object.entries(clause).every(([k, v]) =>
+          k === 'OR' ? (v as any[]).some((alternative) => matchesWhereClause(r, alternative))
+            : v && typeof v === 'object' && 'not' in (v as any) ? r[k] !== (v as any).not
+            : v === null ? r[k] === null || r[k] === undefined
+            : r[k] === v
         )
-      const matches = [...rows.values()].filter(matchesWhereClause)
+      const matches = [...rows.values()].filter((r) => matchesWhereClause(r))
       for (const row of matches) {
         const merged = { ...row, ...data, updatedAt: new Date() }
         rows.set(row.id, merged)

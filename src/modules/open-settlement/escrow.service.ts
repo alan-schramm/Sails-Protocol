@@ -760,7 +760,7 @@ export class EscrowService {
     // lockFunds() above now is: atomically claim COMPLETED via a
     // conditional `updateMany` *before* ever calling the provider, so a
     // concurrent loser is rejected before touching real funds, not after.
-    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED')
+    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED', { triggeredBy })
 
     // Issue #291 - two distinct error boundaries. Only a failing PROVIDER call
     // reverts the claim; once it has returned, external execution may already
@@ -869,7 +869,7 @@ export class EscrowService {
 
     // Same fix as releaseFunds() above, same reason: claim REFUNDED
     // atomically before ever calling the real, side-effecting provider.
-    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
+    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED', { triggeredBy })
 
     let result: { txId: string }
     try {
@@ -930,7 +930,10 @@ export class EscrowService {
       )
     }
 
-    await claimEscrowTransition(escrowId, escrow.status, 'SPLIT')
+    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps) before any provider side
+    // effect; a failed provider call below reverts only the status, so a retry - by whoever is then the
+    // assigned arbiter (checked above) - must present this identical allocation.
+    await claimEscrowTransition(escrowId, escrow.status, 'SPLIT', { triggeredBy, splitBuyerBps: buyerBps })
 
     let result: { txIds: string[] }
     try {

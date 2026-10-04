@@ -202,6 +202,8 @@ function multisigEscrowFixture(overrides: Record<string, any> = {}) {
     id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'COMPLETED', txReleaseId: null,
     lockedAmount: { toString: () => '0.001' }, txLockId: 'a'.repeat(64), txLockVout: 0,
     snapshotFeeCollectionAddress: null,
+    // #247/#248 - no frozen execution intent (legacy / signature-collection row shape).
+    cooperativeDisposition: null, cooperativeTriggeredBy: null, arbitratedDisposition: null, arbitratedTriggeredBy: null, splitBuyerBps: null,
     ...overrides,
   }
 }
@@ -211,6 +213,7 @@ function wdkEscrowFixture(overrides: Record<string, any> = {}) {
   return {
     id: 'escrow-1', tradeId: 'trade-1', type: 'WDK_USDT_EVM', status: 'COMPLETED', txReleaseId: null,
     lockedAmount: { toString: () => '0.001' }, asset: 'USDT_ERC20',
+    cooperativeDisposition: null, cooperativeTriggeredBy: null, arbitratedDisposition: null, arbitratedTriggeredBy: null, splitBuyerBps: null,
     ...overrides,
   }
 }
@@ -992,7 +995,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockPendingTxDelete).not.toHaveBeenCalled()
   })
 
-  it('C5 recovery for a direct-call-rail SPLIT with no surviving pending row — buyerBps is genuinely unrecoverable, obligation recording is SKIPPED (not guessed), but the completion event still fires', async () => {
+  it('C5 recovery for a legacy direct-call-rail SPLIT (no frozen allocation, no surviving pending row) — buyerBps is genuinely unrecoverable, obligation recording is SKIPPED (not guessed), but the completion event still fires', async () => {
     mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-split-1', type: 'MOCK', txReleaseId: 'split-txid-1', status: 'SPLIT' })])
     mockEscrowEventFindFirst.mockResolvedValue(null)
@@ -1003,6 +1006,96 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-split-1', obligationSkipped: true }])
     expect(mockRecordObligation).not.toHaveBeenCalled()
     expect(mockEscrowEventCreate).toHaveBeenCalledTimes(1) // the event itself still recovers — only the fee obligation is unrecoverable
+  })
+
+  // #247/#248 - recovery reuses the economic intent the direct-call claim froze, never a substitute.
+  describe('frozen direct-execution intent (#247/#248)', () => {
+    const eventTriggeredBy = () => mockEscrowEventCreate.mock.calls.map(([arg]: any[]) => arg.data.triggeredBy)
+
+    it('C5 SPLIT: the fee obligation is recorded with the frozen buyerBps and the event is attributed to the frozen actor', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-split-2', type: 'MOCK', txReleaseId: 'split-txid-2', status: 'SPLIT',
+        arbitratedDisposition: 'SPLIT', arbitratedTriggeredBy: 'arbiter-1', splitBuyerBps: 2500,
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-split-2', obligationSkipped: false }])
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-split-2' }), 'SPLIT', 2500, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('C5 RELEASE after a failed cooperative attempt and arbitration: the event is attributed to the authorized arbiter, not the cooperative actor or the seller stand-in', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-mock-3', type: 'MOCK', txReleaseId: 'mock-txid-3', status: 'COMPLETED',
+        cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: 'seller-1', arbitratedDisposition: 'COMPLETED', arbitratedTriggeredBy: 'arbiter-1',
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-mock-3' }), 'RELEASE', undefined, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('C5 cooperative REFUND: the event is attributed to the frozen cooperative actor', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-mock-5', type: 'MOCK', txReleaseId: 'mock-txid-5', status: 'REFUNDED',
+        cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: 'seller-agent-1',
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(eventTriggeredBy()).toEqual(['seller-agent-1'])
+    })
+
+    it('a legacy direct-call row (no frozen actor) keeps the pre-existing seller stand-in', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-4', type: 'MOCK', txReleaseId: 'mock-txid-4', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(eventTriggeredBy()).toEqual(['seller-1'])
+    })
+
+    it('WDK RELEASE terminal convergence (#251/#328) attributes the recovered event to the frozen actor; its convergence decision is unchanged', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ arbitratedDisposition: 'COMPLETED', arbitratedTriggeredBy: 'arbiter-1' })])
+      mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xconfirmed' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'RELEASE', 'buyer-payout-address', '0.001'
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_CONFIRMED' }])
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('WDK SPLIT convergence (#250/#332) records the obligation with the frozen buyerBps and the frozen actor; its leg classification is unchanged', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT', arbitratedDisposition: 'SPLIT', arbitratedTriggeredBy: 'arbiter-1', splitBuyerBps: 4000 })])
+      mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+        operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+      )
+      mockWdkFindLatest.mockImplementation(async (_escrowId: string, operationType: string) =>
+        operationType === 'SPLIT_BUYER' ? { id: 'a-1', amount: { toString: () => '0.0004' } } : { id: 'a-2', amount: { toString: () => '0.0006' } }
+      )
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyer,0xseller', outcome: 'ALREADY_CONFIRMED' }])
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'SPLIT', 4000, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
   })
 
   it('a Trade lookup failure during C5 catch-up is reported for manual review, not silently swallowed or crashed on', async () => {

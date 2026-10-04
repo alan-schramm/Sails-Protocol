@@ -56,6 +56,24 @@ function requiredIntervalMs(name: string, fallback: number): number {
   return value
 }
 
+function requiredFiniteNumber(name: string, fallback: number, validate: (value: number) => boolean, expectation: string): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(parsed) || !validate(parsed)) {
+    throw new Error(`Invalid ${name}: must be ${expectation}, got: ${raw}`)
+  }
+  return parsed
+}
+
+function parseStrictBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`Environment variable ${name} must be exactly 'true' or 'false', got: ${raw}`)
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -353,6 +371,12 @@ export const config = {
     rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
   },
 
+  observability: {
+    // Keep aggregate metrics available to local tooling while requiring an
+    // explicit production opt-in before exposing operational activity.
+    metricsEnabled: parseStrictBoolean('METRICS_ENABLED', !isProductionEnv),
+  },
+
   // 2026-08-15 security review — escrow-circuit-breaker.ts. Deliberately
   // scoped per-escrowId, never global: pausing the whole exchange because
   // of anomalous activity on ONE trade would turn the circuit breaker
@@ -563,6 +587,12 @@ export const config = {
       accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID ?? '',
       secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY ?? '',
       forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true',
+      // No protocol-wide timeout is invented here. Operators must choose
+      // a bound appropriate to their S3-compatible backend; the provider
+      // treats expiry as local cancellation/UNKNOWN remote mutation outcome.
+      requestTimeoutMs: process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS
+        ? Number(process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS)
+        : undefined,
     },
   },
 
@@ -617,10 +647,20 @@ export const config = {
     // proposed — anything lower falls straight through to the human
     // arbiter, unchanged. Starting conservative (high bar), tunable per
     // deployment as real-world calibration data accumulates.
-    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
-    // How long either trade party has to contest a proposed automated
-    // ruling before sweepExpiredAutoResolutions() applies it.
-    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
+    qvacAutoResolutionConfidenceThreshold: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD',
+      0.85,
+      (value) => value >= 0 && value <= 1,
+      'a finite number in the range [0, 1]'
+    ),
+    // How long either trade party has to contest a proposed advisory ruling
+    // before sweepExpiredAutoResolutions() returns it to human review.
+    qvacAutoResolutionWindowHours: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_WINDOW_HOURS',
+      24,
+      (value) => value > 0,
+      'a finite number greater than 0'
+    ),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real

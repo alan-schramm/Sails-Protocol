@@ -418,6 +418,18 @@ model Escrow {
   // application-level check-then-write.
   txLockVout                            Int?
   txReleaseId                           String?
+  // #247/#248 - frozen economic intent of direct-call execution, one immutable slot per authority
+  // phase (cooperative: disposition + actor of the first claim from a non-DISPUTED state; arbitrated:
+  // disposition + SPLIT allocation of the first claim from DISPUTED). Never cleared by a provider-
+  // failure revert; arbitration never rewrites the cooperative slot. arbitratedTriggeredBy is the
+  // current authority (assigned arbiter) of the latest successful arbitrated claim, not intent. Null
+  // for legacy rows and signature-collection rails (their intent lives on EscrowPendingTransaction).
+  // DB trigger + CHECKs: see the migration.
+  cooperativeDisposition                String?
+  cooperativeTriggeredBy                String?
+  arbitratedDisposition                 String?
+  arbitratedTriggeredBy                 String?
+  splitBuyerBps                         Int?
   timelockHours                         Int               @default(24)
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
   // Nullable, not defaulted to 0: null means "no fee was computed for
@@ -1491,6 +1503,10 @@ model Dispute {
   autoResolutionConfidence     Float?
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
+  // #309 — monotonic evidence snapshot version. Incremented in the same statement that appends an
+  // evidence entry (dispute.service.ts persistEvidence()), so a QVAC assessment can only propose an
+  // automated resolution for the exact snapshot it assessed.
+  evidenceGeneration           Int                @default(0)
   autoResolved                 Boolean            @default(false)
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
