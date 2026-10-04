@@ -14,6 +14,7 @@
  * more than a guarded call into raiseDispute() itself.
  */
 const mockEscrowFindById = jest.fn()
+const mockEscrowClaimTransition = jest.fn().mockResolvedValue(1)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
@@ -59,7 +60,10 @@ jest.mock('../src/modules/open-settlement/escrow.service', () => ({
   escrowService: { openDispute: jest.fn().mockResolvedValue({}) },
 }))
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
-  escrowRepository: { findById: (...args: unknown[]) => mockEscrowFindById(...args) },
+  escrowRepository: {
+    findById: (...args: unknown[]) => mockEscrowFindById(...args),
+    claimTransition: (...args: unknown[]) => mockEscrowClaimTransition(...args),
+  },
 }))
 
 import { DisputeService } from '../src/modules/open-settlement/dispute.service'
