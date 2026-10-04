@@ -58,6 +58,30 @@ const log = childLogger('dispute-pending-reconciliation')
 // an operational policy a deployment should need to tune.
 const MIN_AGE_MS = 5 * 60 * 1000
 
+/**
+ * Issue #244 — delete a stale dispute translation only while holding the
+ * escrow-scoped PostgreSQL lock and only if the SAME pending generation still
+ * has zero durable signatures at the deletion point. Signature submission
+ * takes this same lock before its upsert, so cleanup and signature arrival
+ * have one database-serialized order across processes.
+ */
+async function deletePendingIfStillUnsigned(pendingId: string, escrowId: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    const deleted = await tx.$executeRaw`
+      DELETE FROM "escrow_pending_transactions" p
+      WHERE p.id = ${pendingId}
+        AND p."escrowId" = ${escrowId}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "escrow_transaction_signatures" s
+          WHERE s."pendingTxId" = p.id
+        )
+    `
+    return deleted === 1
+  })
+}
+
 export interface StalePendingReconciliationReport {
   reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' | 'DELETED_NO_OUTCOME' }>
   skippedTooYoung: string[]
