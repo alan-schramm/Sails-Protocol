@@ -288,7 +288,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
     const dispute = await service.raiseDispute('trade-1', 'buyer-1', 'paguei e não recebi', [])
 
-    expect(mockOpenDispute).toHaveBeenCalledWith('escrow-1', 'buyer-1', 'paguei e não recebi') // freeze
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'DISPUTED' } })) // atomic freeze
     expect(dispute.arbiterId).toBe('arbiter-1') // assignment via ArbitrationProvider
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.opened',
@@ -317,7 +317,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     // openDispute() still ran (the escrow-side race isn't what's being
     // asserted here — the Dispute-row race is) — this test's own value is
     // that the ValidationError surfaces cleanly, not a raw P2002.
-    expect(mockOpenDispute).toHaveBeenCalled()
+    expect(mockEscrowUpdateMany).toHaveBeenCalled()
   })
 
   it('rejects a raiseDispute from someone who is not a party to the trade', async () => {
