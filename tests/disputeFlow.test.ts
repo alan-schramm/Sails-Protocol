@@ -62,7 +62,7 @@ const mockDisputeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 // test needs a real default here, not just the new SPLIT-specific ones.
 // 'MOCK' keeps isSignatureCollectionType() false, preserving this file's
 // existing tests' direct-call expectations unchanged.
-const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', type: 'MOCK' })
+const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', type: 'MOCK', status: 'FUNDS_LOCKED' })
 // RFC-021 D6 real appeal-fee collection (2026-08-01) — appeal() charges
 // one of these per appeal round, resolveDispute() settles its outcome.
 const mockDisputeAppealFeeCreate = jest.fn().mockResolvedValue({ id: 'appeal-fee-1' })
