@@ -13,11 +13,12 @@
  * escrow, (b) belong to an escrow with a RESOLVED Dispute (the durable
  * signal that `applyRulingCoreAuthoritative()`'s own commit path, not
  * some other flow, is what created it), and (c) have ZERO signatures
- * collected — the durable, checkable fact that makes deletion
- * unconditionally safe: `escrow-pending-tx.ts`'s own
- * `submitTransactionSignature()` is the ONLY code path that can ever
- * move funds for a signature-collection escrow, and it structurally
- * cannot have run yet if no required signer has submitted anything.
+ * collected at the deletion point. Issue #244 tightened this statement:
+ * a zero-signature candidate snapshot is NOT by itself authority to delete.
+ * Deletion is safe only after the reconciler takes the escrow-scoped
+ * PostgreSQL lock and atomically re-proves that the same pending generation
+ * still has zero durable signatures. `submitTransactionSignature()` takes
+ * the same lock before persisting a signature.
  *
  * WHY RE-RUNNING THE GUARD IS SAFE AND CONCLUSIVE (never a guess): the
  * translation guard (`dispatch-translation-guard.ts`,
