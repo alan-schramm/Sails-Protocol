@@ -159,6 +159,9 @@ jest.mock('../src/common/database', () => ({
           findUnique: (arg: unknown) => mockPendingTxFindUnique(arg),
           findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
         },
+        escrowTransactionSignature: {
+          upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg),
+        },
         // ADR-005 / #218 — authorizeDisputedPendingExecution()'s own
         // $transaction callback needs these two, reused from the
         // top-level mocks so both call sites observe the same state.
