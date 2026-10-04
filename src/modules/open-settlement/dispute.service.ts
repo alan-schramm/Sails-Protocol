@@ -232,31 +232,42 @@ export class DisputeService {
       evidence.map((entry) => this.resolveEvidenceDescriptor(entry, tradeId))
     )
 
-    // Freezes the trade — escrow.service.ts's real, existing state
-    // transition (Escrow -> DISPUTED), not new logic written here.
-    await escrowService.openDispute(trade.escrowId, raisedBy, reason)
+    // Fase 7.3.1 §B — a script-committed arbiter identity always wins
+    // over the configured ArbitrationProvider's own independent pick;
+    // assign() is only ever consulted for an escrow type with no such
+    // commitment (see findCommittedArbiterId()'s own comment above).
+    const escrowId = trade.escrowId
+    const { provider } = await this.providerForEscrow(escrowId)
+    const committedArbiterId = await this.findCommittedArbiterId(escrowId)
 
-    // Security-validation round (2026-07-19, "disputa dupla" scenario):
-    // this create() reads-then-writes across two calls (this one and
-    // openDispute() above) with no locking — buyer and seller calling
-    // raiseDispute() concurrently could both pass every check above
-    // before either write lands. The schema's new @@unique([tradeId])
-    // on Dispute (see that model's own comment) is the actual guard: the
-    // loser of the race hits a real P2002 here, caught and turned into a
-    // clean rejection instead of a second, corrupting Dispute row —
-    // same pattern reputation.service.ts's rate() already established
-    // for its own unique-constraint race.
-    let dispute
+    // Issue #238 - freezing the trade (escrow.service.ts's real, existing Escrow -> DISPUTED
+    // transition) and establishing the dispute that alone can resolve it - the Dispute row and its
+    // assigned arbiter (only the assigned arbiter holds DISPUTED disposition authority, #320) - commit
+    // in ONE transaction: openDisputeEstablishing() runs `establish` inside the claim's transaction.
+    // A failure anywhere (including no arbiter being assignable) rolls the freeze back too.
+    //
+    // Security-validation round (2026-07-19, "disputa dupla" scenario): the
+    // schema's @@unique([tradeId]) on Dispute stays the backstop for a
+    // second Dispute row; a concurrent loser now normally loses the escrow
+    // claim first (same transaction, escrow advisory lock), and a P2002 is
+    // still turned into a clean rejection instead of a second, corrupting
+    // Dispute row — same pattern reputation.service.ts's rate() already
+    // established for its own unique-constraint race.
+    let updated
     try {
-      dispute = await prisma.dispute.create({
-        data: {
-          tradeId,
-          escrowId: trade.escrowId,
-          openedBy: raisedBy,
-          reason,
-          evidence: resolvedEvidence as unknown as object,
-          status: 'OPENED',
-        },
+      updated = await escrowService.openDisputeEstablishing(escrowId, raisedBy, reason, async (tx) => {
+        const dispute = await tx.dispute.create({
+          data: {
+            tradeId,
+            escrowId,
+            openedBy: raisedBy,
+            reason,
+            evidence: resolvedEvidence as unknown as object,
+            status: 'OPENED',
+          },
+        })
+        const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId, tx))
+        return tx.dispute.update({ where: { id: dispute.id }, data: { arbiterId } })
       })
     } catch (err: any) {
       if (err?.code === 'P2002') {
@@ -265,25 +276,13 @@ export class DisputeService {
       throw err
     }
 
-    // Fase 7.3.1 §B — a script-committed arbiter identity always wins
-    // over the configured ArbitrationProvider's own independent pick;
-    // assign() is only ever consulted for an escrow type with no such
-    // commitment (see findCommittedArbiterId()'s own comment above).
-    const { provider } = await this.providerForEscrow(trade.escrowId)
-    const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
-    const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId))
-    const updated = await prisma.dispute.update({
-      where: { id: dispute.id },
-      data: { arbiterId },
-    })
-
     // Notification via pubsub (EventStore, RFC-010) — correlationId =
     // tradeId, the established convention for trade-lifecycle events.
     await eventBus.emit('dispute.opened', {
-      disputeId: dispute.id,
-      settlementId: trade.escrowId,
+      disputeId: updated.id,
+      settlementId: escrowId,
       tradeId,
-      arbiterId,
+      arbiterId: updated.arbiterId,
       reason,
       triggeredBy: raisedBy,
     }, tradeId)
