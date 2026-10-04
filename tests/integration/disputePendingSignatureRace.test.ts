@@ -34,7 +34,7 @@ describe('#244 stale cleanup vs signature arrival (real Postgres)', () => {
     })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const pending = await prisma.escrowPendingTransaction.create({
-      data: { escrowId: escrow.id, kind: 'release', unsignedPsbtBase64: 'unsigned', requiredSigners: [buyer.id, seller.id], triggeredBy: buyer.id },
+      data: { escrowId: escrow.id, kind: 'release', unsignedPsbtBase64: 'unsigned', toAddress: 'tb1qcleanupfixture0000000000000000000000000', requiredSigners: [buyer.id, seller.id], triggeredBy: buyer.id },
     })
     return { escrow, pending, buyer }
   }
