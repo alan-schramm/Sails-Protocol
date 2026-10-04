@@ -13,11 +13,12 @@
  * escrow, (b) belong to an escrow with a RESOLVED Dispute (the durable
  * signal that `applyRulingCoreAuthoritative()`'s own commit path, not
  * some other flow, is what created it), and (c) have ZERO signatures
- * collected — the durable, checkable fact that makes deletion
- * unconditionally safe: `escrow-pending-tx.ts`'s own
- * `submitTransactionSignature()` is the ONLY code path that can ever
- * move funds for a signature-collection escrow, and it structurally
- * cannot have run yet if no required signer has submitted anything.
+ * collected at the deletion point. A zero-signature candidate snapshot
+ * is not authority to delete: signature arrival can race the later delete.
+ * Cleanup therefore takes the escrow-scoped PostgreSQL advisory lock and
+ * atomically re-proves that the same pending generation still has zero
+ * durable signatures. Signature submission takes the same lock before its
+ * upsert, giving the two operations one database-serialized order.
  *
  * WHY RE-RUNNING THE GUARD IS SAFE AND CONCLUSIVE (never a guess): the
  * translation guard (`dispatch-translation-guard.ts`,
@@ -57,6 +58,28 @@ const log = childLogger('dispute-pending-reconciliation')
 // only via this constant, not environment — this is a safety margin, not
 // an operational policy a deployment should need to tune.
 const MIN_AGE_MS = 5 * 60 * 1000
+
+
+/**
+ * Issue #244 — cleanup authority is established at the delete point, not
+ * from the earlier candidate snapshot. The signer uses the same escrow lock.
+ */
+async function deletePendingIfStillUnsigned(pendingId: string, escrowId: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    const deleted = await tx.$executeRaw`
+      DELETE FROM "escrow_pending_transactions" p
+      WHERE p.id = ${pendingId}
+        AND p."escrowId" = ${escrowId}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "escrow_transaction_signatures" s
+          WHERE s."pendingTxId" = p.id
+        )
+    `
+    return deleted === 1
+  })
+}
 
 export interface StalePendingReconciliationReport {
   reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' | 'DELETED_NO_OUTCOME' }>
@@ -119,7 +142,11 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         // is still safe (zero signatures, zero fund-movement risk) but
         // reported distinctly for visibility, never silently folded into
         // the ordinary "guard failed" case.
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+        const deleted = await deletePendingIfStillUnsigned(pending.id, pending.escrowId)
+        if (!deleted) {
+          report.skippedHasSignatures.push(pending.escrowId)
+          continue
+        }
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_NO_OUTCOME' })
         log.error({ msg: 'M9: stale pending transaction with no durable Core-authoritative Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId })
         continue
@@ -137,7 +164,11 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
       if (result.ok) {
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })
       } else {
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+        const deleted = await deletePendingIfStillUnsigned(pending.id, pending.escrowId)
+        if (!deleted) {
+          report.skippedHasSignatures.push(pending.escrowId)
+          continue
+        }
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
         log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId, mismatches: result.mismatches })
       }
