@@ -105,11 +105,21 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
       updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
     },
+    escrow: {
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     dispute: {
+      create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
+    escrowEvent: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: 'transition-1' }),
+    },
     eventProjectionClaim: {
+      create: jest.fn().mockResolvedValue({ id: 'transition-claim-1' }),
       createMany: (...args: unknown[]) => mockEventProjectionClaimCreateMany(...args),
     },
   })
