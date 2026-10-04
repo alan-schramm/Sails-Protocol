@@ -351,7 +351,9 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
       const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
         SELECT count(*) AS n FROM disputes d JOIN escrows e ON e.id = d."escrowId"
         WHERE d.status = 'RESOLVED' AND e.type = 'MULTISIG' AND e.status NOT IN ('COMPLETED', 'REFUNDED', 'SPLIT')
-          AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId")
+          -- #239: same predicate as claimCandidates() - a dead cooperative round (not fully signed, no ruling) is no dispatch
+          AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId"
+            AND (p."disputeId" IS NOT NULL OR cardinality(p."requiredSigners") <= (SELECT count(*) FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id)))
           AND EXISTS (SELECT 1 FROM semantic_transition_records r WHERE r."interactionId" = d."escrowId"
             AND r."transitionType" = 'escrow.dispute.rule' AND r."appealRound" = d."appealRound" AND r."outcomeContent" IS NOT NULL)`
       const bound = Math.ceil(Number(n) / DISPATCH_RECOVERY_BATCH)

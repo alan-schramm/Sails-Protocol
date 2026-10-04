@@ -17,6 +17,7 @@ import {
   withEscrowFundingLock,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
+import { isSupersedableByRuling } from './pending-round-supersession'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
@@ -136,10 +137,12 @@ async function initiateSignatureCollectionCore(
     : 'settlement.escrow.split' as const
   await checkFundMovementCapability(triggeredBy, capabilityScope)
 
-  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-  if (existingPending) {
-    throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
-  }
+  // Issue #239 - only an arbitrated dispatch (a ruling's own operation, carrying its provenance) may
+  // supersede an existing round, and only a dead cooperative one (supersedeDeadCooperativeRound()). The
+  // decision is re-made under the escrow lock below; this is the cheap fail-fast.
+  const arbitratedDispatch = disputedRulingProvenance.disputeId !== undefined
+  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
+  if (existingPending) assertSupersedableByThisDispatch(existingPending, arbitratedDispatch, escrowId)
 
   const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
   // Missão 11 Fase 5.3 §A — restores context this function already HAD
@@ -178,6 +181,12 @@ async function initiateSignatureCollectionCore(
           )
         }
       }
+      const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
+      if (current) {
+        assertSupersedableByThisDispatch(current, arbitratedDispatch, escrowId)
+        await tx.escrowPendingTransaction.delete({ where: { id: current.id } })
+        log.warn({ msg: 'Superseded a cooperative signing round that can no longer execute (escrow disputed, round not fully signed) with the ruling dispatch', escrowId, supersededRoundId: current.id, kind: current.kind, signaturesDiscarded: current.signatures.length })
+      }
       return tx.escrowPendingTransaction.create({
         data: {
           escrowId,
@@ -210,6 +219,38 @@ async function initiateSignatureCollectionCore(
       throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
     }
     throw err
+  }
+}
+
+/**
+ * Issue #239 - decides the one way a pending signing round is replaced. The replacement (delete, then the
+ * ruling's round) runs inside the arbitrated dispatch's own escrow-locked transaction (withEscrowFundingLock(),
+ * the lock submitTransactionSignature() takes to accept a signature, #244); the same decision also runs as
+ * the fail-fast before it.
+ *
+ * A cooperative round (no ruling provenance) on an escrow that has a Dispute can never execute: the
+ * Economic Disposition Commit Gate refuses it before any claim or provider call (ADR-005,
+ * authorizeDisputedPendingExecution()). Yet, being the escrow's one pending round, it would block the
+ * ruling's dispatch forever - a non-cooperating signer's trap. So the ruling supersedes it, if and only if
+ * it is not fully signed: execution requires every required signature, so a round missing one has provably
+ * never been claimed or submitted. A fully signed round may already have been submitted (an UNKNOWN
+ * outcome); it is never superseded - settlement reconciliation (C8) decides it from the chain.
+ * Superseding deletes the round with its partial signatures: they were collected for that round's exact
+ * transaction only and are never combined into another round (signatures are per round, and a signer that
+ * read the old round is refused under the same lock, #244).
+ */
+function assertSupersedableByThisDispatch(
+  current: { id: string; kind: string; disputeId: string | null; requiredSigners: string[]; signatures: Array<{ participantId: string }> },
+  arbitratedDispatch: boolean,
+  escrowId: string,
+): void {
+  if (!arbitratedDispatch || current.disputeId !== null) {
+    throw new EscrowError(`Escrow ${escrowId} already has a pending ${current.kind} transaction awaiting signatures`)
+  }
+  if (!isSupersedableByRuling(current)) {
+    throw new EscrowError(
+      `Escrow ${escrowId}'s cooperative ${current.kind} round ${current.id} is fully signed — it may already have been submitted, so a ruling never supersedes it; settlement reconciliation (C8) decides it from the chain`
+    )
   }
 }
 
