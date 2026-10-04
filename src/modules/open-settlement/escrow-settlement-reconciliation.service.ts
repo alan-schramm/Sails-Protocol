@@ -141,11 +141,21 @@ type PendingRow = {
 // by an earlier, since-crashed attempt that got far enough to delete it
 // (only reachable after emitEscrowTransition() already succeeded once —
 // meaning this call would be a safe no-op via the idempotency claim
-// anyway). A SPLIT outcome with pending === null cannot recover its
-// buyerBps (the direct-call splitFunds() path never persists it
-// anywhere durable, unlike EscrowPendingTransaction.buyerBps for the
-// signature-collection path) — obligation recording is skipped and
+// anyway). A SPLIT outcome with pending === null reads its buyerBps from
+// the allocation the direct-call splitFunds() claim froze on the escrow
+// row (#247, Escrow.splitBuyerBps); only a legacy row claimed before that
+// freeze existed has none — obligation recording is then skipped and
 // reported, not guessed.
+// #248 - the actor a direct-call (MOCK/WDK_USDT_EVM) execution is attributed to on recovery, as the
+// claim recorded it on the escrow row, never a substitute: the authorized arbiter of an arbitrated
+// claim (a terminal state reached from DISPUTED), otherwise the cooperative actor. Only a legacy row
+// claimed before either existed has neither; it keeps the pre-existing stand-in, the seller
+// (sweepExpiredEscrows()'s own "triggeredBy is always the trade's own sellerId, never a fabricated
+// system actor" precedent).
+function directExecutionActor(escrow: { arbitratedTriggeredBy: string | null; cooperativeTriggeredBy: string | null }, trade: { sellerId: string }): string {
+  return escrow.arbitratedTriggeredBy ?? escrow.cooperativeTriggeredBy ?? trade.sellerId
+}
+
 async function applyDownstreamCompletionEffects(
   escrowId: string,
   tradeId: string,
@@ -172,17 +182,17 @@ async function applyDownstreamCompletionEffects(
   // independent retry (reconcileMissingCompletionEffects()'s own fee-recovery check).
   let feeRecordingFailed = false
   let obligationSkipped = false
-  if (targetStatus === 'SPLIT' && !pending) {
+  if (targetStatus === 'SPLIT' && !pending && escrowRow.splitBuyerBps === null) {
     obligationSkipped = true
     log.error({
-      msg: 'Reconciliation: SPLIT completion effects recovered, but buyerBps is unrecoverable for a direct-call-rail escrow with no surviving pending-transaction row — fee obligation NOT recorded, flagged for manual review',
+      msg: 'Reconciliation: SPLIT completion effects recovered, but this legacy direct-call-rail escrow has no frozen buyerBps and no surviving pending-transaction row — fee obligation NOT recorded, flagged for manual review',
       escrowId,
     })
   } else {
     const actualCollection = pending?.feeCollectionSats !== null && pending?.feeCollectionSats !== undefined
       ? { feeSats: pending.feeCollectionSats, waived: pending.feeCollectionWaived ?? false }
       : undefined
-    await feeObligationService.recordObligationForEscrowSettlement(escrowRow, feeOutcome, pending?.buyerBps ?? undefined, actualCollection)
+    await feeObligationService.recordObligationForEscrowSettlement(escrowRow, feeOutcome, pending?.buyerBps ?? escrowRow.splitBuyerBps ?? undefined, actualCollection)
 
     // Same broadcast-evidence recording escrow-pending-tx.ts's own
     // submitTransactionSignature() runs, same non-throwing failure
@@ -651,7 +661,7 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
   // Downstream effects still run even if wroteTxReleaseId is false (a concurrent writer - live or
   // another reconciler pass - already claimed it): emitEscrowTransition()'s own (escrowId, toStatus)
   // idempotency claim is what actually prevents a double-fire, exactly as the MULTISIG path above.
-  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', trade.sellerId, result.txHash, escrow, null, undefined)
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', directExecutionActor(escrow, trade), result.txHash, escrow, null, undefined)
   report.recovered.push({ escrowId: escrow.id, txId: result.txHash, outcome: 'ALREADY_CONFIRMED' })
 }
 
@@ -752,7 +762,7 @@ async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<
   }
 
   log.info({ msg: 'WDK SPLIT terminal recovery: convergence path determined', escrowId: escrow.id, buyerTxHash: buyerResult.txHash, sellerTxHash: sellerResult.txHash, wroteTxReleaseId })
-  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, 'SPLIT', trade.sellerId, joinedTxHash, escrow, null, undefined)
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, 'SPLIT', directExecutionActor(escrow, trade), joinedTxHash, escrow, null, undefined)
   report.recovered.push({ escrowId: escrow.id, txId: joinedTxHash, outcome: 'ALREADY_CONFIRMED' })
 }
 
@@ -973,17 +983,9 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
     where: { escrowId: escrow.id },
     select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, buyerBps: true, unsignedPsbtBase64: true, triggeredBy: true },
   })
-  // triggeredBy fallback: for a direct-call-rail escrow with no pending
-  // row, the original triggeredBy was never durably persisted anywhere
-  // this module can read back (escrow.service.ts's direct-call
-  // releaseFunds()/refundFunds()/splitFunds() don't store it on the
-  // Escrow row itself) — the seller is the only party this codebase's
-  // own existing precedent (sweepExpiredEscrows()'s own
-  // "triggeredBy is always the trade's own sellerId, never a fabricated
-  // system actor" comment) already treats as a safe, real stand-in for
-  // an escrow-level action, so the same choice is reused here rather
-  // than inventing a new one.
-  const triggeredBy = pendingRow?.triggeredBy ?? trade.sellerId
+  // triggeredBy: the pending row's for a signature-collection escrow, otherwise the actor the
+  // direct-call claim recorded on the escrow row (#248) - see directExecutionActor().
+  const triggeredBy = pendingRow?.triggeredBy ?? directExecutionActor(escrow, trade)
 
   log.info({ msg: 'Reconciliation: recovering missing downstream completion effects (C5)', escrowId: escrow.id, targetStatus })
   // rawTxHex: undefined here — this call's own job is bookkeeping

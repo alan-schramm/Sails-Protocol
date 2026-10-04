@@ -36,6 +36,14 @@ import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
 
+/** #247/#248 - the economic intent a direct-call execution freezes on its first claim. */
+export type DirectExecutionDisposition = 'COMPLETED' | 'REFUNDED' | 'SPLIT'
+export interface DirectExecutionIntent {
+  triggeredBy: string
+  /** SPLIT only. */
+  splitBuyerBps?: number
+}
+
 export interface SettlementResultInput {
   txReleaseId: string
   /** Proposed timestamp: used only if the slot is empty / releasedAt is still null; never replaces an existing one. */
@@ -165,6 +173,15 @@ export interface EscrowRepository {
    *  funding-uncertainty re-check (escrow-funding-lock.ts). Omitted by
    *  every other existing caller, unchanged behavior. */
   claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number>
+
+  /** #247/#248 - claimTransition() for a direct-call RELEASE/REFUND/SPLIT that also freezes its
+   *  economic intent in the same conditional update, in the slot of the escrow's current authority
+   *  phase: from DISPUTED the arbitrated slot (disposition + SPLIT buyerBps; the caller must already
+   *  have verified the current assigned arbiter, recorded as arbitratedTriggeredBy), otherwise the
+   *  cooperative slot (disposition + actor). Claims only when that slot is empty (and freezes it) or
+   *  holds the identical intent (a retry after a provider-failure revert); a different frozen intent
+   *  claims 0 rows. Never clears or rewrites a frozen intent, and never touches the other slot. */
+  claimDirectExecution(escrowId: string, fromStatus: string, toStatus: DirectExecutionDisposition, intent: DirectExecutionIntent): Promise<number>
 
   /**
    * Issue #291 - THE one settlement-result persistence primitive; the four
@@ -449,6 +466,19 @@ class PrismaEscrowRepository implements EscrowRepository {
     const claim = await client.escrow.updateMany({
       where: { id: escrowId, status: fromStatus as any },
       data: { status: toStatus as any },
+    })
+    return claim.count
+  }
+
+  async claimDirectExecution(escrowId: string, fromStatus: string, toStatus: DirectExecutionDisposition, intent: DirectExecutionIntent): Promise<number> {
+    const frozen = fromStatus === 'DISPUTED'
+      ? { arbitratedDisposition: toStatus, splitBuyerBps: intent.splitBuyerBps ?? null }
+      : { cooperativeDisposition: toStatus, cooperativeTriggeredBy: intent.triggeredBy }
+    const empty = fromStatus === 'DISPUTED' ? { arbitratedDisposition: null } : { cooperativeDisposition: null }
+    const authority = fromStatus === 'DISPUTED' ? { arbitratedTriggeredBy: intent.triggeredBy } : {}
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: fromStatus as any, OR: [empty, frozen] },
+      data: { status: toStatus, ...frozen, ...authority },
     })
     return claim.count
   }
