@@ -25,6 +25,25 @@ const mockDisputeFindUnique = jest.fn()
 const mockDisputeUpdate = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
+const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'FUNDS_LOCKED' })
+const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
+const mockProjectionClaimCreate = jest.fn().mockResolvedValue({ id: 'claim-1' })
+const mockTxExecuteRaw = jest.fn().mockResolvedValue(0)
+const mockTransaction = jest.fn(async (fn: (tx: any) => Promise<unknown>) => fn({
+  $executeRaw: (...args: unknown[]) => mockTxExecuteRaw(...args),
+  escrow: {
+    findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+    updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+  },
+  dispute: { create: (...args: unknown[]) => mockDisputeCreate(...args) },
+  escrowEvent: {
+    findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+    create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+  },
+  eventProjectionClaim: { create: (...args: unknown[]) => mockProjectionClaimCreate(...args) },
+}))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -35,6 +54,7 @@ jest.mock('../src/common/database', () => ({
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
     },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 jest.mock('../src/common/events/event-bus', () => ({
