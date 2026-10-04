@@ -166,8 +166,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
+      findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
       // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
       findFirst: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
+    },
+    escrowTransactionSignature: {
+      upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args),
     },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
