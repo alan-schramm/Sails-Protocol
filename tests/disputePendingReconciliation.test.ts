@@ -33,6 +33,15 @@ jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
 
 const mockPendingFindMany = jest.fn()
 const mockPendingDelete = jest.fn()
+const mockConditionalDelete = jest.fn()
+const mockTxExecuteRaw = jest.fn(async (...args: unknown[]) => {
+  // First raw call is the advisory lock; second is the conditional DELETE.
+  const strings = args[0] as TemplateStringsArray | undefined
+  return strings?.join('').includes('DELETE FROM') ? mockConditionalDelete(...args) : 0
+})
+const mockTransaction = jest.fn(async (fn: (tx: any) => Promise<unknown>) => fn({
+  $executeRaw: (...args: unknown[]) => mockTxExecuteRaw(...args),
+}))
 const mockDisputeFindFirst = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -41,6 +50,7 @@ jest.mock('../src/common/database', () => ({
       delete: (...args: unknown[]) => mockPendingDelete(...args),
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 
@@ -71,6 +81,7 @@ beforeEach(() => {
   mockLoadDisputeRulingRecord.mockResolvedValue(RULING_ROW_WITH_OUTCOME)
   mockFromDisputeRulingRow.mockReturnValue(FAKE_RECORD_WITH_OUTCOME)
   mockPendingDelete.mockResolvedValue({})
+  mockConditionalDelete.mockResolvedValue(1)
 })
 
 describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifact reconciliation', () => {
@@ -84,7 +95,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     mockPendingFindMany.mockResolvedValue([pendingFixture({ signatures: [{ participantId: 'buyer-1' }] })])
     const report = await reconcileStalePendingDisputeTranslations()
     expect(report.skippedHasSignatures).toEqual(['escrow-1'])
-    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockConditionalDelete).not.toHaveBeenCalled()
     expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
   })
 
@@ -92,7 +103,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     mockPendingFindMany.mockResolvedValue([pendingFixture({ createdAt: NOW })])
     const report = await reconcileStalePendingDisputeTranslations()
     expect(report.skippedTooYoung).toEqual(['escrow-1'])
-    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockConditionalDelete).not.toHaveBeenCalled()
   })
 
   it('old enough, zero signatures, re-run guard PASSES — left alone, not deleted (a legitimate pending transaction still awaiting signature collection)', async () => {
@@ -102,7 +113,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'LEFT_GUARD_PASSED' }])
-    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockConditionalDelete).not.toHaveBeenCalled()
   })
 
   it('old enough, zero signatures, re-run guard FAILS — deleted (zero signatures means zero fund-movement risk)', async () => {
@@ -112,7 +123,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
-    expect(mockPendingDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
+    expect(mockConditionalDelete).toHaveBeenCalled()
   })
 
   it('the re-check finds no RESOLVED dispute at all — structurally shouldn\'t happen (the candidate query itself required one) — fails closed, reported, never deleted on an assumption', async () => {
@@ -122,7 +133,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'candidate query matched but no RESOLVED dispute found on re-check' }])
-    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockConditionalDelete).not.toHaveBeenCalled()
   })
 
   it('a RESOLVED dispute exists but has no durable Core-authoritative Outcome record — deleted (zero signatures, no fund-movement risk), reported distinctly as DELETED_NO_OUTCOME, never folded into a guard-failure', async () => {
@@ -151,7 +162,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'durable record has no Outcome despite outcomeContent being present' }])
-    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockConditionalDelete).not.toHaveBeenCalled()
   })
 
   it('an escrow that throws mid-reconciliation lands in `failed`, not silently dropped — and does not stop the rest of the batch', async () => {
@@ -170,13 +181,14 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-ok', pendingTransactionId: 'pending-ok', verdict: 'LEFT_GUARD_PASSED' }])
   })
 
-  it('a delete that itself fails is swallowed (best-effort cleanup — the row is harmless either way with zero signatures) — still reported as reconciled', async () => {
+  it('a conditional delete that loses ownership is not reported as reconciled', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockValidateTranslatedOutputsAgainstOutcome.mockReturnValue({ ok: false, mismatches: ['mismatch'] })
-    mockPendingDelete.mockRejectedValueOnce(new Error('row already deleted by a concurrent run'))
+    mockConditionalDelete.mockResolvedValueOnce(0)
 
     const report = await reconcileStalePendingDisputeTranslations()
 
-    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
+    expect(report.reconciled).toEqual([])
+    expect(report.skippedHasSignatures).toEqual(['escrow-1'])
   })
 })
