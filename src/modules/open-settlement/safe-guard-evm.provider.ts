@@ -136,6 +136,16 @@ const RPC_READ_RETRY = { attempts: 3, backoffMs: 250 }
 // bundler's JSON-RPC error message.
 export const BUNDLER_RESPONSE_MAX_BYTES = 16 * 1024
 
+// Issue #258 - one canonical userOpHash representation at the storage boundary: 0x-prefixed,
+// lowercase, exactly 32 bytes. The locally stored bundle hash has no prefix (bytesToHex) while
+// bundlers answer 0x-prefixed (ERC-4337), so both are canonicalized before comparison. null =
+// not a 32-byte hex hash in either accepted spelling.
+const USER_OP_HASH_PATTERN = /^(0x)?[0-9a-fA-F]{64}$/
+export function canonicalUserOpHash(value: unknown): string | null {
+  if (typeof value !== 'string' || !USER_OP_HASH_PATTERN.test(value)) return null
+  return '0x' + value.replace(/^0x/, '').toLowerCase()
+}
+
 const ZERO_BYTES32 = '0x' + '00'.repeat(32)
 
 // Verified byte-for-byte against a live eth_call to the real, deployed factory (this file's own header comment) — do not hand-edit.
@@ -588,7 +598,7 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     const combined = '0x' + signatures.map((s) => (s.signatureHex.startsWith('0x') ? s.signatureHex.slice(2) : s.signatureHex)).join('')
 
     const userOp = deserializeUserOp(bundle.userOp)
-    const result = await this.broadcast(userOp, combined)
+    const result = await this.broadcast(userOp, combined, bundle.userOpHash)
     // eth_sendUserOperation returns the bundler-ACCEPTED userOpHash, not on-chain finality (this
     // method's own broadcast() comment) - recorded SUBMITTED, not CONFIRMED (see
     // signature-collection-finalization-truth.ts's own header comment on why this differs from
@@ -614,12 +624,18 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // across bundler implementations is not proven); on timeout, the
   // bounded error propagates unchanged — no escrow-state semantics
   // change.
-  private async broadcast(userOp: PackedUserOperation, combinedSignature: string): Promise<{ txId: string }> {
+  // Issue #258 - the bundler's JSON is never identity authority: its userOpHash becomes the txId only
+  // when it canonically equals the hash Sails computed and the parties signed (expectedUserOpHash).
+  private async broadcast(userOp: PackedUserOperation, combinedSignature: string, expectedUserOpHash: string): Promise<{ txId: string }> {
     if (!config.safeGuardEvm.bundlerUrl) {
       throw new EscrowError(
         'SAFE_GUARD_EVM provider: broadcasting requires SAFE_GUARD_EVM_BUNDLER_URL configured (.env.example) — the combined ' +
         'signature was built successfully; submission to a real bundler is the remaining gap.'
       )
+    }
+    const expected = canonicalUserOpHash(expectedUserOpHash)
+    if (!expected) {
+      throw new EscrowError(`SAFE_GUARD_EVM provider: the stored UserOperation hash for sender ${userOp.sender} is not a 32-byte hex hash - refusing to submit`)
     }
     const signedUserOp = {
       sender: userOp.sender,
@@ -667,7 +683,19 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     if (typeof body.result !== 'string') {
       throw new EscrowError(`SAFE_GUARD_EVM provider: bundler answered ${res.status} for sender ${userOp.sender} without a userOpHash - submission outcome unknown`)
     }
-    return { txId: body.result }
+    // An accepted answer whose hash is malformed or names a different UserOperation is not a txid
+    // either: the bundler may hold the signed operation, so this is "outcome unknown" (the durable row
+    // stays SUBMISSION_UNKNOWN, blocking resubmission), never a persisted identity.
+    const returned = canonicalUserOpHash(body.result)
+    if (!returned) {
+      throw new EscrowError(`SAFE_GUARD_EVM provider: bundler answered ${res.status} for sender ${userOp.sender} with a malformed userOpHash - submission outcome unknown`)
+    }
+    if (returned !== expected) {
+      throw new EscrowError(
+        `SAFE_GUARD_EVM provider: bundler answered userOpHash ${returned} for sender ${userOp.sender}, but Sails signed ${expected} - submission outcome unknown`
+      )
+    }
+    return { txId: expected }
   }
 
   async finalizeRelease(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {
