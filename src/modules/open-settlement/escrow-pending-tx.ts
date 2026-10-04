@@ -328,10 +328,24 @@ export async function submitTransactionSignature(escrowId: string, participantId
     )
   }
 
-  await prisma.escrowTransactionSignature.upsert({
-    where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
-    update: { signedPsbtBase64 },
-    create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+  // Issue #244 - accept the signature only into the round read above, and only while it still exists:
+  // under the escrow-scoped advisory lock (withEscrowFundingLock(), the same key stale cleanup's
+  // conditional delete takes), re-read the escrow's current round and insert. Either this commits first
+  // (cleanup then sees a durable signature and keeps the round) or cleanup deleted it first (this fails
+  // closed - nothing is written into, or resurrects, a deleted round). The lock covers only this check +
+  // insert; every gate and provider/economic step below runs after it is released.
+  await withEscrowFundingLock(escrowId, async (tx) => {
+    const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { id: true } })
+    if (current?.id !== pending.id) {
+      throw new EscrowError(
+        `Escrow ${escrowId}'s pending ${pending.kind} ${pending.id} no longer exists (cleaned up or replaced) — signature not accepted; re-read the escrow's current pending transaction`
+      )
+    }
+    await tx.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64 },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+    })
   })
 
   const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })

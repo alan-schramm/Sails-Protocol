@@ -62,7 +62,31 @@ export interface StalePendingReconciliationReport {
   reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' | 'DELETED_NO_OUTCOME' }>
   skippedTooYoung: string[]
   skippedHasSignatures: string[]
+  /** #244 - the round was already gone at the delete point (a concurrent run cleaned it). */
+  alreadyCleaned: string[]
   failed: Array<{ escrowId: string; error: string }>
+}
+
+export type StalePendingDeleteResult = 'DELETED' | 'SIGNED_MEANWHILE' | 'ALREADY_GONE'
+
+/**
+ * Issue #244 - the only way this module deletes a pending round. The candidate snapshot (zero
+ * signatures when it was read) never authorizes the delete by itself: under the escrow-scoped advisory
+ * lock (the same key as withEscrowFundingLock(), escrow-lifecycle.ts, which submitTransactionSignature()
+ * holds while it accepts a signature), the delete re-proves - in one statement - that this exact round
+ * (id + escrow) still exists and still has zero durable signatures. A signature accepted before the lock
+ * makes it match 0 rows; a signer arriving after finds the round gone and fails closed.
+ */
+export async function deletePendingRoundIfStillUnsigned(pendingTransactionId: string, escrowId: string): Promise<StalePendingDeleteResult> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    const { count } = await tx.escrowPendingTransaction.deleteMany({
+      where: { id: pendingTransactionId, escrowId, signatures: { none: {} } },
+    })
+    if (count === 1) return 'DELETED'
+    const stillThere = await tx.escrowPendingTransaction.findUnique({ where: { id: pendingTransactionId }, select: { id: true } })
+    return stillThere ? 'SIGNED_MEANWHILE' : 'ALREADY_GONE'
+  })
 }
 
 /**
@@ -71,10 +95,24 @@ export interface StalePendingReconciliationReport {
  * function, callable from a cron/ops process, never wired to an HTTP
  * route. Idempotent by construction: a row already deleted or already
  * signature-bearing is structurally excluded from a later run's own
- * candidate query.
+ * candidate query, and - #244 - from the delete itself, which re-proves
+ * zero signatures under the escrow lock (deletePendingRoundIfStillUnsigned()).
+ * The snapshot read below only nominates candidates.
  */
 export async function reconcileStalePendingDisputeTranslations(): Promise<StalePendingReconciliationReport> {
-  const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], failed: [] }
+  const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] }
+
+  // #244 - a delete the snapshot below decided on is reported by what the lock-protected re-check found.
+  const deleteUnlessSigned = async (pending: { id: string; escrowId: string }, verdict: 'DELETED_GUARD_FAILED' | 'DELETED_NO_OUTCOME'): Promise<boolean> => {
+    const outcome = await deletePendingRoundIfStillUnsigned(pending.id, pending.escrowId)
+    if (outcome === 'DELETED') {
+      report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict })
+      return true
+    }
+    if (outcome === 'SIGNED_MEANWHILE') report.skippedHasSignatures.push(pending.escrowId)
+    else report.alreadyCleaned.push(pending.escrowId)
+    return false
+  }
 
   // Candidates: any pending row for a MULTISIG escrow with a RESOLVED
   // dispute. Signature count and age are checked per-row below (cheaper
@@ -119,9 +157,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         // is still safe (zero signatures, zero fund-movement risk) but
         // reported distinctly for visibility, never silently folded into
         // the ordinary "guard failed" case.
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
-        report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_NO_OUTCOME' })
-        log.error({ msg: 'M9: stale pending transaction with no durable Core-authoritative Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId })
+        if (await deleteUnlessSigned(pending, 'DELETED_NO_OUTCOME')) {
+          log.error({ msg: 'M9: stale pending transaction with no durable Core-authoritative Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId })
+        }
         continue
       }
 
@@ -137,9 +175,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
       if (result.ok) {
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })
       } else {
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
-        report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
-        log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId, mismatches: result.mismatches })
+        if (await deleteUnlessSigned(pending, 'DELETED_GUARD_FAILED')) {
+          log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId, mismatches: result.mismatches })
+        }
       }
     } catch (err) {
       report.failed.push({ escrowId: pending.escrowId, error: err instanceof Error ? err.message : String(err) })

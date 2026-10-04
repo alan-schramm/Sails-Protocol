@@ -33,14 +33,24 @@ jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
 
 const mockPendingFindMany = jest.fn()
 const mockPendingDelete = jest.fn()
+const mockPendingStillThere = jest.fn()
+const mockLock = jest.fn().mockResolvedValue(0)
 const mockDisputeFindFirst = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrowPendingTransaction: {
       findMany: (...args: unknown[]) => mockPendingFindMany(...args),
-      delete: (...args: unknown[]) => mockPendingDelete(...args),
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    // Issue #244 - the delete runs as deletePendingRoundIfStillUnsigned(): escrow lock, then a delete
+    // conditioned on the same round still having zero signatures, then (if nothing matched) a re-read.
+    $transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({
+      $executeRaw: (...args: unknown[]) => mockLock(...args),
+      escrowPendingTransaction: {
+        deleteMany: (...args: unknown[]) => mockPendingDelete(...args),
+        findUnique: (...args: unknown[]) => mockPendingStillThere(...args),
+      },
+    }),
   },
 }))
 
@@ -70,14 +80,17 @@ beforeEach(() => {
   mockDisputeFindFirst.mockResolvedValue(RESOLVED_DISPUTE)
   mockLoadDisputeRulingRecord.mockResolvedValue(RULING_ROW_WITH_OUTCOME)
   mockFromDisputeRulingRow.mockReturnValue(FAKE_RECORD_WITH_OUTCOME)
-  mockPendingDelete.mockResolvedValue({})
+  mockPendingDelete.mockResolvedValue({ count: 1 })
+  mockPendingStillThere.mockResolvedValue(null)
 })
+
+const CONDITIONAL_DELETE = { where: { id: 'pending-1', escrowId: 'escrow-1', signatures: { none: {} } } }
 
 describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifact reconciliation', () => {
   it('no candidates — a clean, empty report', async () => {
     mockPendingFindMany.mockResolvedValue([])
     const report = await reconcileStalePendingDisputeTranslations()
-    expect(report).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], failed: [] })
+    expect(report).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] })
   })
 
   it('a row with at least one collected signature is skipped, never touched — funds may already be in flight', async () => {
@@ -112,7 +125,8 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
-    expect(mockPendingDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
+    expect(mockLock).toHaveBeenCalledTimes(1) // escrow-scoped advisory lock before the delete
+    expect(mockPendingDelete).toHaveBeenCalledWith(CONDITIONAL_DELETE)
   })
 
   it('the re-check finds no RESOLVED dispute at all — structurally shouldn\'t happen (the candidate query itself required one) — fails closed, reported, never deleted on an assumption', async () => {
@@ -132,6 +146,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_NO_OUTCOME' }])
+    expect(mockPendingDelete).toHaveBeenCalledWith(CONDITIONAL_DELETE)
     expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
   })
 
@@ -170,13 +185,40 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-ok', pendingTransactionId: 'pending-ok', verdict: 'LEFT_GUARD_PASSED' }])
   })
 
-  it('a delete that itself fails is swallowed (best-effort cleanup — the row is harmless either way with zero signatures) — still reported as reconciled', async () => {
+  // Issue #244 - the zero-signature snapshot nominates; only the lock-protected delete decides, and the
+  // report says what it actually found (the old unconditional delete reported "deleted" regardless).
+  it('a signature that arrived after the snapshot keeps the round: nothing deleted, reported as having signatures', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockValidateTranslatedOutputsAgainstOutcome.mockReturnValue({ ok: false, mismatches: ['mismatch'] })
-    mockPendingDelete.mockRejectedValueOnce(new Error('row already deleted by a concurrent run'))
+    mockPendingDelete.mockResolvedValueOnce({ count: 0 })
+    mockPendingStillThere.mockResolvedValueOnce({ id: 'pending-1' })
 
     const report = await reconcileStalePendingDisputeTranslations()
 
-    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
+    expect(report.reconciled).toEqual([])
+    expect(report.skippedHasSignatures).toEqual(['escrow-1'])
+  })
+
+  it('a round a concurrent run already cleaned is reported as already cleaned, not as deleted by this run', async () => {
+    mockPendingFindMany.mockResolvedValue([pendingFixture()])
+    mockLoadDisputeRulingRecord.mockResolvedValue(null)
+    mockPendingDelete.mockResolvedValueOnce({ count: 0 })
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.reconciled).toEqual([])
+    expect(report.alreadyCleaned).toEqual(['escrow-1'])
+    expect(report.failed).toEqual([])
+  })
+
+  it('a delete that errors is reported as failed, never as reconciled', async () => {
+    mockPendingFindMany.mockResolvedValue([pendingFixture()])
+    mockValidateTranslatedOutputsAgainstOutcome.mockReturnValue({ ok: false, mismatches: ['mismatch'] })
+    mockPendingDelete.mockRejectedValueOnce(new Error('connection lost'))
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.reconciled).toEqual([])
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'connection lost' }])
   })
 })
