@@ -328,10 +328,20 @@ export async function submitTransactionSignature(escrowId: string, participantId
     )
   }
 
-  await prisma.escrowTransactionSignature.upsert({
-    where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
-    update: { signedPsbtBase64 },
-    create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+  // Issue #244 — serialize durable signature acceptance with stale cleanup.
+  // The lock is intentionally released before any provider/network/economic
+  // side effect below.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    const livePending = await tx.escrowPendingTransaction.findUnique({ where: { id: pending.id } })
+    if (!livePending || livePending.escrowId !== escrowId) {
+      throw new EscrowError(`Escrow ${escrowId}'s pending transaction changed before signature ${participantId} could be committed — re-read the live signing round`)
+    }
+    await tx.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64 },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+    })
   })
 
   const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
