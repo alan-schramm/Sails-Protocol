@@ -217,7 +217,8 @@ export class DisputeService {
   ) {
     const trade = await tradeRepository.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
-    if (!trade.escrowId) throw new ValidationError(`Trade ${tradeId} has no escrow to dispute`)
+    if (!escrowId) throw new ValidationError(`Trade ${tradeId} has no escrow to dispute`)
+    const escrowId = escrowId
 
     if (raisedBy !== trade.buyerId && raisedBy !== trade.sellerId) {
       throw new ForbiddenError(`${raisedBy} is not a party to trade ${tradeId}`)
@@ -240,21 +241,21 @@ export class DisputeService {
     let opened: { dispute: Awaited<ReturnType<typeof prisma.dispute.create>>; transitionId: string; fromStatus: string }
     try {
       opened = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${trade.escrowId})::bigint)`
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
 
-        const escrow = await tx.escrow.findUnique({ where: { id: trade.escrowId } })
-        if (!escrow) throw new NotFoundError('Escrow', trade.escrowId!)
+        const escrow = await tx.escrow.findUnique({ where: { id: escrowId } })
+        if (!escrow) throw new NotFoundError('Escrow', escrowId)
         assertEscrowTransition(escrow.status, 'DISPUTED')
 
-        const claimed = await this.repo.claimTransition(trade.escrowId!, escrow.status, 'DISPUTED', tx)
+        const claimed = await this.repo.claimTransition(escrowId, escrow.status, 'DISPUTED', tx)
         if (claimed === 0) {
-          throw new ValidationError(`Escrow ${trade.escrowId} was already transitioned by a concurrent request`)
+          throw new ValidationError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
         }
 
         const dispute = await tx.dispute.create({
           data: {
             tradeId,
-            escrowId: trade.escrowId!,
+            escrowId: escrowId,
             openedBy: raisedBy,
             reason,
             evidence: resolvedEvidence as unknown as object,
@@ -263,7 +264,7 @@ export class DisputeService {
         })
 
         const transitionId = await claimEscrowTransitionRecord(tx, {
-          escrowId: trade.escrowId!,
+          escrowId: escrowId,
           from: escrow.status,
           to: 'DISPUTED',
           triggeredBy: raisedBy,
@@ -272,7 +273,7 @@ export class DisputeService {
         })
         if (!transitionId) {
           throw new ValidationError(
-            `Escrow ${trade.escrowId} already has a durable DISPUTED transition claim`
+            `Escrow ${escrowId} already has a durable DISPUTED transition claim`
           )
         }
 
@@ -290,7 +291,7 @@ export class DisputeService {
     // it can no longer observe DISPUTED without both a Dispute row and a
     // durable recovery obligation.
     await publishEscrowTransition(
-      trade.escrowId,
+      escrowId,
       tradeId,
       opened.fromStatus,
       'DISPUTED',
@@ -300,8 +301,8 @@ export class DisputeService {
       opened.transitionId
     )
 
-    const { provider } = await this.providerForEscrow(trade.escrowId)
-    const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
+    const { provider } = await this.providerForEscrow(escrowId)
+    const committedArbiterId = await this.findCommittedArbiterId(escrowId)
     const arbiterId = committedArbiterId ?? (await provider.assign(opened.dispute.id, tradeId))
     const updated = await prisma.dispute.update({
       where: { id: opened.dispute.id },
@@ -310,7 +311,7 @@ export class DisputeService {
 
     await eventBus.emit('dispute.opened', {
       disputeId: opened.dispute.id,
-      settlementId: trade.escrowId,
+      settlementId: escrowId,
       tradeId,
       arbiterId,
       reason,
