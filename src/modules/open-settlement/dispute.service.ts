@@ -217,8 +217,8 @@ export class DisputeService {
   ) {
     const trade = await tradeRepository.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
-    if (!escrowId) throw new ValidationError(`Trade ${tradeId} has no escrow to dispute`)
-    const escrowId = escrowId
+    if (!trade.escrowId) throw new ValidationError(`Trade ${tradeId} has no escrow to dispute`)
+    const escrowId = trade.escrowId
 
     if (raisedBy !== trade.buyerId && raisedBy !== trade.sellerId) {
       throw new ForbiddenError(`${raisedBy} is not a party to trade ${tradeId}`)
