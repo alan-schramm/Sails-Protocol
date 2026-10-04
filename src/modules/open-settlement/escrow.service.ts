@@ -55,6 +55,8 @@ import { evaluateExpiryAuthority } from './expiry-authority'
 // SemanticTransitionRecord, one Postgres transaction) — see
 // semantic-transition-record.ts's own header.
 import { commitAuthoritativeEscrowTimelockExpiry } from './semantic-transition-record'
+import { claimEscrowTransitionRecord } from './escrow-transition-claim'
+import type { Prisma } from '@prisma/client'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -819,6 +821,20 @@ export class EscrowService {
   }
 
   async openDispute(escrowId: string, triggeredBy: string, reason: string) {
+    await this.openDisputeEstablishing(escrowId, triggeredBy, reason, async () => undefined)
+    return this.repo.findById(escrowId)
+  }
+
+  /**
+   * Issue #238 - the escrow freeze and the durable facts that make it a valid dispute are one commit.
+   * Same authorization and lifecycle checks as before; then, in ONE transaction under the escrow's
+   * advisory lock (withEscrowFundingLock(), which also serializes the EscrowEvent hash chain): the
+   * conditional DISPUTED claim, its transition record ('transition.claimed', recoverable by settlement
+   * reconciliation PASS 3) and `establish(tx)` - raiseDispute()'s Dispute row + assigned arbiter. Any
+   * failure rolls all of it back: no committed DISPUTED without its Dispute, and no Dispute without the
+   * freeze. Publishing the transition event happens after the commit (publishEscrowTransition()).
+   */
+  async openDisputeEstablishing<T>(escrowId: string, triggeredBy: string, reason: string, establish: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'DISPUTED')
@@ -839,21 +855,28 @@ export class EscrowService {
     // already has its own @@unique([tradeId]) guard at the Dispute-row
     // level (2026-07-19 security round); this closes the same race one
     // layer down, at the Escrow row this method actually mutates.
-    await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED')
-    const updated = await this.repo.findById(escrowId)
+    // Same pre-claim gates and lost-race handling as claimEscrowTransition(), with the claim inside
+    // the transaction below.
+    assertCircuitClosed(escrowId)
+    const committed = await withEscrowFundingLock(escrowId, async (tx) => {
+      if (await this.repo.claimTransition(escrowId, escrow.status, 'DISPUTED', tx) === 0) return null
+      const transitionId = await claimEscrowTransitionRecord(tx, {
+        escrowId, from: escrow.status, to: 'DISPUTED', triggeredBy, eventName: 'settlement.escrow.disputed', note: reason,
+      })
+      if (!transitionId) {
+        // Still in escrow.status a moment ago, so no DISPUTED transition can exist unless written by
+        // hand - fail closed, rolling the claim back (commitAuthoritativeEscrowTimelockExpiry()'s rule).
+        throw new EscrowError(`Escrow ${escrowId} already has a DISPUTED transition recorded while still ${escrow.status} - not committing a second one`)
+      }
+      return { transitionId, established: await establish(tx) }
+    })
+    if (!committed) {
+      recordEscrowConflict(escrowId)
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
 
-    await emitEscrowTransition(
-      escrowId,
-      escrow.tradeId,
-      escrow.status,
-      'DISPUTED',
-      triggeredBy,
-      'settlement.escrow.disputed',
-      {},
-      reason
-    )
-
-    return updated
+    await publishEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, committed.transitionId)
+    return committed.established
   }
 
   // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.

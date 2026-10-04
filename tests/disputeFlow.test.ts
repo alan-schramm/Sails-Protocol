@@ -166,6 +166,12 @@ const mockIsSignatureCollectionType = jest.fn().mockReturnValue(false)
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
   escrowService: {
     openDispute: (...args: unknown[]) => mockOpenDispute(...args),
+    // Issue #238 - raiseDispute() establishes the Dispute inside openDisputeEstablishing()'s transaction;
+    // this mock records the same openDispute() call and runs `establish` against the mocked prisma (as tx).
+    openDisputeEstablishing: async (escrowId: string, by: string, reason: string, establish: (tx: unknown) => Promise<unknown>) => {
+      await mockOpenDispute(escrowId, by, reason)
+      return establish(require('../src/common/database').prisma)
+    },
     releaseFunds: (...args: unknown[]) => mockReleaseFunds(...args),
     refundFunds: (...args: unknown[]) => mockRefundFunds(...args),
     splitFunds: (...args: unknown[]) => mockSplitFunds(...args),

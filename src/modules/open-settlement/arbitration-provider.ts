@@ -30,7 +30,12 @@ export interface ArbitrationProvider {
   // "each wallet/application registers its own Trusted Arbitrators," not
   // a protocol-wide list.
   arbitrators: string[]
-  assign(disputeId: string, tradeId: string): Promise<string>
+  /**
+   * Issue #238 - `tx` (additive, optional; slash()/recordRuling()'s #253 shape): raiseDispute() assigns
+   * inside the SAME transaction that freezes the escrow and creates the Dispute, so an implementation
+   * that reads the dispute must read it through `tx` (it is not committed yet).
+   */
+  assign(disputeId: string, tradeId: string, tx?: Prisma.TransactionClient): Promise<string>
 
   // RFC-021 D6 — all three optional: TrustedArbitratorProvider implements
   // none of them (a curated allowlist has no collateral/reputation to

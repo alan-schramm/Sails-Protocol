@@ -228,8 +228,8 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * own persisted `tradeId` (authoritative), not the `_tradeId` parameter
    * alone, though the two should always agree for a correct caller.
    */
-  async assign(disputeId: string, _tradeId: string): Promise<string> {
-    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+  async assign(disputeId: string, _tradeId: string, tx?: Prisma.TransactionClient): Promise<string> {
+    const dispute = await (tx ?? prisma).dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
     const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
