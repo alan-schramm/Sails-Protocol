@@ -237,7 +237,7 @@ export class DisputeService {
     // settlement lifecycle/recovery. It serializes this transaction with
     // other escrow writers across processes. No event bus or arbitration
     // provider call occurs while the transaction is open.
-    let opened: { dispute: Awaited<ReturnType<typeof prisma.dispute.create>>; transitionId: string }
+    let opened: { dispute: Awaited<ReturnType<typeof prisma.dispute.create>>; transitionId: string; fromStatus: string }
     try {
       opened = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${trade.escrowId})::bigint)`
@@ -276,7 +276,7 @@ export class DisputeService {
           )
         }
 
-        return { dispute, transitionId }
+        return { dispute, transitionId, fromStatus: escrow.status }
       })
     } catch (err: any) {
       if (err?.code === 'P2002') {
@@ -292,7 +292,7 @@ export class DisputeService {
     await publishEscrowTransition(
       trade.escrowId,
       tradeId,
-      'FUNDS_LOCKED',
+      opened.fromStatus,
       'DISPUTED',
       raisedBy,
       'settlement.escrow.disputed',
