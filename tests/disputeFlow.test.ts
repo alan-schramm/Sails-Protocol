@@ -63,6 +63,7 @@ const mockDisputeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 // 'MOCK' keeps isSignatureCollectionType() false, preserving this file's
 // existing tests' direct-call expectations unchanged.
 const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', type: 'MOCK', status: 'FUNDS_LOCKED' })
+const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 // RFC-021 D6 real appeal-fee collection (2026-08-01) — appeal() charges
 // one of these per appeal round, resolveDispute() settles its outcome.
 const mockDisputeAppealFeeCreate = jest.fn().mockResolvedValue({ id: 'appeal-fee-1' })
@@ -107,7 +108,7 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     },
     escrow: {
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
     },
     dispute: {
       create: (...args: unknown[]) => mockDisputeCreate(...args),
