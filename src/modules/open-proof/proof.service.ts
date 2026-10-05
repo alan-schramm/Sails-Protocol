@@ -1,4 +1,11 @@
 /**
+
+    // Issue #267 / CTO Policy V1 — canonical service-boundary decoded-byte limit.
+    if (media.byteLength > config.proof.evidenceMaxDecodedBytes) {
+      throw new ValidationError(
+        `Evidence media exceeds the Day-0 decoded size limit of ${config.proof.evidenceMaxDecodedBytes} bytes`
+      )
+    }
  * Sails OpenProof — Reference Implementation (PROTOCOL_SPECIFICATION.md
  * §1.8, RFC-006). Fase 1 Task 3(c): built as the real feature this
  * security review's "QVAC forgery" task actually needed underneath it —
@@ -381,15 +388,6 @@ export class ProofService {
     nonce: string,
     reason?: string
   ) {
-    // Issue #267 / CTO Policy V1 — service-boundary decoded-byte limit.
-    // Route-level Base64 validation is only a cheap representation guard;
-    // direct/internal callers must not be able to bypass the real-media cap.
-    if (media.byteLength > config.proof.evidenceMaxDecodedBytes) {
-      throw new ValidationError(
-        `Evidence media exceeds the Day-0 decoded size limit of ${config.proof.evidenceMaxDecodedBytes} bytes`
-      )
-    }
-
     const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
     await assertClaimEconomicScopeAccess(proof.claim, verifiedBy)
