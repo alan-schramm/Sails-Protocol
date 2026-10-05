@@ -356,8 +356,12 @@ export const config = {
     // dependency added just for this) so Redis's PEXPIRE gets a plain
     // number directly — same default window (60s) as the tiers they
     // parallel and supersede.
-    authWindowMs: requiredInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
-    criticalWindowMs: requiredInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
+    // Master Backlog R6 — every window below is a strict positive integer:
+    // with a window <= 0 the counter restarts on every hit (Redis deletes a
+    // key given a non-positive PEXPIRE; FixedWindowCounter's window is
+    // already over when created), so the limit silently never applies.
+    authWindowMs: requiredPositiveInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
+    criticalWindowMs: requiredPositiveInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
     // 2026-08-15 security review: the two tiers above are @fastify/rate-limit,
     // which only fires on the HTTP request/response lifecycle — a WebSocket
     // upgrade is one HTTP request, then the connection stays open and every
@@ -369,7 +373,7 @@ export const config = {
     // deliberate-simplification precedent as the HTTP tiers above (no shared
     // Redis store yet); see ws-message-rate-limiter.ts.
     wsMessageMax: requiredInt('RATE_LIMIT_WS_MESSAGE_MAX', 20),
-    wsMessageWindowMs: requiredInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
+    wsMessageWindowMs: requiredPositiveInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
   },
 
   // 2026-08-15 security review — common/security/suspicious-activity.ts.
@@ -386,12 +390,15 @@ export const config = {
   // exactly that reason: tune them once real traffic exists, don't
   // treat the defaults as validated.
   suspiciousActivity: {
-    authFailureMax: requiredInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
-    authFailureWindowMs: requiredInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
-    notFoundClusterMax: requiredInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
-    notFoundClusterWindowMs: requiredInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
-    rateLimitedMax: requiredInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
-    rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+    // Master Backlog R6 — strict positive integers: a window <= 0 restarts
+    // the count on every event, and detection fires only when count === max
+    // (count starts at 1), so either <= 0 silently disables detection.
+    authFailureMax: requiredPositiveInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
+    authFailureWindowMs: requiredPositiveInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
+    notFoundClusterMax: requiredPositiveInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
+    notFoundClusterWindowMs: requiredPositiveInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
+    rateLimitedMax: requiredPositiveInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
+    rateLimitedWindowMs: requiredPositiveInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
   },
 
   observability: {
@@ -417,8 +424,11 @@ export const config = {
   // trip), not something measured against real traffic.
   escrowCircuitBreaker: {
     failureThreshold: requiredInt('ESCROW_BREAKER_FAILURE_THRESHOLD', 5),
-    windowMs: requiredInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
-    cooldownMs: requiredInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
+    // Master Backlog R6 — window/cooldown <= 0 left the breaker unable to
+    // open at all (each conflict started a fresh window, each trip expired
+    // at once); strict positive integers now.
+    windowMs: requiredPositiveInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
+    cooldownMs: requiredPositiveInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
   },
 
   features: {
