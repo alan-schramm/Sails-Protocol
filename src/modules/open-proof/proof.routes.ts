@@ -28,6 +28,7 @@ const attachEvidenceSchema = z.object({
   mediaBase64: z.string().min(1).max(config.proof.evidenceMaxBase64Chars),
   mimeType: z.enum(['image', 'video', 'document', 'ocr', 'external_reference']),
   signatureHex: z.string().min(1),
+  idempotencyKey: z.string().min(1).max(200),
 })
 
 const submitProofSchema = z.object({
@@ -122,7 +123,7 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     const body = attachEvidenceSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const media = Buffer.from(body.mediaBase64, 'base64')
-    const reference = await proofService.attachEvidence(id, media, body.mimeType, participantId, body.signatureHex)
+    const reference = await proofService.attachEvidence(id, media, body.mimeType, participantId, body.signatureHex, body.idempotencyKey)
     return reply.code(201).send({ success: true, data: reference })
   })
 
