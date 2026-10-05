@@ -749,9 +749,29 @@ completed trade when the escrow is COMPLETED and no dispute ever existed,
 exactly once per (COMPLETED transition, trade) through an
 `event_projection_claims` claim committed with the increment; PASS 3
 re-drives it after a crash. Unbound trades, refunds, cancellations,
-SPLITs and post-dispute releases count nothing. `chargebacks` has no
-writer: Sails holds no durable fact that a fiat payment was reversed, so
-nothing is inferred. Existing counter values are untouched (no backfill).
+SPLITs and post-dispute releases count nothing. Existing counter values
+are untouched (no backfill).
+
+**Chargebacks — fail-closed by CTO policy (Day-0).**
+`PaymentAccount.chargebacks` remains an input recognized by the trust ramp
+(`computeTradeLimit()`: any `chargebacks > 0` caps the account at
+`SIGNED_TRADE_LIMIT`, and existing values are honoured as they are), but
+Day-0 has no canonical fiat-reversal authority able to produce new values.
+Escrow refund, cancellation, dispute, ruling, SPLIT, MOOT and fee reversal
+do not constitute a chargeback: a chargeback is a fact of the fiat rail,
+and an unknown fiat outcome is not a chargeback. Until a specific
+authorized primitive/source exists, the protocol stays fail-closed and
+never increments this counter (no production writer exists; a structural
+test fails if one is added).
+
+Future chargeback support requires a separate canonical fiat-reversal
+authority with provenance, immutable trade/account binding, authorization,
+idempotency, exactly-once semantics and restart/replay safety. Such a
+primitive would at least bind each reversal to its `tradeId` and to that
+trade's `sellerPaymentAccountId`, record its provenance and the defined
+source/authority that asserted it, be idempotent and exactly-once, survive
+replay/restart, and be contestable where applicable. It is outside #235
+R7D and is not implemented.
 
 Modeled directly on Bisq's real "Payment account age witness"/account
 signing — a SEPARATE risk dimension from `User.reputationScore`: this

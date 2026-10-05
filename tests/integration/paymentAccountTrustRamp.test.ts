@@ -363,11 +363,35 @@ describe('#235 R7D — payment-account trust ramp from durable clean completions
     expect(rows.some((r) => /"eventId".*"projectionKey".*"subjectId"/.test(r.indexdef))).toBe(true)
   })
 
-  it('chargebacks: no production path writes them — a refund, a dispute or a ruling is not a chargeback', async () => {
-    pg.requirePostgres('chargebacks')
+  // CTO policy (Day-0): no canonical fiat-reversal authority → no chargeback write. Two proofs.
+  it('chargebacks, structural: no production source writes PaymentAccount.chargebacks', () => {
+    const { readdirSync, readFileSync, statSync } = require('fs')
+    const { join } = require('path')
+    const root = join(__dirname, '..', '..')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name)
+        if (statSync(path).isDirectory()) walk(path)
+        else if (/\.(ts|js|sql)$/.test(name)) files.push(path)
+      }
+    }
+    for (const dir of ['src', 'scripts', join('prisma', 'migrations')]) walk(join(root, dir))
+    // A write is an assignment in a Prisma `data` object (`chargebacks: {…}` / `chargebacks: <number>`) or in SQL
+    // (`SET … "chargebacks" =`). Reads (`account.chargebacks`, `chargebacks: account.chargebacks`, the column
+    // definition in the init migration) are not.
+    const writes = /chargebacks\s*:\s*(\{|\d|-)|"?chargebacks"?\s*=(?!=)/
+    const offenders = files.filter((f) => readFileSync(f, 'utf8').split('\n').some((line: string) => writes.test(line)))
+    expect(offenders).toEqual([])
     expect(typeof (paymentAccountService as any).recordChargeback).toBe('undefined')
     expect(typeof (paymentAccountService as any).recordCompletedTrade).toBe('undefined')
-    const touched = await prisma.paymentAccount.count({ where: { ownerId: { in: ownedUserIds }, chargebacks: { gt: 0 } } })
-    expect(touched).toBe(0)
+  })
+
+  it('chargebacks, behavioural: every account this suite drove through clean completion, release after a dispute (MOOT), refund, cancellation, SPLIT, replay, concurrent nodes and PASS 3 recovery still has 0', async () => {
+    pg.requirePostgres('chargebacks')
+    const accounts = await prisma.paymentAccount.findMany({ where: { ownerId: { in: ownedUserIds } }, select: { chargebacks: true, completedTrades: true } })
+    expect(accounts.length).toBeGreaterThan(10)
+    expect(accounts.filter((a) => a.completedTrades > 0).length).toBeGreaterThan(0) // the ramp did advance here
+    expect(accounts.filter((a) => a.chargebacks !== 0)).toEqual([])
   })
 })
