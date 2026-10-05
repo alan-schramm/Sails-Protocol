@@ -334,6 +334,11 @@ this, not assumed:
   could sign any account, including their own. Trade-limit enforcement
   and ramp progression (`completedTrades`/`chargebacks`) are still not
   wired (#235, R7/N2).
+  **Implementado 2026-10-05 (#235 R7D):** `completedTrades` now advances
+  exactly once per clean completion (escrow COMPLETED, no dispute ever) of
+  a trade bound to the account. `chargebacks` remains unwired on purpose:
+  Sails has no canonical fact that a fiat payment was reversed — an escrow
+  refund, a dispute or a ruling is not one (CTO decision pending).
 - **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
   `prisma/schema.prisma`, `payment-account.service.ts`'s
   `hashAccountIdentifier()` (server-side SHA-256, reference/test only)

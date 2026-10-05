@@ -742,6 +742,17 @@ free-text payment details actually paid to: the buyer's attestation, made
 with the hash of what they paid, is that witness. An unbound trade (none
 declared, or created before R7C) can never attest.
 
+**#235 R7D (N2) — `completedTrades` is production truth.** Its only writer
+is `paymentAccountService.recordCleanBoundCompletion()`, called by the
+`settlement.escrow.released` handler: the trade's bound account gains one
+completed trade when the escrow is COMPLETED and no dispute ever existed,
+exactly once per (COMPLETED transition, trade) through an
+`event_projection_claims` claim committed with the increment; PASS 3
+re-drives it after a crash. Unbound trades, refunds, cancellations,
+SPLITs and post-dispute releases count nothing. `chargebacks` has no
+writer: Sails holds no durable fact that a fiat payment was reversed, so
+nothing is inferred. Existing counter values are untouched (no backfill).
+
 Modeled directly on Bisq's real "Payment account age witness"/account
 signing — a SEPARATE risk dimension from `User.reputationScore`: this
 measures whether a specific payment rail (a PIX key, a bank account) has
