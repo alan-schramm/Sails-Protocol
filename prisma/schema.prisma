@@ -2424,6 +2424,16 @@ model EvidenceUploadReservation {
   @@map("evidence_upload_reservations")
 }
 
+model EvidenceObjectCleanupClaim {
+  id        String   @id @default(uuid())
+  provider  String
+  uri       String
+  createdAt DateTime @default(now())
+
+  @@unique([provider, uri])
+  @@map("evidence_object_cleanup_claims")
+}
+
 model EvidenceReference {
   id          String   @id @default(uuid())
   proofId     String
