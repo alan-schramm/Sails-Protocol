@@ -2391,6 +2391,38 @@ model Proof {
 // only (guarded by a regression test in tests/proofService.test.ts) — no
 // migration subsystem exists or is needed today; this comment is the
 // durable constraint for whenever one is.
+enum EvidenceUploadReservationStatus {
+  RESERVED
+  COMMITTED
+  UNKNOWN
+  RELEASED
+}
+
+// Issue #267 — durable quota admission primitive. A reservation is created
+// atomically under the proof/uploader quota locks BEFORE object-storage I/O.
+// This prevents multi-instance over-admission without holding a database
+// transaction open across S3/filesystem network/storage work. UNKNOWN is
+// deliberately retained for crash/ambiguous provider outcomes; it continues
+// consuming budget until reconciliation proves it safe to release.
+model EvidenceUploadReservation {
+  id             String                          @id @default(uuid())
+  proofId        String
+  submittedBy    String
+  sizeBytes      Int
+  operationKey   String
+  mediaSha256    String
+  mimeType       String
+  status         EvidenceUploadReservationStatus @default(RESERVED)
+  evidenceRefId  String?
+  createdAt      DateTime                        @default(now())
+  updatedAt      DateTime                        @updatedAt
+
+  @@unique([submittedBy, operationKey])
+  @@index([proofId])
+  @@index([proofId, submittedBy])
+  @@map("evidence_upload_reservations")
+}
+
 model EvidenceReference {
   id          String   @id @default(uuid())
   proofId     String
