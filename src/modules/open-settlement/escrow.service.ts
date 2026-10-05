@@ -56,7 +56,7 @@ import { evaluateExpiryAuthority } from './expiry-authority'
 // semantic-transition-record.ts's own header.
 import { commitAuthoritativeEscrowTimelockExpiry } from './semantic-transition-record'
 import { claimEscrowTransitionRecord } from './escrow-transition-claim'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -298,6 +298,48 @@ export type { CreateEscrowInput }
 // invoked). Reusing this exact function rather than a second `type in
 // PROVIDERS` check means creation can never drift from the real
 // dispatch-time truth — they are now literally the same lookup.
+/**
+ * #235 R7F-B — TRADE_ESCROW_ECONOMIC_BINDING_V1. A trade-backed escrow
+ * commits exactly the trade's economic intent: its asset and its principal
+ * T (Escrow.lockedAmount = Trade.amount; the protocol fee reserve, R = T +
+ * Fmax, is separate and never folded in — fee-reserve-math.ts). The caller's
+ * `asset`/`lockedAmount` are assertions checked against the Trade, never
+ * authority: a mismatch is refused, never silently replaced. Amounts are
+ * compared as exact Decimals ("0.001" equals "0.0010"; one unit apart never
+ * collapses). A trade whose AssetType has no authorized settlement
+ * translation (ADR-002 §11: LN_BTC, USDT_LIGHTNING, SPARK, STACKS, RSK_BTC)
+ * cannot be escrowed at all — no caller-chosen rail, MOCK included, may
+ * decide what such a trade actually locks. Runs before anything is written.
+ * Returns the Trade's own values to persist.
+ */
+function bindEscrowToTrade(
+  trade: { id: string; asset: AssetType; amount: Prisma.Decimal | string },
+  input: Pick<CreateEscrowInput, 'asset' | 'lockedAmount'>,
+): { asset: AssetType; lockedAmount: string } {
+  if (input.asset !== trade.asset) {
+    throw new ValidationError(`Escrow asset ${input.asset} does not match trade ${trade.id}'s asset ${trade.asset}`)
+  }
+  const principal = new Prisma.Decimal(trade.amount.toString())
+  let requested: Prisma.Decimal
+  try {
+    requested = new Prisma.Decimal(input.lockedAmount)
+  } catch {
+    throw new ValidationError(`lockedAmount "${input.lockedAmount}" is not a decimal amount`)
+  }
+  if (!requested.equals(principal)) {
+    throw new ValidationError(
+      `lockedAmount ${input.lockedAmount} does not equal trade ${trade.id}'s amount ${principal.toString()}: an escrow locks exactly the trade's principal (the protocol fee reserve is separate)`
+    )
+  }
+  if (!translateLegacyAssetType(trade.asset)) {
+    throw new EscrowError(
+      `Trade ${trade.id} is in ${trade.asset}, which has no authorized settlement translation (ADR-002 §11) — no trade-backed escrow can be created for it`,
+      'UNAVAILABLE'
+    )
+  }
+  return { asset: trade.asset, lockedAmount: principal.toString() }
+}
+
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   const resolved = resolveEscrowTypeCandidate(asset, explicitType)
   getSettlementProvider(resolved)
@@ -395,7 +437,16 @@ export class EscrowService {
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
 
-    const type = resolveEscrowType(input.asset, input.type)
+    const { asset, lockedAmount } = bindEscrowToTrade(trade, input)
+    const type = resolveEscrowType(asset, input.type)
+    // #235 R7F-B (D4) — SAFE_GUARD_EVM locks native ETH, which no AssetType
+    // represents, so it can never carry a trade's economic commitment.
+    // Unreachable through bindEscrowToTrade() + resolveEscrowType() today
+    // (every translated asset resolves to its own registered rail); kept as
+    // an explicit refusal so a future resolution change cannot reopen it.
+    if (type === 'SAFE_GUARD_EVM') {
+      throw new EscrowError(`Trade ${trade.id} cannot use SAFE_GUARD_EVM: it locks native ETH, which is not the trade's asset (${asset})`, 'UNAVAILABLE')
+    }
 
     // Master Backlog R5 — the timelock is protocol policy, frozen on the
     // escrow here; input.timelockHours (still accepted by the route for
@@ -421,7 +472,7 @@ export class EscrowService {
     // — so this has zero effect on any real deployment right now; any
     // OTHER failure here (a real active policy, but the lookup itself
     // errors) must propagate and fail this call, per CTO decision.
-    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, lockedAmount)
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
@@ -431,8 +482,8 @@ export class EscrowService {
     const escrow = await this.repo.create({
       tradeId: input.tradeId,
       type,
-      lockedAmount: input.lockedAmount,
-      asset: input.asset,
+      lockedAmount,
+      asset,
       network: input.network,
       timelockHours,
       ...(feeSnapshot ? { feeSnapshot } : {}),
