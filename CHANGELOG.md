@@ -19,6 +19,15 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7F-B (N3/N3b) — an escrow commits exactly its trade's economic intent.** `createEscrow()`
+  took `asset` and `lockedAmount` from the caller unchecked, and for five legacy assets the caller also
+  chose the rail — so a BTC 0.001 trade could get a USDT 500 escrow, or a SPARK trade lock BTC, USDT or
+  native ETH. Now `Escrow.asset = Trade.asset` and `Escrow.lockedAmount = Trade.amount` (the principal T;
+  the fee reserve stays separate), compared as exact Decimals; the caller's values are assertions and a
+  mismatch is refused before anything is written. Trades in LN_BTC, USDT_LIGHTNING, SPARK, STACKS or RSK_BTC
+  (no authorized translation, ADR-002 §11) cannot be escrowed, and SAFE_GUARD_EVM never backs a trade.
+  Existing escrow rows are not rewritten.
+
 - **#235 R7D (N2) — payment-account trust ramp counts real completions.** `completedTrades` had no
   production writer. The seller's bound account now gains one completed trade per clean completion
   (escrow COMPLETED, no dispute ever), exactly once across replay, concurrency, nodes and crash
