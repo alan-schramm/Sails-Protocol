@@ -174,6 +174,11 @@ export async function commitEvidenceReservation(
     if (reservation.status === 'RELEASED') {
       throw new ValidationError('Released evidence reservation cannot be committed')
     }
+    if (reservation.status === 'UNKNOWN') {
+      throw new ValidationError(
+        'Ambiguous evidence reservation cannot be committed without explicit storage reconciliation'
+      )
+    }
 
     const reference = await tx.evidenceReference.create({
       data: {
@@ -189,7 +194,7 @@ export async function commitEvidenceReservation(
     })
 
     const committed = await tx.evidenceUploadReservation.updateMany({
-      where: { id: reservation.id, status: { in: ['RESERVED', 'UNKNOWN'] } },
+      where: { id: reservation.id, status: 'RESERVED' },
       data: { status: 'COMMITTED', evidenceRefId: reference.id },
     })
     if (committed.count !== 1) {
