@@ -80,9 +80,10 @@ jest.mock('../src/modules/open-proof/timestamp-anchor', () => ({
 // #267 quota/rate mechanics are proved in their dedicated suites. #261's
 // purpose here is HTTP + service economic-scope authorization, so keep those
 // new collaborators deterministic while preserving the required request contract.
-jest.mock('../src/common/middleware/redis-rate-limit', () => ({
-  consumeSharedRateLimitKeys: jest.fn().mockResolvedValue(undefined),
-}))
+jest.mock('../src/common/middleware/redis-rate-limit', () => {
+  const actual = jest.requireActual('../src/common/middleware/redis-rate-limit')
+  return { ...actual, consumeSharedRateLimitKeys: jest.fn().mockResolvedValue(undefined) }
+})
 jest.mock('../src/modules/open-proof/evidence-quota', () => ({
   reserveEvidenceQuota: jest.fn(async (input: any) => ({ id: 'scope-reservation', status: 'RESERVED', evidenceRefId: null, ...input })),
   markEvidenceReservationUnknown: jest.fn().mockResolvedValue(undefined),
