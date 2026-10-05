@@ -34,6 +34,7 @@ import {
   reserveEvidenceQuota,
   commitEvidenceReservation,
   markEvidenceReservationUnknown,
+  persistCanonicalEvidenceSubmittedEvent,
 } from './evidence-quota'
 import { getTimeline } from '../../core/timeline'
 import { tradeService } from '../open-p2p/trade.service'
@@ -524,6 +525,7 @@ export class ProofService {
     if (reservation.status === 'COMMITTED' && reservation.evidenceRefId) {
       const existing = await prisma.evidenceReference.findUnique({ where: { id: reservation.evidenceRefId } })
       if (!existing) throw new ValidationError('Committed evidence upload points to a missing durable reference')
+      await persistCanonicalEvidenceSubmittedEvent(reservation.id)
       return existing
     }
     if (reservation.status === 'UNKNOWN') {
@@ -561,7 +563,12 @@ export class ProofService {
       uri: stored.uri,
     }, signatureHex)
 
-    await eventBus.emit('proof.submitted', { proofId, claimId: proof.claimId }, proof.claimId)
+    // #267: durable event uniqueness belongs to the upload operation itself.
+    // This write is restart/retry safe and hash-chain serialized in Postgres.
+    // Listener dispatch remains the global EventStore's separate,
+    // non-acknowledged delivery concern and is not misrepresented here as
+    // exactly-once.
+    await persistCanonicalEvidenceSubmittedEvent(reservation.id)
 
     return reference
   }
