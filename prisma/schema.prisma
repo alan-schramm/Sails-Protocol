@@ -2414,7 +2414,7 @@ model EvidenceUploadReservation {
   mimeType       String
   status         EvidenceUploadReservationStatus @default(RESERVED)
   evidenceRefId  String?
-  eventPublishedAt DateTime? // #267 durable delivery marker; null = committed event still pending
+  eventRecordId    String?  @unique // #267 canonical durable proof.submitted record; null = publication pending
   createdAt      DateTime                        @default(now())
   updatedAt      DateTime                        @updatedAt
 
