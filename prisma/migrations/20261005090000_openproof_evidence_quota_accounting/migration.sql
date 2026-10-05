@@ -41,7 +41,7 @@ CREATE TABLE evidence_upload_reservations (
   "mimeType" TEXT NOT NULL,
   status "EvidenceUploadReservationStatus" NOT NULL DEFAULT 'RESERVED',
   "evidenceRefId" TEXT,
-  "eventPublishedAt" TIMESTAMP(3),
+  "eventRecordId" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL
 );
@@ -52,3 +52,6 @@ CREATE INDEX evidence_upload_reservations_proofId_idx
   ON evidence_upload_reservations("proofId");
 CREATE INDEX evidence_upload_reservations_proofId_submittedBy_idx
   ON evidence_upload_reservations("proofId", "submittedBy");
+
+CREATE UNIQUE INDEX evidence_upload_reservations_eventRecordId_key
+  ON evidence_upload_reservations("eventRecordId");
