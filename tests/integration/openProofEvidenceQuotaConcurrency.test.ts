@@ -216,6 +216,62 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
     }
   })
 
+  it('UNKNOWN can converge to COMMITTED after a positive same-payload storage reconciliation', async () => {
+    requirePostgres('issue #267 UNKNOWN positive reconciliation')
+    const { uploader, claim, proof } = await fixture()
+    try {
+      const reservation = await reserveEvidenceQuota({
+        proofId: proof.id, submittedBy: uploader.id, sizeBytes: 1024,
+        operationKey: 'unknown-reconcile', mediaSha256: '9'.repeat(64), mimeType: 'document',
+      })
+      await prisma.evidenceUploadReservation.update({
+        where: { id: reservation.id },
+        data: { status: 'UNKNOWN' },
+      })
+
+      const reference = await commitEvidenceReservation(
+        reservation.id,
+        { provider: 'test-provider', uri: `test://267/unknown-reconcile-${proof.id}` },
+        'a'.repeat(128),
+      )
+      const event = await persistCanonicalEvidenceSubmittedEvent(reservation.id)
+
+      const durable = await prisma.evidenceUploadReservation.findUnique({ where: { id: reservation.id } })
+      expect(durable?.status).toBe('COMMITTED')
+      expect(durable?.evidenceRefId).toBe(reference.id)
+      expect(durable?.eventRecordId).toBe(event.id)
+      expect(await prisma.evidenceReference.count({ where: { proofId: proof.id } })).toBe(1)
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
+  it('concurrent UNKNOWN reconciliation converges to one durable reference', async () => {
+    requirePostgres('issue #267 UNKNOWN concurrent reconciliation')
+    const { uploader, claim, proof } = await fixture()
+    try {
+      const reservation = await reserveEvidenceQuota({
+        proofId: proof.id, submittedBy: uploader.id, sizeBytes: 1024,
+        operationKey: 'unknown-race', mediaSha256: 'b'.repeat(64), mimeType: 'image',
+      })
+      await prisma.evidenceUploadReservation.update({
+        where: { id: reservation.id },
+        data: { status: 'UNKNOWN' },
+      })
+      const stored = { provider: 'test-provider', uri: `test://267/unknown-race-${proof.id}` }
+      const attempts = await Promise.allSettled(
+        Array.from({ length: 8 }, () => commitEvidenceReservation(reservation.id, stored, 'c'.repeat(128))),
+      )
+
+      expect(attempts.filter((x) => x.status === 'fulfilled').length).toBeGreaterThanOrEqual(1)
+      expect(await prisma.evidenceReference.count({ where: { proofId: proof.id } })).toBe(1)
+      const durable = await prisma.evidenceUploadReservation.findUnique({ where: { id: reservation.id } })
+      expect(durable?.status).toBe('COMMITTED')
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
   it('reference victory prevents a later cleanup claim for the shared object', async () => {
     requirePostgres('issue #267 reference wins cleanup race')
     const { uploader, claim, proof } = await fixture()
