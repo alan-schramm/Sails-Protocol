@@ -41,6 +41,7 @@ CREATE TABLE evidence_upload_reservations (
   "mimeType" TEXT NOT NULL,
   status "EvidenceUploadReservationStatus" NOT NULL DEFAULT 'RESERVED',
   "evidenceRefId" TEXT,
+  "eventPublishedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL
 );
