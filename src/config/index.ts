@@ -512,6 +512,7 @@ export const config = {
     // fallbacks: every value is a positive integer and production therefore
     // fails closed on malformed/zero/negative configuration.
     evidenceMaxDecodedBytes: requiredPositiveInt('PROOF_EVIDENCE_MAX_DECODED_BYTES', 10 * 1024 * 1024),
+    evidenceMaxBase64Chars: requiredPositiveInt('PROOF_EVIDENCE_MAX_BASE64_CHARS', 14 * 1024 * 1024),
     evidenceMaxPerProofCount: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_PROOF_COUNT', 50),
     evidenceMaxPerProofBytes: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_PROOF_BYTES', 100 * 1024 * 1024),
     evidenceMaxPerUploaderProofCount: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_UPLOADER_PROOF_COUNT', 25),
