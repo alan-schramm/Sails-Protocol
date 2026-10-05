@@ -13,7 +13,9 @@
  * I/O. RESERVED and UNKNOWN reservations consume quota until committed or
  * explicitly reconciled/released; UNKNOWN is never treated as FAILED.
  */
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
+import { Prisma } from '@prisma/client'
+import { computeEntryHash, GENESIS_HASH } from '../../common/events/event-store'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { ValidationError } from '../../common/errors'
@@ -195,5 +197,79 @@ export async function commitEvidenceReservation(
     }
 
     return reference
+  })
+}
+
+
+/**
+ * Persists the one canonical proof.submitted DurableEventRecord for an
+ * idempotent evidence-upload operation and binds it to the reservation in
+ * the SAME Postgres transaction. This proves durable-event uniqueness for
+ * #267 without claiming exactly-once listener delivery, which the global
+ * EventStore contract does not provide.
+ */
+export async function persistCanonicalEvidenceSubmittedEvent(reservationId: string) {
+  return prisma.$transaction(async (tx) => {
+    const reservation = await tx.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
+    if (!reservation) throw new ValidationError('Evidence upload reservation no longer exists')
+    if (reservation.status !== 'COMMITTED' || !reservation.evidenceRefId) {
+      throw new ValidationError('Evidence upload must be committed before its canonical event is persisted')
+    }
+    if (reservation.eventRecordId) {
+      const existing = await tx.durableEventRecord.findUnique({ where: { id: reservation.eventRecordId } })
+      if (!existing) throw new ValidationError('Evidence upload points to a missing durable event record')
+      return existing
+    }
+
+    const proof = await tx.proof.findUnique({ where: { id: reservation.proofId }, select: { claimId: true } })
+    if (!proof) throw new ValidationError('Committed evidence upload points to a missing Proof')
+
+    const correlationId = proof.claimId
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+
+    // Re-read after the lock: another instance may have completed this
+    // exact operation while this transaction waited.
+    const locked = await tx.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
+    if (!locked) throw new ValidationError('Evidence upload reservation disappeared while publishing')
+    if (locked.eventRecordId) {
+      const existing = await tx.durableEventRecord.findUnique({ where: { id: locked.eventRecordId } })
+      if (!existing) throw new ValidationError('Evidence upload points to a missing durable event record')
+      return existing
+    }
+
+    const last = await tx.durableEventRecord.findFirst({
+      where: { correlationId },
+      orderBy: { publishedAt: 'desc' },
+    })
+    const prevHash = last?.entryHash ?? GENESIS_HASH
+    let publishedAt = new Date().toISOString()
+    if (last && publishedAt <= last.publishedAt) {
+      publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+    }
+    const payload = { proofId: locked.proofId, claimId: proof.claimId }
+    const eventName = 'proof.submitted'
+    const eventId = randomUUID()
+    const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+
+    const event = await tx.durableEventRecord.create({
+      data: {
+        id: eventId,
+        eventName,
+        correlationId,
+        payload: payload as unknown as Prisma.InputJsonValue,
+        publishedAt,
+        entryHash,
+        prevHash,
+      },
+    })
+
+    const bound = await tx.evidenceUploadReservation.updateMany({
+      where: { id: locked.id, eventRecordId: null },
+      data: { eventRecordId: event.id },
+    })
+    if (bound.count !== 1) {
+      throw new ValidationError('Evidence event binding changed concurrently')
+    }
+    return event
   })
 }
