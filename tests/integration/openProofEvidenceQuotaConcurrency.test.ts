@@ -10,12 +10,13 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
   let reserveEvidenceQuota: typeof import('../../src/modules/open-proof/evidence-quota').reserveEvidenceQuota
   let commitEvidenceReservation: typeof import('../../src/modules/open-proof/evidence-quota').commitEvidenceReservation
   let persistCanonicalEvidenceSubmittedEvent: typeof import('../../src/modules/open-proof/evidence-quota').persistCanonicalEvidenceSubmittedEvent
+  let claimEvidenceObjectCleanup: typeof import('../../src/modules/open-proof/evidence-quota').claimEvidenceObjectCleanup
 
   beforeAll(async () => {
     await pg.probe()
     if (!pg.isAvailable()) return
     ;({ prisma } = require('../../src/common/database'))
-    ;({ reserveEvidenceQuota, commitEvidenceReservation, persistCanonicalEvidenceSubmittedEvent } =
+    ;({ reserveEvidenceQuota, commitEvidenceReservation, persistCanonicalEvidenceSubmittedEvent, claimEvidenceObjectCleanup } =
       require('../../src/modules/open-proof/evidence-quota'))
   })
 
@@ -51,6 +52,7 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
     })
     const eventIds = reservations.flatMap((r) => r.eventRecordId ? [r.eventRecordId] : [])
     await prisma.evidenceUploadReservation.deleteMany({ where: { proofId: ids.proofId } })
+    await prisma.evidenceObjectCleanupClaim.deleteMany({})
     if (eventIds.length) await prisma.durableEventRecord.deleteMany({ where: { id: { in: eventIds } } })
     await prisma.evidenceReference.deleteMany({ where: { proofId: ids.proofId } })
     await prisma.proof.deleteMany({ where: { id: ids.proofId } })
@@ -209,6 +211,46 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
       expect(await prisma.durableEventRecord.count({
         where: { eventName: 'proof.submitted', correlationId: claim.id },
       })).toBe(1)
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
+  it('reference victory prevents a later cleanup claim for the shared object', async () => {
+    requirePostgres('issue #267 reference wins cleanup race')
+    const { uploader, claim, proof } = await fixture()
+    const provider = 'test-provider'
+    const uri = `test://267/reference-wins-${proof.id}`
+    try {
+      const reservation = await reserveEvidenceQuota({
+        proofId: proof.id, submittedBy: uploader.id, sizeBytes: 512,
+        operationKey: 'reference-wins', mediaSha256: '5'.repeat(64), mimeType: 'image',
+      })
+      await commitEvidenceReservation(reservation.id, { provider, uri }, '6'.repeat(128))
+      await expect(claimEvidenceObjectCleanup(provider, uri)).resolves.toBe(false)
+      expect(await prisma.evidenceObjectCleanupClaim.count({ where: { provider, uri } })).toBe(0)
+      expect(await prisma.evidenceReference.count({ where: { provider, uri } })).toBe(1)
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
+  it('cleanup-claim victory blocks a later durable reference to the object', async () => {
+    requirePostgres('issue #267 cleanup wins reference race')
+    const { uploader, claim, proof } = await fixture()
+    const provider = 'test-provider'
+    const uri = `test://267/cleanup-wins-${proof.id}`
+    try {
+      await expect(claimEvidenceObjectCleanup(provider, uri)).resolves.toBe(true)
+      const reservation = await reserveEvidenceQuota({
+        proofId: proof.id, submittedBy: uploader.id, sizeBytes: 512,
+        operationKey: 'cleanup-wins', mediaSha256: '7'.repeat(64), mimeType: 'image',
+      })
+      await expect(
+        commitEvidenceReservation(reservation.id, { provider, uri }, '8'.repeat(128)),
+      ).rejects.toThrow('durable orphan cleanup')
+      expect(await prisma.evidenceReference.count({ where: { provider, uri } })).toBe(0)
+      expect(await prisma.evidenceObjectCleanupClaim.count({ where: { provider, uri } })).toBe(1)
     } finally {
       await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
     }
