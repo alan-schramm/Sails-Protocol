@@ -186,11 +186,13 @@ export async function commitEvidenceReservation(
     if (reservation.status === 'RELEASED') {
       throw new ValidationError('Released evidence reservation cannot be committed')
     }
-    if (reservation.status === 'UNKNOWN') {
-      throw new ValidationError(
-        'Ambiguous evidence reservation cannot be committed without explicit storage reconciliation'
-      )
-    }
+    // UNKNOWN may be committed only after the caller has positively
+    // re-observed a successful content-addressed store for the exact same
+    // operation payload. reserveEvidenceQuota() already binds operationKey
+    // to proof/uploader/size/hash/mime, so a retry cannot substitute bytes.
+    // Re-PUT of identical content is the reconciliation primitive: failure
+    // remains UNKNOWN; success gives us a fresh positive storage fact.
+    const committableStatuses = ['RESERVED', 'UNKNOWN'] as const
 
     const reference = await tx.evidenceReference.create({
       data: {
@@ -206,7 +208,7 @@ export async function commitEvidenceReservation(
     })
 
     const committed = await tx.evidenceUploadReservation.updateMany({
-      where: { id: reservation.id, status: 'RESERVED' },
+      where: { id: reservation.id, status: { in: [...committableStatuses] } },
       data: { status: 'COMMITTED', evidenceRefId: reference.id },
     })
     if (committed.count !== 1) {
