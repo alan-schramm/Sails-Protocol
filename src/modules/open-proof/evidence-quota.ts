@@ -123,3 +123,77 @@ export async function reserveEvidenceQuota(input: EvidenceQuotaReservationInput)
     })
   })
 }
+
+
+export async function markEvidenceReservationUnknown(reservationId: string): Promise<void> {
+  await prisma.evidenceUploadReservation.updateMany({
+    where: { id: reservationId, status: 'RESERVED' },
+    data: { status: 'UNKNOWN' },
+  })
+}
+
+export async function releaseEvidenceReservation(reservationId: string): Promise<void> {
+  await prisma.evidenceUploadReservation.updateMany({
+    where: { id: reservationId, status: 'RESERVED' },
+    data: { status: 'RELEASED' },
+  })
+}
+
+export async function recoverCommittedEvidenceReservation(reservationId: string) {
+  const reservation = await prisma.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
+  if (!reservation?.evidenceRefId) return null
+  return prisma.evidenceReference.findUnique({ where: { id: reservation.evidenceRefId } })
+}
+
+/**
+ * Atomically converts one active quota reservation into its durable
+ * EvidenceReference. The reservation stops contributing as an active
+ * reservation in the same transaction in which the committed reference
+ * starts contributing, so quota accounting never observes a free gap or
+ * double-counted committed operation.
+ */
+export async function commitEvidenceReservation(
+  reservationId: string,
+  stored: { provider: string; uri: string },
+  signature: string
+) {
+  return prisma.$transaction(async (tx) => {
+    const reservation = await tx.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
+    if (!reservation) throw new ValidationError('Evidence upload reservation no longer exists')
+
+    if (reservation.status === 'COMMITTED') {
+      if (!reservation.evidenceRefId) {
+        throw new ValidationError('Committed evidence reservation is missing its durable reference')
+      }
+      const existing = await tx.evidenceReference.findUnique({ where: { id: reservation.evidenceRefId } })
+      if (!existing) throw new ValidationError('Committed evidence reservation points to a missing durable reference')
+      return existing
+    }
+    if (reservation.status === 'RELEASED') {
+      throw new ValidationError('Released evidence reservation cannot be committed')
+    }
+
+    const reference = await tx.evidenceReference.create({
+      data: {
+        proofId: reservation.proofId,
+        provider: stored.provider,
+        uri: stored.uri,
+        sha256: reservation.mediaSha256,
+        mimeType: reservation.mimeType,
+        signature,
+        submittedBy: reservation.submittedBy,
+        sizeBytes: reservation.sizeBytes,
+      },
+    })
+
+    const committed = await tx.evidenceUploadReservation.updateMany({
+      where: { id: reservation.id, status: { in: ['RESERVED', 'UNKNOWN'] } },
+      data: { status: 'COMMITTED', evidenceRefId: reference.id },
+    })
+    if (committed.count !== 1) {
+      throw new ValidationError('Evidence reservation changed concurrently while committing')
+    }
+
+    return reference
+  })
+}
