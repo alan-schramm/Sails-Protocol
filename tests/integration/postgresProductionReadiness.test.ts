@@ -408,7 +408,16 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
         data: { claimId: claim.id, evidence: { note: 'R2 evidence' }, evidenceHash: 'real-pg-hash', submittedBy: 'real-pg-participant' },
       })
       const created = await prisma.evidenceReference.create({
-        data: { proofId: proof.id, provider: 'local-fs', uri: 'real-pg-uri', sha256: 'real-pg-sha256', mimeType: 'document', signature: 'real-pg-signature' },
+        data: {
+          proofId: proof.id,
+          provider: 'local-fs',
+          uri: 'real-pg-uri',
+          sha256: 'real-pg-sha256',
+          mimeType: 'document',
+          signature: 'real-pg-signature',
+          submittedBy: 'real-pg-participant',
+          sizeBytes: 1,
+        },
       })
       expect(created.proofId).toBe(proof.id)
 
