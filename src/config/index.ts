@@ -7,6 +7,7 @@ import 'dotenv/config'
 import { normalizeBitcoinNetwork, type BitcoinNetwork } from '@satsails/p2p-schemas'
 
 import { parseArbitrationMode, type ArbitrationMode } from '../modules/open-settlement/arbitration-policy'
+import { isValidTimelockHours } from '../modules/open-settlement/escrow-timelock-policy'
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
   if (v === undefined) {
@@ -135,6 +136,28 @@ function resolveMultisigNetwork(): BitcoinNetwork {
 }
 
 const resolvedMultisigNetwork = resolveMultisigNetwork()
+
+// Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is the only source of an
+// escrow's timelock (escrow-timelock-policy.ts). It used to be read with
+// the lenient requiredInt(), so 0 or a negative value booted and every
+// new escrow then expired the moment funds locked. A malformed value
+// throws in every environment; an unset one only throws in production,
+// where silently falling back to the dev default would hide a missing
+// policy (same required-in-prod/defaulted-in-dev shape as MULTISIG_NETWORK
+// above).
+function resolveDefaultTimelockHours(): number {
+  if (process.env.DEFAULT_TIMELOCK_HOURS === undefined && isProductionEnv) {
+    throw new Error(
+      'FATAL: NODE_ENV=production but DEFAULT_TIMELOCK_HOURS is not set. Refusing to boot — ' +
+      'see Master Backlog R5. Set DEFAULT_TIMELOCK_HOURS explicitly to the escrow timelock policy, in whole hours.'
+    )
+  }
+  const hours = requiredPositiveInt('DEFAULT_TIMELOCK_HOURS', 24)
+  if (!isValidTimelockHours(hours)) {
+    throw new Error(`Environment variable DEFAULT_TIMELOCK_HOURS is too large: an escrow deadline ${hours} hours ahead is not a representable date`)
+  }
+  return hours
+}
 
 // Missão 11 Fase 8.1 LB-02 — the confirmation-depth requirement for
 // recognizing an escrow's own FUNDING (the trade collateral itself) as
@@ -509,7 +532,7 @@ export const config = {
   },
 
   trade: {
-    defaultTimelockHours: requiredInt('DEFAULT_TIMELOCK_HOURS', 24),
+    defaultTimelockHours: resolveDefaultTimelockHours(),
     // How often the sweeper above (when enabled) checks for expired
     // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
     // a real abandoned trade doesn't sit stuck for hours, infrequent

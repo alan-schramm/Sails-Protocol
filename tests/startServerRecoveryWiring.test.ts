@@ -44,6 +44,9 @@ const PROD_ENV = {
   EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
   EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
   EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is now required in production
+  // (an unset value no longer falls back to the dev default there).
+  DEFAULT_TIMELOCK_HOURS: '24',
 }
 
 describe('startServer() — settlement / C4 recovery wiring', () => {

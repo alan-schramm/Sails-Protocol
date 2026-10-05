@@ -19,6 +19,13 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Master Backlog R5 — escrow timelock authority.** A trade party could set `timelockHours` on
+  `POST /v1/settlement/escrow` (0 or negative made the escrow expire as soon as funds locked; a
+  huge value made it never expire). The field is now accepted but ignored: `createEscrow()` freezes
+  `DEFAULT_TIMELOCK_HOURS` on the escrow, `lockFunds()` keeps deriving `expiresAt` from that frozen
+  value, and existing escrows are never recomputed. `DEFAULT_TIMELOCK_HOURS` must be a positive
+  integer in every environment and is required in production.
+
 - **Issues #291 / #294 / #298 — settlement result integrity, authoritative projection, replay
   safety.** `Escrow.txReleaseId`/`releasedAt` are now write-once (one `persistSettlementResult()`
   primitive for every writer + a database trigger); a provider-success/local-failure no longer

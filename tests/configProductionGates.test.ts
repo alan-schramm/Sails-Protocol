@@ -48,6 +48,9 @@ const REQUIRED_PROD_ENV = {
   EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
   EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
   EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is now required in production
+  // (an unset value no longer falls back to the dev default there).
+  DEFAULT_TIMELOCK_HOURS: '24',
 }
 
 describe('config/index.ts — production boot gates (Missão 06.5)', () => {
@@ -566,6 +569,45 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
         loadConfig({ NODE_ENV: 'test', MULTISIG_REORG_SAFETY_WINDOW_BLOCKS: '0' })
         expect(() => require(`../src/modules/open-settlement/${sweep}`)).toThrow(/MULTISIG_REORG_SAFETY_WINDOW_BLOCKS must be a positive integer/)
       }
+    })
+  })
+
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is the only source of an escrow's timelock. It used to be read
+  // leniently (0 or a negative value booted, and every new escrow then expired the moment funds locked), and
+  // an unset value silently fell back to 24 in production too.
+  describe('DEFAULT_TIMELOCK_HOURS — required in production, a strict positive integer everywhere (Master Backlog R5)', () => {
+    const timelock = (value: string | undefined) => loadConfig({ NODE_ENV: 'test', DEFAULT_TIMELOCK_HOURS: value })
+
+    it('refuses to boot in production when DEFAULT_TIMELOCK_HOURS is unset', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: undefined })).toThrow(/NODE_ENV=production but DEFAULT_TIMELOCK_HOURS is not set/)
+    })
+
+    it('boots in production with an explicit value and uses it', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: '48' })().trade.defaultTimelockHours).toBe(48)
+    })
+
+    it('outside production, unset keeps the documented dev default of 24', () => {
+      expect(timelock(undefined)().trade.defaultTimelockHours).toBe(24)
+    })
+
+    it.each([
+      ['0', 'zero: every escrow would expire at lock time'],
+      ['-24', 'negative'],
+      ['1.5', 'decimal: not truncated to 1'],
+      ['1e3', 'exponent'],
+      ['24h', 'trailing garbage'],
+      ['abc', 'non-numeric'],
+      ['', 'explicitly empty: not the default'],
+      ['9007199254740993', 'beyond exact integer range'],
+    ])('rejects %j (%s), in production and outside it', (value) => {
+      expect(timelock(value)).toThrow(/DEFAULT_TIMELOCK_HOURS must be a positive integer/)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: value })).toThrow(/DEFAULT_TIMELOCK_HOURS must be a positive integer/)
+    })
+
+    it('rejects a value whose deadline would not be a representable date', () => {
+      expect(timelock('3000000000')).toThrow(/DEFAULT_TIMELOCK_HOURS is too large/)
     })
   })
 

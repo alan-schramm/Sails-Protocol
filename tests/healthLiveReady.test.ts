@@ -157,6 +157,7 @@ describe('/health/ready', () => {
       EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
       EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
       EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+      DEFAULT_TIMELOCK_HOURS: '24', // Master Backlog R5 — required in production
       METRICS_ENABLED: 'false',
     }
     jest.resetModules()
@@ -191,6 +192,7 @@ describe('/health/ready', () => {
       EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
       EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
       EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+      DEFAULT_TIMELOCK_HOURS: '24', // Master Backlog R5 — required in production
       METRICS_ENABLED: 'true',
     }
     jest.resetModules()

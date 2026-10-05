@@ -72,6 +72,10 @@ export const createEscrowSchema = z.object({
   lockedAmount: positiveDecimalString('lockedAmount'),
   asset: z.enum(ASSET_TYPE_VALUES),
   network: z.string().optional(),
+  // Master Backlog R5 — accepted-but-inert, same status as releaseSchema's
+  // toAddress below: still parsed so existing clients sending it are not
+  // a 400, never read. The timelock is DEFAULT_TIMELOCK_HOURS, frozen on
+  // the escrow by createEscrow().
   timelockHours: z.number().optional(),
 })
 
