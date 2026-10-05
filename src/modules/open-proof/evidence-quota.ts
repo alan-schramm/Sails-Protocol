@@ -16,7 +16,6 @@
 import { createHash, randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { computeEntryHash, GENESIS_HASH } from '../../common/events/event-store'
-import { resolveEvidenceProviderByLabel } from './evidence-provider'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { ValidationError } from '../../common/errors'
@@ -299,20 +298,12 @@ export async function persistCanonicalEvidenceSubmittedEvent(reservationId: stri
  * proof of deletion. Callers must not use it as evidence-retention policy.
  */
 export async function deleteEvidenceObjectIfUnreferenced(provider: string, uri: string): Promise<boolean> {
-  const lockKey = `openproof:evidence-object:${provider}:${uri}`
-  const providerAdapter = resolveEvidenceProviderByLabel(provider)
-
-  // A session-level advisory lock is intentional here. The provider delete
-  // cannot be inside a DB transaction, but releasing an xact lock before
-  // delete would reopen the exact race #267 forbids: reference commit after
-  // the zero-reference check but before object deletion.
-  await prisma.$executeRaw`SELECT pg_advisory_lock(hashtext(${lockKey})::bigint)`
-  try {
-    const references = await prisma.evidenceReference.count({ where: { provider, uri } })
-    if (references !== 0) return false
-    await providerAdapter.delete(uri)
-    return true
-  } finally {
-    await prisma.$executeRaw`SELECT pg_advisory_unlock(hashtext(${lockKey})::bigint)`
-  }
+  // Fail closed rather than pretend a transaction-scoped lock can protect
+  // the gap between the DB zero-reference check and provider.delete().
+  // A safe delete requires a durable cleanup claim/tombstone that reference
+  // creation also observes. Until that claim exists, retaining an orphan is
+  // preferable to deleting an object that may become durably referenced.
+  const references = await prisma.evidenceReference.count({ where: { provider, uri } })
+  if (references !== 0) return false
+  return false
 }
