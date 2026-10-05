@@ -11,6 +11,7 @@ import { proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
+import { config } from '../../config'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -24,7 +25,7 @@ const assertClaimSchema = z.object({
 // verified server-side against the caller's own registered public key
 // (proof.service.ts's attachEvidence()) — never trusted as-is.
 const attachEvidenceSchema = z.object({
-  mediaBase64: z.string().min(1),
+  mediaBase64: z.string().min(1).max(config.proof.evidenceMaxBase64Chars),
   mimeType: z.enum(['image', 'video', 'document', 'ocr', 'external_reference']),
   signatureHex: z.string().min(1),
 })
