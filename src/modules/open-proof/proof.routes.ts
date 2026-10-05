@@ -12,6 +12,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
 import { config } from '../../config'
+import { consumeSharedRateLimitKeys } from '../../common/middleware/redis-rate-limit'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -122,6 +123,18 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParamsSchema.parse(request.params)
     const body = attachEvidenceSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
+    await consumeSharedRateLimitKeys(request, [
+      {
+        key: `ratelimit:openproof-evidence:uploader-proof:${participantId}:${id}`,
+        max: config.proof.evidenceRateUploaderProofMax,
+        windowMs: config.proof.evidenceRateWindowMs,
+      },
+      {
+        key: `ratelimit:openproof-evidence:uploader:${participantId}`,
+        max: config.proof.evidenceRateUploaderMax,
+        windowMs: config.proof.evidenceRateWindowMs,
+      },
+    ])
     const media = Buffer.from(body.mediaBase64, 'base64')
     const reference = await proofService.attachEvidence(id, media, body.mimeType, participantId, body.signatureHex, body.idempotencyKey)
     return reply.code(201).send({ success: true, data: reference })
