@@ -62,6 +62,30 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
+// #267 quota/idempotency has its own real-PostgreSQL integration suite. This
+// RFC-007 unit file keeps Prisma at the collaborator boundary and models the
+// quota collaborator without weakening ProofService's mandatory operationKey.
+const mockReserveEvidenceQuota = jest.fn(async (input: any) => ({
+  id: 'reservation-unit', status: 'RESERVED', evidenceRefId: null, ...input,
+}))
+const mockMarkEvidenceReservationUnknown = jest.fn().mockResolvedValue(undefined)
+const mockPersistCanonicalEvidenceSubmittedEvent = jest.fn().mockResolvedValue({ id: 'event-unit' })
+const mockCommitEvidenceReservation = jest.fn(async (reservationId: string, stored: any, signature: string) =>
+  mockEvidenceReferenceCreate({
+    data: {
+      proofId: 'proof-1', provider: stored.provider, uri: stored.uri,
+      sha256: require('crypto').createHash('sha256').update(new Uint8Array(Buffer.from('real evidence photo bytes'))).digest('hex'),
+      mimeType: 'image', signature,
+    },
+  })
+)
+jest.mock('../src/modules/open-proof/evidence-quota', () => ({
+  reserveEvidenceQuota: (...args: unknown[]) => mockReserveEvidenceQuota(...args),
+  markEvidenceReservationUnknown: (...args: unknown[]) => mockMarkEvidenceReservationUnknown(...args),
+  commitEvidenceReservation: (...args: unknown[]) => mockCommitEvidenceReservation(...args),
+  persistCanonicalEvidenceSubmittedEvent: (...args: unknown[]) => mockPersistCanonicalEvidenceSubmittedEvent(...args),
+}))
+
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
