@@ -25,3 +25,29 @@ ALTER TABLE evidence_references
 
 CREATE INDEX evidence_references_proofId_submittedBy_idx
   ON evidence_references("proofId", "submittedBy");
+
+-- Durable pre-storage quota reservations. RESERVED/UNKNOWN rows consume
+-- quota; COMMITTED rows are represented by their EvidenceReference and
+-- RELEASED rows consume none.
+CREATE TYPE "EvidenceUploadReservationStatus" AS ENUM ('RESERVED', 'COMMITTED', 'UNKNOWN', 'RELEASED');
+
+CREATE TABLE evidence_upload_reservations (
+  id TEXT PRIMARY KEY,
+  "proofId" TEXT NOT NULL,
+  "submittedBy" TEXT NOT NULL,
+  "sizeBytes" INTEGER NOT NULL CHECK ("sizeBytes" > 0),
+  "operationKey" TEXT NOT NULL,
+  "mediaSha256" TEXT NOT NULL,
+  "mimeType" TEXT NOT NULL,
+  status "EvidenceUploadReservationStatus" NOT NULL DEFAULT 'RESERVED',
+  "evidenceRefId" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL
+);
+
+CREATE UNIQUE INDEX evidence_upload_reservations_submittedBy_operationKey_key
+  ON evidence_upload_reservations("submittedBy", "operationKey");
+CREATE INDEX evidence_upload_reservations_proofId_idx
+  ON evidence_upload_reservations("proofId");
+CREATE INDEX evidence_upload_reservations_proofId_submittedBy_idx
+  ON evidence_upload_reservations("proofId", "submittedBy");
