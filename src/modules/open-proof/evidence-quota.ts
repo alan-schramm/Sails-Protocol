@@ -161,6 +161,11 @@ export async function commitEvidenceReservation(
   signature: string
 ) {
   return prisma.$transaction(async (tx) => {
+    // Serialize reference creation with orphan cleanup for this exact
+    // content-addressed object. Cleanup uses the same provider+uri lock.
+    const objectLockKey = `openproof:evidence-object:${stored.provider}:${stored.uri}`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${objectLockKey})::bigint)`
+
     const reservation = await tx.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
     if (!reservation) throw new ValidationError('Evidence upload reservation no longer exists')
 
@@ -294,20 +299,20 @@ export async function persistCanonicalEvidenceSubmittedEvent(reservationId: stri
  * proof of deletion. Callers must not use it as evidence-retention policy.
  */
 export async function deleteEvidenceObjectIfUnreferenced(provider: string, uri: string): Promise<boolean> {
-  const safeToDelete = await prisma.$transaction(async (tx) => {
-    const lockKey = `openproof:evidence-object:${provider}:${uri}`
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
-    const references = await tx.evidenceReference.count({ where: { provider, uri } })
-    return references === 0
-  })
-
-  if (!safeToDelete) return false
-
-  // Network/storage I/O stays outside the database transaction. A new
-  // reference to this exact object must only be created from a successful
-  // provider.store() path; content-addressed store is responsible for making
-  // the object present before that reference is committed.
+  const lockKey = `openproof:evidence-object:${provider}:${uri}`
   const providerAdapter = resolveEvidenceProviderByLabel(provider)
-  await providerAdapter.delete(uri)
-  return true
+
+  // A session-level advisory lock is intentional here. The provider delete
+  // cannot be inside a DB transaction, but releasing an xact lock before
+  // delete would reopen the exact race #267 forbids: reference commit after
+  // the zero-reference check but before object deletion.
+  await prisma.$executeRaw`SELECT pg_advisory_lock(hashtext(${lockKey})::bigint)`
+  try {
+    const references = await prisma.evidenceReference.count({ where: { provider, uri } })
+    if (references !== 0) return false
+    await providerAdapter.delete(uri)
+    return true
+  } finally {
+    await prisma.$executeRaw`SELECT pg_advisory_unlock(hashtext(${lockKey})::bigint)`
+  }
 }
