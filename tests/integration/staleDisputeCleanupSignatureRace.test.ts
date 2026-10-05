@@ -71,13 +71,17 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await prisma.dispute.create({
+    const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
     })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
         escrowId: escrow.id, kind: 'release', toAddress: 'bc1qtest', unsignedPsbtBase64: 'stub',
         requiredSigners: requiredSigners === 'both' ? [buyer.id, seller.id] : [buyer.id], triggeredBy: arbiter.id,
+        // The ruling's round (the only kind this cleanup ever meets): it carries its dispute's provenance.
+        // #239D refuses cooperative signatures once a dispute exists, so a provenance-less round here would
+        // test a path that no longer accepts signatures at all.
+        disputeId: dispute.id, rulingAppealRound: 0, rulingArbiterId: arbiter.id, rulingOutcome: 'RELEASE',
         createdAt: new Date(Date.now() - 10 * 60 * 1000),
       },
     })

@@ -1025,8 +1025,8 @@ export class EscrowService {
     return pendingTx.submitTransactionSignature(escrowId, participantId, signedPsbtBase64)
   }
 
-  async getPendingTransaction(escrowId: string) {
-    return pendingTx.getPendingTransaction(escrowId)
+  async getPendingTransaction(escrowId: string, viewerId: string) {
+    return pendingTx.getPendingTransaction(escrowId, viewerId)
   }
 
   // `disputes` — real gap found while closing the arbiter's own dispute-

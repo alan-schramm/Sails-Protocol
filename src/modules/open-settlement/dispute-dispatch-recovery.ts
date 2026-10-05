@@ -70,7 +70,7 @@ import { escrowService } from './escrow.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
 import { evaluateDisputeDispatchEligibility } from './dispute-dispatch'
-import { isSupersedableByRuling } from './pending-round-supersession'
+import { blocksRulingDispatch } from './pending-round-supersession'
 import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
@@ -180,8 +180,9 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
     try {
       const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: dispute.escrowId }, include: { signatures: { select: { participantId: true } } } })
       // not a C4 case at all — dispatch already happened; a different reconciler owns whatever state it's in.
-      // #239 - except a dead cooperative round, which is no dispatch: the resume below supersedes it.
-      if (existingPending && !isSupersedableByRuling(existingPending)) continue
+      // #239 - except a dead cooperative round, which is no dispatch: the resume below supersedes it (or,
+      // for a potentially exposed legacy round, fails closed and is reported - #239D).
+      if (existingPending && blocksRulingDispatch(existingPending)) continue
 
       const row = await loadDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       if (!row || !row.outcomeContent) continue // not a Core-authoritative-path ruling (legacy applyRuling()) — out of this module's scope, not a gap

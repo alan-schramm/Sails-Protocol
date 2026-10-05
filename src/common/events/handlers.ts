@@ -511,7 +511,7 @@ export function registerEventHandlers(): void {
     try {
       const payload = event.payload as { disputeId: string; tradeId: string; evidenceGeneration?: number }
       const dispute = await prisma.dispute.findUnique({ where: { id: payload.disputeId } })
-      if (!dispute || dispute.status === 'RESOLVED' || dispute.status === 'AUTO_PROPOSED' || dispute.status === 'APPEALED') return
+      if (!dispute || dispute.status === 'RESOLVED' || dispute.status === 'AUTO_PROPOSED' || dispute.status === 'APPEALED' || dispute.status === 'MOOT') return
       // #309 — this event stands for the evidence snapshot its submission committed. If newer evidence
       // already exists, it is stale: never assess a newer snapshot while attributing it to this trigger.
       // Events persisted before generation binding (no evidenceGeneration) keep the prior behavior.

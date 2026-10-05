@@ -36,7 +36,8 @@ export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WD
 // design rationale.
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'SPLIT' | 'EXPIRED'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
+// #239D - MOOT: terminal; a prior authoritative economic disposition became final without any ruling deciding the dispute.
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED' | 'MOOT'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
 // prisma/schema.prisma's FeePayerModel/FeeEconomicBasis enums — currently
 // single-value (only SELLER_PAYS / SELLER_DELIVERED_VALUE are defined),
@@ -280,7 +281,9 @@ export interface EscrowTransactionSignature {
   id: string
   pendingTxId: string
   participantId: string
-  signedPsbtBase64: string
+  // #239D - present only on the caller's own entry in getPendingTransaction(): another participant's
+  // signature is never returned (it would let the reader complete the transaction outside Sails).
+  signedPsbtBase64?: string
   createdAt: string
 }
 

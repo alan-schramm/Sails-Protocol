@@ -48,6 +48,8 @@ export const EVENT_NAME_BY_TARGET_STATUS: Record<string, string> = {
   EXPIRED: 'settlement.escrow.expired',
 }
 
+const TERMINAL_ESCROW_STATUSES: ReadonlySet<string> = new Set(['COMPLETED', 'REFUNDED', 'SPLIT'])
+
 export interface EscrowTransitionClaim {
   escrowId: string
   from: string
@@ -85,6 +87,15 @@ export async function claimEscrowTransitionRecord(tx: Prisma.TransactionClient, 
   // eventId here holds the transition (EscrowEvent) id - no durable event exists yet.
   if (RECOVERABLE_TRANSITION_EVENTS.has(eventName)) {
     await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_CLAIMED_KEY, subjectId: escrowId } })
+  }
+  // #239D - an escrow's terminal disposition while a dispute is still open (no ruling decided it - a ruling
+  // marks its dispute RESOLVED before dispatching) leaves that dispute without an object: MOOT, in this same
+  // transaction as the terminal transition record, so the two never diverge durably (PASS 2/PASS 3 replay
+  // this claim, not the status change). No ruling field is written. APPEALED disputes are left as they are.
+  if (TERMINAL_ESCROW_STATUSES.has(to)) {
+    await tx.$executeRaw`
+      UPDATE disputes SET status = 'MOOT', "mootedAt" = ${new Date()}, "mootedByTransitionId" = ${transition.id}, "updatedAt" = ${new Date()}
+      WHERE "escrowId" = ${escrowId} AND status IN ('OPENED', 'EVIDENCE_SUBMITTED', 'ARBITRATED', 'AUTO_PROPOSED')`
   }
   return transition.id
 }

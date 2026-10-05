@@ -421,7 +421,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     if (!isParty && !isAssignedArbiter) {
       throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s pending transaction`)
     }
-    const pending = await escrowService.getPendingTransaction(id)
+    const pending = await escrowService.getPendingTransaction(id, callerId) // #239D X1 - the caller's own signature only
     return reply.code(200).send(success(pending))
   })
 

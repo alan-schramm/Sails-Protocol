@@ -17,7 +17,7 @@ import {
   withEscrowFundingLock,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
-import { isSupersedableByRuling } from './pending-round-supersession'
+import { blocksRulingDispatch, isSupersedableByRuling } from './pending-round-supersession'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
@@ -240,16 +240,21 @@ async function initiateSignatureCollectionCore(
  * read the old round is refused under the same lock, #244).
  */
 function assertSupersedableByThisDispatch(
-  current: { id: string; kind: string; disputeId: string | null; requiredSigners: string[]; signatures: Array<{ participantId: string }> },
+  current: { id: string; kind: string; disputeId: string | null; requiredSigners: string[]; signatures: Array<{ participantId: string }>; signaturesConfidential: boolean },
   arbitratedDispatch: boolean,
   escrowId: string,
 ): void {
   if (!arbitratedDispatch || current.disputeId !== null) {
     throw new EscrowError(`Escrow ${escrowId} already has a pending ${current.kind} transaction awaiting signatures`)
   }
-  if (!isSupersedableByRuling(current)) {
+  if (blocksRulingDispatch(current)) {
     throw new EscrowError(
       `Escrow ${escrowId}'s cooperative ${current.kind} round ${current.id} is fully signed — it may already have been submitted, so a ruling never supersedes it; settlement reconciliation (C8) decides it from the chain`
+    )
+  }
+  if (!isSupersedableByRuling(current)) {
+    throw new EscrowError(
+      `Escrow ${escrowId}'s cooperative ${current.kind} round ${current.id} predates signature confidentiality — its partial signatures may have been read and its transaction completed outside Sails, so a ruling never supersedes it; manual review required`
     )
   }
 }
@@ -375,11 +380,22 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // (cleanup then sees a durable signature and keeps the round) or cleanup deleted it first (this fails
   // closed - nothing is written into, or resurrects, a deleted round). The lock covers only this check +
   // insert; every gate and provider/economic step below runs after it is released.
+  //
+  // #239D - the same lock is the authority boundary between cooperative completion and a dispute
+  // (#238 opens disputes under it): a cooperative round accepts no signature once a dispute exists for the
+  // escrow (H2), and the signature that completes a cooperative round while none exists durably marks the
+  // round's bilateral authority (H1, bilateralAuthorityAt) in the same transaction.
   await withEscrowFundingLock(escrowId, async (tx) => {
-    const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { id: true } })
+    const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { id: true, disputeId: true } })
     if (current?.id !== pending.id) {
       throw new EscrowError(
         `Escrow ${escrowId}'s pending ${pending.kind} ${pending.id} no longer exists (cleaned up or replaced) — signature not accepted; re-read the escrow's current pending transaction`
+      )
+    }
+    const cooperative = current.disputeId === null
+    if (cooperative && await tx.dispute.findFirst({ where: { escrowId }, select: { id: true } })) {
+      throw new EscrowError(
+        `Escrow ${escrowId} is under dispute: dispute authority took over before its cooperative ${pending.kind} round ${pending.id} was complete — no cooperative signature is accepted any more`
       )
     }
     await tx.escrowTransactionSignature.upsert({
@@ -387,6 +403,12 @@ export async function submitTransactionSignature(escrowId: string, participantId
       update: { signedPsbtBase64 },
       create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
     })
+    if (cooperative) {
+      const signed = await tx.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id }, select: { participantId: true } })
+      if (pending.requiredSigners.every((id: string) => signed.some((s: { participantId: string }) => s.participantId === id))) {
+        await tx.escrowPendingTransaction.updateMany({ where: { id: pending.id, bilateralAuthorityAt: null }, data: { bilateralAuthorityAt: new Date() } })
+      }
+    }
   })
 
   const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
@@ -588,11 +610,21 @@ export async function submitTransactionSignature(escrowId: string, participantId
   }
 }
 
-export async function getPendingTransaction(escrowId: string) {
+/**
+ * #239D X1 - the read contract for a pending round. Another participant's signature is never returned:
+ * while a cooperative set is incomplete it would hand the reader a one-sided bearer capability (with their
+ * own key, a 2-of-3 spend of the old transaction completable outside Sails), and once complete nothing
+ * needs it - combining, broadcast and recovery are server-side. Every entry still shows who has signed and
+ * when (progress); `signedPsbtBase64` is present only on the viewer's own entry.
+ */
+export async function getPendingTransaction(escrowId: string, viewerId: string) {
   const pending = await prisma.escrowPendingTransaction.findUnique({
     where: { escrowId },
     include: { signatures: true },
   })
   if (!pending) throw new NotFoundError('Pending transaction for this escrow', escrowId)
-  return pending
+  return {
+    ...pending,
+    signatures: pending.signatures.map(({ signedPsbtBase64, ...entry }) => (entry.participantId === viewerId ? { ...entry, signedPsbtBase64 } : entry)),
+  }
 }

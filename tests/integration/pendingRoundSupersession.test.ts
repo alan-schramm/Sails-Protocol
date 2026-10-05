@@ -131,7 +131,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
    * with `sellerSigned` deciding whether the seller already signed it; then, optionally, the buyer raises
    * a dispute (#238) and the arbiter's RELEASE ruling commits durably - dispatch not yet run.
    */
-  async function fixture(suffix: string, opts: { sellerSigned: boolean; disputed: boolean; ruled: boolean }) {
+  async function fixture(suffix: string, opts: { sellerSigned: boolean; disputed: boolean; ruled: boolean; completedBeforeDispute?: boolean }) {
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
@@ -151,6 +151,12 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     const cooperative = await escrowService.initiateRefund(escrow.id, seller.id)
     expect(cooperative.requiredSigners).toEqual([seller.id, buyer.id])
     if (opts.sellerSigned) await escrowService.submitTransactionSignature(escrow.id, seller.id, 'seller-signed-cooperative-refund')
+    // #239D H1: the buyer completes the set before any dispute. Its execution starts and fails at the
+    // provider (these test signatures are not a real spend), so the status reverts and the fully signed
+    // round remains - with its pre-dispute bilateral authority marked.
+    if (opts.completedBeforeDispute) {
+      await expect(escrowService.submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed-cooperative-refund')).rejects.toThrow()
+    }
 
     let disputeId: string | undefined
     let buyerDestination: string | undefined
@@ -213,10 +219,11 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     pg.requirePostgres('trap')
     const f = await fixture('t1', { sellerSigned: true, disputed: true, ruled: true })
 
-    // The buyer completing the dead round does not execute it: ADR-005 refuses a cooperative round once a Dispute exists.
-    // (Fully signed now - see T11 for why such a round is then preserved.)
+    // The dead round cannot even be completed any more: #239D refuses cooperative signatures once a dispute
+    // exists (it stays partial, so a ruling may supersede it).
     const completed = await settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signed-cooperative-refund'))
-    expect(completed).toEqual({ ok: false, e: expect.stringMatching(/carries no recorded Economic Disposition Authority provenance/) })
+    expect(completed).toEqual({ ok: false, e: expect.stringMatching(/dispute authority took over before its cooperative refund round/) })
+    expect(await signaturesOfRound(f.cooperativeRoundId)).toBe(1)
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } })).status).toBe('DISPUTED')
 
     // Before #239, C4 recovery skipped every escrow with ANY pending row (its predicate, as it was):
@@ -276,7 +283,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
   // ── T3 / T4: races with a signer ───────────────────────────────────────────────────────────────
 
-  it('T3a a non-completing signature that commits first is discarded with its dead round by the dispatch that follows', async () => {
+  it('T3a a cooperative signature racing the dispatch (serialized first) is refused - the dispute already took authority - and the dead round is superseded', async () => {
     pg.requirePostgres('partial signer wins')
     const f = await fixture('t3a', { sellerSigned: false, disputed: true, ruled: true })
     const release = await holdEscrowLock(f.escrowId)
@@ -287,14 +294,14 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     await untilWaiting(2)
     await release()
 
-    expect(await signer).toMatchObject({ ok: true, v: { complete: false, submittedCount: 1 } })
+    expect(await signer).toEqual({ ok: false, e: expect.stringMatching(/dispute authority took over/) })
     const dispatched = await dispatch
     expect(dispatched.ok).toBe(true)
     expect(await roundsOf(f.escrowId)).toEqual([{ id: expect.any(String), kind: 'release', disputeId: f.disputeId, signatures: [] }])
     expect(await signaturesOfRound(f.cooperativeRoundId)).toBe(0)
   })
 
-  it('T3b a completing signature that commits first makes the round fully signed: the dispatch then refuses to supersede it', async () => {
+  it('T3b a completing signature racing the dispatch (serialized first) is refused too: the round never becomes complete after the dispute, and is superseded', async () => {
     pg.requirePostgres('completing signer wins')
     const f = await fixture('t3b', { sellerSigned: true, disputed: true, ruled: true })
     const release = await holdEscrowLock(f.escrowId)
@@ -305,12 +312,10 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     await untilWaiting(2)
     await release()
 
-    expect(await signer).toEqual({ ok: false, e: expect.stringMatching(/carries no recorded Economic Disposition Authority provenance/) }) // accepted, never executed
-    expect(await dispatch).toEqual({ ok: false, e: expect.stringMatching(/is fully signed — it may already have been submitted, so a ruling never supersedes it/) })
-    const rounds = await roundsOf(f.escrowId)
-    expect(rounds).toHaveLength(1)
-    expect(rounds[0]).toMatchObject({ id: f.cooperativeRoundId, disputeId: null })
-    expect(rounds[0].signatures.map((s) => s.participantId).sort()).toEqual([f.buyerId, f.sellerId].sort())
+    expect(await signer).toEqual({ ok: false, e: expect.stringMatching(/dispute authority took over/) }) // H2: never completed
+    expect((await dispatch).ok).toBe(true)
+    expect(await roundsOf(f.escrowId)).toEqual([{ id: expect.any(String), kind: 'release', disputeId: f.disputeId, signatures: [] }])
+    expect(await signaturesOfRound(f.cooperativeRoundId)).toBe(0)
   })
 
   it('T4 the dispatch commits first: the signer that read the old round fails closed and never signs into the ruling round', async () => {
@@ -401,8 +406,8 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
   it('T11/T12 a fully signed cooperative round (possibly submitted / UNKNOWN) is never superseded, by the live dispatch or by C4', async () => {
     pg.requirePostgres('fully signed preserved')
-    const f = await fixture('t11', { sellerSigned: true, disputed: true, ruled: true })
-    await expect(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signed-cooperative-refund')).rejects.toThrow()
+    // The only way a cooperative round is fully signed on a disputed escrow (#239D): completed before the dispute.
+    const f = await fixture('t11', { sellerSigned: true, completedBeforeDispute: true, disputed: true, ruled: true })
     // Durable evidence that a submission may have happened (the #240 attempt row) - preserved untouched.
     await prisma.signatureCollectionFinalizationAttempt.create({ data: { escrowId: f.escrowId, pendingTxId: f.cooperativeRoundId, kind: 'refund', status: 'SUBMISSION_UNKNOWN' } })
 

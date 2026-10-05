@@ -1455,6 +1455,7 @@ enum DisputeStatus {
   RESOLVED
   APPEALED // RFC-021 D6 — a RESOLVED dispute reopened for a new arbiter's ruling
   AUTO_PROPOSED // RFC-021 D8 — QVAC proposed an automated ruling; open for contest until autoResolutionDeadline
+  MOOT // #239D — terminal: a prior authoritative economic disposition became final without any ruling deciding the dispute
 }
 
 enum DisputeRuling {
@@ -1507,6 +1508,10 @@ model Dispute {
   // evidence entry (dispute.service.ts persistEvidence()), so a QVAC assessment can only propose an
   // automated resolution for the exact snapshot it assessed.
   evidenceGeneration           Int                @default(0)
+  // #239D — set with status MOOT, in the same transaction as the escrow's terminal transition record
+  // (escrow_events.id below) whose disposition made this dispute moot. No ruling fields are ever set for it.
+  mootedAt                     DateTime?
+  mootedByTransitionId         String?
   autoResolved                 Boolean            @default(false)
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
@@ -2363,6 +2368,12 @@ model EscrowPendingTransaction {
   // transition claim and the write-once settlement result. Durable, so the
   // round-robin order survives restarts and is shared by every node.
   unclaimedRecoveryAttemptedAt DateTime?
+  // #239D X1 — true: Sails never returned another participant's signature for this round while it was
+  // incomplete (rounds created since). false: created under the old read contract — potentially exposed,
+  // so never treated as safely supersedable.
+  signaturesConfidential  Boolean   @default(true)
+  // #239D D1/H1 — when the cooperative set became complete with no dispute yet (set under the escrow lock).
+  bilateralAuthorityAt    DateTime?
 
   // ADR-005 / #218 — durable ruling-generation provenance, snapshotted at
   // the moment a DISPUTED ruling creates this pending operation (never
