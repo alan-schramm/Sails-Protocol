@@ -143,7 +143,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
 
     const service = new ProofService()
     await expect(
-      service.attachEvidence('proof-1', media, 'image', 'user-1', Buffer.from(signature, 'proof-service-test-2').toString('hex'))
+      service.attachEvidence('proof-1', media, 'image', 'user-1', Buffer.from(signature).toString('hex'), 'proof-service-test-2')
     ).rejects.toThrow(/does not verify/)
     expect(mockStore).not.toHaveBeenCalled()
   })
