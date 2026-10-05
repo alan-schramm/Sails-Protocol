@@ -6,6 +6,7 @@ import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { vouchService } from '../../modules/open-reputation/vouch.service'
+import { paymentAccountService } from '../../modules/open-settlement/payment-account.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
@@ -392,6 +393,9 @@ export function registerEventHandlers(): void {
     await applyEventProjectionOnce(eventId, 'trade.completion-counters', payload.tradeId, (tx) =>
       recordTradeCompletion(tx, trade.buyerId, trade.sellerId, trade.amount)
     )
+    // #235 R7D (N2) — the seller's bound PaymentAccount gains one completed trade, only for a clean
+    // completion and at most once (its own claim); see paymentAccountService.recordCleanBoundCompletion().
+    await paymentAccountService.recordCleanBoundCompletion(payload.tradeId)
     await applyEventProjectionOnce(eventId, 'fee-floor', payload.tradeId, async (tx) => {
       const releasedEscrow = await tx.escrow.findUnique({ where: { id: payload.escrowId } })
       await accrueFeeFloor(tx, trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)

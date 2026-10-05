@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto'
 import { prisma } from '../../common/database'
 import { ForbiddenError, NotFoundError, ValidationError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import type { PaymentMethod } from '../../common/types'
 
 // RFC-021 D5 — trade-limit ramp. Deliberately reuses SECURITY_MODEL.md
@@ -199,19 +200,37 @@ export class PaymentAccountService {
     return this.getByHash(account.accountHash)
   }
 
-  /** Called on a real completed (non-disputed, non-chargeback) trade using this account. */
-  async recordCompletedTrade(accountHash: string) {
-    return prisma.paymentAccount.update({
-      where: { accountHash },
-      data: { completedTrades: { increment: 1 } },
-    })
-  }
-
-  /** Called when a chargeback/reversal is reported against this account. */
-  async recordChargeback(accountHash: string) {
-    return prisma.paymentAccount.update({
-      where: { accountHash },
-      data: { chargebacks: { increment: 1 } },
+  /**
+   * #235 R7D (N2) — the only writer of `completedTrades`. The seller's bound
+   * PaymentAccount gains one completed trade when, and only when, its trade
+   * completed cleanly. Every fact is durable and final once the escrow is
+   * COMPLETED (it has no further transition): the trade's write-once binding,
+   * the escrow's terminal status and its COMPLETED transition, and that no
+   * dispute ever existed. The account is always the one bound to the trade,
+   * never a caller's choice.
+   *
+   * Exactly once for any caller: the increment and a projection claim keyed
+   * on (the escrow's COMPLETED transition, the trade) — identities derived
+   * here, never passed in — commit together (applyEventProjectionOnce()).
+   * The settlement.escrow.released handler calls this; PASS 3 re-drives that
+   * handler after a crash, so no completion is lost or counted twice.
+   * Returns whether this call counted it.
+   *
+   * There is no writer of `chargebacks`: Sails has no durable fact that a
+   * fiat payment into an account was reversed (an escrow refund, a dispute
+   * or a ruling is not one), so nothing is inferred.
+   */
+  async recordCleanBoundCompletion(tradeId: string): Promise<boolean> {
+    const trade = await prisma.trade.findUnique({ where: { id: tradeId }, select: { escrowId: true, sellerPaymentAccountId: true } })
+    if (!trade?.sellerPaymentAccountId || !trade.escrowId) return false
+    const accountId = trade.sellerPaymentAccountId
+    const escrow = await prisma.escrow.findUnique({ where: { id: trade.escrowId }, select: { status: true } })
+    if (escrow?.status !== 'COMPLETED') return false
+    const completion = await prisma.escrowEvent.findFirst({ where: { escrowId: trade.escrowId, toStatus: 'COMPLETED' }, select: { id: true } })
+    if (!completion) return false
+    if ((await prisma.dispute.count({ where: { tradeId } })) > 0) return false
+    return applyEventProjectionOnce(completion.id, 'payment-account.completed-trade', tradeId, async (tx) => {
+      await tx.paymentAccount.update({ where: { id: accountId }, data: { completedTrades: { increment: 1 } } })
     })
   }
 

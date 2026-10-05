@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7D (N2) — payment-account trust ramp counts real completions.** `completedTrades` had no
+  production writer. The seller's bound account now gains one completed trade per clean completion
+  (escrow COMPLETED, no dispute ever), exactly once across replay, concurrency, nodes and crash
+  recovery (projection claim + PASS 3). The unguarded helpers `recordCompletedTrade()`
+  / `recordChargeback()` were removed; chargebacks stay unwired (no canonical fiat-reversal fact).
+
 - **#235 R7C — payment-account binding and peer-attestation authority.** Any authenticated
   participant could sign any payment account, including their own, raising its trade-limit tier.
   The seller's account is now bound to the trade at creation (SELL offer: declared on the offer;

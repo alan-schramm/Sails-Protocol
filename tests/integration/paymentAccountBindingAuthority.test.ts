@@ -240,13 +240,16 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
     const trade = await boundTrade(seller, buyer, acct)
     await completeCleanly(trade, seller, buyer)
     expect(await paymentAccountService.getTradeLimit(acct.accountHash)).toBe('0.001')
+    // The clean completion itself counted once (#235 R7D); the attestation below must not touch the counters.
+    const counters = await row(acct.accountHash)
+    expect([counters.completedTrades, counters.chargebacks]).toEqual([1, 0])
 
     const res = await attestHttp(acct.accountHash, buyer.token, { tradeId: trade.id, signedBy: 'forged', attestationSource: 'VOUCHER', ownerId: 'forged' })
 
     expect(res.statusCode).toBe(200)
     const after = await row(acct.accountHash)
     expect([after.signed, after.signedBy, after.attestationSource, after.attestedTradeId, after.completedTrades, after.chargebacks])
-      .toEqual([true, buyer.id, 'PEER', trade.id, 0, 0])
+      .toEqual([true, buyer.id, 'PEER', trade.id, counters.completedTrades, counters.chargebacks])
     expect(await paymentAccountService.getTradeLimit(acct.accountHash)).toBe('0.01')
     expect(await events(trade.id)).toBe(1)
   })

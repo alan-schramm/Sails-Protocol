@@ -334,6 +334,19 @@ this, not assumed:
   could sign any account, including their own. Trade-limit enforcement
   and ramp progression (`completedTrades`/`chargebacks`) are still not
   wired (#235, R7/N2).
+  **Implementado 2026-10-05 (#235 R7D):** `completedTrades` now advances
+  exactly once per clean completion (escrow COMPLETED, no dispute ever) of
+  a trade bound to the account. **Chargebacks are fail-closed by CTO
+  policy (Day-0):** `chargebacks` is still read by the ramp (any value > 0
+  caps the account at `SIGNED_TRADE_LIMIT`), but no canonical fiat-reversal
+  authority exists to write it — escrow refund, cancellation, dispute,
+  ruling, SPLIT, MOOT and fee reversal are not chargebacks, so nothing is
+  inferred. Future chargeback support requires a separate canonical
+  fiat-reversal authority with provenance, immutable trade/account
+  binding (`tradeId` and its `sellerPaymentAccountId`), a defined
+  source/authority, authorization, idempotency, exactly-once semantics,
+  restart/replay safety and contestability where applicable; it is
+  outside #235 R7D and is not implemented.
 - **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
   `prisma/schema.prisma`, `payment-account.service.ts`'s
   `hashAccountIdentifier()` (server-side SHA-256, reference/test only)
