@@ -459,7 +459,7 @@ export class DisputeService {
 
       const [locked] = await tx.$queryRaw<Array<{ status: DisputeStatus; appealRound: number; arbiterId: string | null }>>`
         SELECT status::text AS status, "appealRound", "arbiterId" FROM disputes WHERE id = ${dispute.id} FOR UPDATE`
-      const claim = !locked || locked.status === 'RESOLVED' || locked.arbiterId !== triggeredBy || locked.appealRound !== dispute.appealRound
+      const claim = !locked || locked.status === 'RESOLVED' || locked.status === 'MOOT' || locked.arbiterId !== triggeredBy || locked.appealRound !== dispute.appealRound
         ? { count: 0 }
         : await tx.dispute.updateMany({
         where: { id: dispute.id, status: locked.status, appealRound: dispute.appealRound, arbiterId: triggeredBy },
@@ -831,6 +831,9 @@ export class DisputeService {
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
     if (dispute.status === 'RESOLVED') {
       throw new ValidationError(`Dispute ${disputeId} is already resolved`)
+    }
+    if (dispute.status === 'MOOT') {
+      throw new ValidationError(`Dispute ${disputeId} is moot: the escrow's prior economic disposition is already final — there is nothing left to rule on`)
     }
     if (dispute.arbiterId !== arbiterId) {
       throw new ForbiddenError(`${arbiterId} is not the arbiter assigned to dispute ${disputeId}`)

@@ -1739,13 +1739,33 @@ describe('getPendingTransaction()', () => {
 
   it('returns the pending transaction row (with signatures) when one exists', async () => {
     mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'], signatures: [] })
-    const result = await escrowService.getPendingTransaction('escrow-1')
+    const result = await escrowService.getPendingTransaction('escrow-1', 'buyer-1')
     expect(result.id).toBe('ptx-1')
+  })
+
+  // #239D X1 - another participant's signature is never returned; progress (who signed, when) is.
+  it("returns only the viewer's own signature; every other entry keeps its signer and time but no signature", async () => {
+    const createdAt = new Date()
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+      signatures: [
+        { id: 's-1', pendingTxId: 'ptx-1', participantId: 'seller-1', signedPsbtBase64: 'seller-signed', createdAt },
+        { id: 's-2', pendingTxId: 'ptx-1', participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed', createdAt },
+      ],
+    })
+
+    const asBuyer = await escrowService.getPendingTransaction('escrow-1', 'buyer-1')
+    expect(asBuyer.signatures).toEqual([
+      { id: 's-1', pendingTxId: 'ptx-1', participantId: 'seller-1', createdAt },
+      { id: 's-2', pendingTxId: 'ptx-1', participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed', createdAt },
+    ])
+    const asArbiter = await escrowService.getPendingTransaction('escrow-1', 'arbiter-1')
+    expect(asArbiter.signatures.every((s: Record<string, unknown>) => !('signedPsbtBase64' in s))).toBe(true)
   })
 
   it('throws NotFoundError when no signing round is in flight', async () => {
     mockPendingTxFindUnique.mockResolvedValue(null)
-    await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('Pending transaction for this escrow')
+    await expect(escrowService.getPendingTransaction('escrow-1', 'buyer-1')).rejects.toThrow('Pending transaction for this escrow')
   })
 })
 

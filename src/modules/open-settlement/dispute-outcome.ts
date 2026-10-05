@@ -288,7 +288,7 @@ export async function commitAuthoritativeDisputeRuling(
     // RESOLVED (their own conditions then fail), and anything they committed before is what is read here.
     const [locked] = await tx.$queryRaw<Array<{ status: DisputeStatus; appealRound: number; arbiterId: string | null }>>`
       SELECT status::text AS status, "appealRound", "arbiterId" FROM disputes WHERE id = ${dispute.id} FOR UPDATE`
-    if (!locked || locked.status === 'RESOLVED' || locked.arbiterId !== payload.authorityId || locked.appealRound !== payload.appealRound) {
+    if (!locked || locked.status === 'RESOLVED' || locked.status === 'MOOT' || locked.arbiterId !== payload.authorityId || locked.appealRound !== payload.appealRound) {
       return { committed: false, reason: 'DISPUTE_STATE_LOST_RACE' } as const
     }
 
