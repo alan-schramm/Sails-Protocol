@@ -303,11 +303,15 @@ export class SailsOpenP2PModule {
    * returning the original Trade on a safe replay instead of a second
    * row. See `src/common/idempotency.ts`'s own header for the full
    * server-side contract.
+   *
+   * `paymentAccountHash` (#235 R7C) — only when taking a BUY offer, i.e.
+   * you are the seller: the hash of your own registered payment account the
+   * buyer will pay into, bound to this trade. Rejected on a SELL offer.
    */
-  async trade(offerId: string, amount: string, idempotencyKey?: string): Promise<Trade> {
+  async trade(offerId: string, amount: string, idempotencyKey?: string, paymentAccountHash?: string): Promise<Trade> {
     return this.transport.post<Trade>(
       "/v1/openp2p/trades",
-      { offerId, amount, idempotencyKey },
+      { offerId, amount, idempotencyKey, paymentAccountHash },
       true,
     );
   }

@@ -211,6 +211,10 @@ const arbiterProfileParamsSchema = z.object({ participantId: z.string().min(1) }
 
 const accountHashParamsSchema = z.object({ accountHash: z.string().min(1) })
 
+// #235 R7C — the trade whose clean completion authorizes the attestation. A selector only: the
+// buyer, the bound account and the completion are all read from durable state.
+const attestPaymentAccountSchema = z.object({ tradeId: z.string().min(1) })
+
 const payoutAddressParamsSchema = z.object({
   participantId: z.string().min(1),
   asset: z.string().min(1),
@@ -785,14 +789,17 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   // RFC-021 D1's narrow-attestation framing: the caller attests a
   // specific completed trade, not the account owner's general
-  // trustworthiness.
+  // trustworthiness. #235 R7C — only the buyer of `tradeId`, a clean
+  // COMPLETED trade bound to this exact account, may attest it; see
+  // paymentAccountService.attestFromTrade().
   app.post('/v1/settlement/payment-accounts/:accountHash/sign', {
     preHandler: requireAuth,
-    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
+    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema, body: attestPaymentAccountSchema }),
   }, async (request, reply) => {
     const { accountHash } = accountHashParamsSchema.parse(request.params)
+    const { tradeId } = attestPaymentAccountSchema.parse(request.body ?? {})
     const caller = participantId(request)
-    const account = await paymentAccountService.signPaymentAccount(accountHash, caller)
+    const account = await paymentAccountService.attestFromTrade(tradeId, accountHash, caller)
     // Missão 11 Fase 9.6 — same INV-OP-10 gap as the POST .../payment-accounts
     // route above, found in the same sweep: the signer attesting an
     // account is very often NOT its owner (RFC-021 D1 — an arbiter or

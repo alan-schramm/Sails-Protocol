@@ -323,6 +323,17 @@ this, not assumed:
   limits for that account start low and increase gradually with
   signed, uncontested history — mirroring Bisq's real 0.002 BTC
   starting cap that phases in fully over time.
+  **Implementado 2026-10-05 (#235 R7C, CTO decision):** the signer is
+  the **buyer** (fiat sender) of a specific trade, not the assigned
+  arbiter — a clean trade has no persistent arbiter on most rails. The
+  attested account is the **seller's** (fiat receiver's), bound to the
+  trade when it is created; only a clean COMPLETED trade (escrow released,
+  no dispute) authorizes the attestation, and the owner, unrelated
+  participants and other trades cannot. Provenance is recorded
+  (`PEER`/`VOUCHER`/`LEGACY`). Before this, any authenticated participant
+  could sign any account, including their own. Trade-limit enforcement
+  and ramp progression (`completedTrades`/`chargebacks`) are still not
+  wired (#235, R7/N2).
 - **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
   `prisma/schema.prisma`, `payment-account.service.ts`'s
   `hashAccountIdentifier()` (server-side SHA-256, reference/test only)

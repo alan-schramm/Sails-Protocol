@@ -190,6 +190,14 @@ model Offer {
   // itself uniquely tied to the idempotency claim.
   intentId        String?       @unique
   intent          Intent?       @relation(fields: [intentId], references: [id])
+  // #235 R7C — on a SELL offer the maker is the seller, i.e. the fiat
+  // receiver, and declares here the PaymentAccount the buyer will pay
+  // into (verified at createOffer(): seller-owned, same paymentMethod).
+  // createTrade() copies it onto the Trade. Null on BUY offers (the
+  // seller is the taker and declares at createTrade()) and on offers
+  // that declared none.
+  paymentAccountId String?
+  paymentAccount   PaymentAccount? @relation("OfferPaymentAccount", fields: [paymentAccountId], references: [id], onDelete: Restrict)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -373,12 +381,21 @@ model Trade {
   intent          Intent?     @relation(fields: [intentId], references: [id])
   completedAt     DateTime?
   cancelledAt     DateTime?
+  // #235 R7C — the seller's (fiat receiver's) PaymentAccount this trade's
+  // fiat leg is paid into, bound once at createTrade() and never changed
+  // (no write path updates it). The only account a peer attestation of
+  // this trade can advance. Null = unbound (no account declared, or a
+  // trade created before R7C): such a trade can never be attested.
+  sellerPaymentAccountId String?
+  sellerPaymentAccount   PaymentAccount? @relation("TradeSellerPaymentAccount", fields: [sellerPaymentAccountId], references: [id], onDelete: Restrict)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   messages         Message[]
   reputationEvents ReputationEvent[]
   disputes         Dispute[]
+  // #235 R7C — the PaymentAccount whose PEER attestation this trade authorized (at most its own bound account).
+  attestedPaymentAccounts PaymentAccount[] @relation("PaymentAccountAttestedTrade")
 
   @@index([buyerId])
   @@index([sellerId])
@@ -1654,6 +1671,14 @@ model PaymentAccount {
   signed          Boolean       @default(false)
   signedBy        String? // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
   signedAt        DateTime?
+  // #235 R7C — what made `signed` true. Set in the same write that sets
+  // `signed`, never changed afterwards. PEER: the buyer of
+  // `attestedTradeId`, a clean COMPLETED trade bound to this account.
+  // VOUCHER: RFC-021 D7, `signedBy` vouched for the owner. LEGACY: signed
+  // before R7C, provenance not recorded. Null while unsigned.
+  attestationSource PaymentAccountAttestationSource?
+  attestedTradeId   String?
+  attestedTrade     Trade?                           @relation("PaymentAccountAttestedTrade", fields: [attestedTradeId], references: [id], onDelete: Restrict)
   firstUsedAt     DateTime      @default(now())
   completedTrades Int           @default(0)
   chargebacks     Int           @default(0)
@@ -1661,8 +1686,18 @@ model PaymentAccount {
   protocolVersion String        @default("0.1")
   updatedAt       DateTime      @updatedAt
 
+  boundOffers Offer[] @relation("OfferPaymentAccount")
+  boundTrades Trade[] @relation("TradeSellerPaymentAccount")
+
   @@index([ownerId])
   @@map("payment_accounts")
+}
+
+// #235 R7C — provenance of PaymentAccount.signed (see that model).
+enum PaymentAccountAttestationSource {
+  PEER
+  VOUCHER
+  LEGACY
 }
 
 // BACKLOG.md's own "Participant payout address" row, closed 2026-08-04 —

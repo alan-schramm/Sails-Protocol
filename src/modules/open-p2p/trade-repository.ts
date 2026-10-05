@@ -66,6 +66,8 @@ export interface CreateTradeData {
   totalUsd: string
   network: string | null
   intentId: string | null
+  /** #235 R7C — the seller's PaymentAccount bound to this trade, already verified by the caller; null = unbound. */
+  sellerPaymentAccountId?: string | null
 }
 
 export interface TradeRepository {
@@ -160,6 +162,7 @@ class PrismaTradeRepository implements TradeRepository {
         totalUsd: input.totalUsd,
         network: input.network,
         intentId: input.intentId,
+        sellerPaymentAccountId: input.sellerPaymentAccountId ?? null,
       },
     })
   }

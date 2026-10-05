@@ -19,6 +19,14 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7C — payment-account binding and peer-attestation authority.** Any authenticated
+  participant could sign any payment account, including their own, raising its trade-limit tier.
+  The seller's account is now bound to the trade at creation (SELL offer: declared on the offer;
+  BUY offer: by the taker), checked for ownership and payment method, and fixed. Only the buyer of a
+  clean COMPLETED trade (no dispute) may attest that trade's bound account, once, atomically
+  (`POST /v1/settlement/payment-accounts/:hash/sign` now requires `tradeId`). Provenance is recorded
+  (PEER / VOUCHER / LEGACY for rows signed before). Trade-limit enforcement is not part of this change.
+
 - **Master Backlog R6 — security windows fail closed.** A window configured as 0 or negative
   silently disabled the protection it bounds: the Redis-shared auth/critical rate limits (a
   non-positive PEXPIRE deletes the counter), the WebSocket message limit, the escrow circuit

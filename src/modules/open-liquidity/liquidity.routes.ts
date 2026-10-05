@@ -61,6 +61,9 @@ const createOfferSchema = z.object({
   // that omits it gets exactly today's behavior. See
   // src/common/idempotency.ts's own header for the full contract.
   idempotencyKey: z.string().min(1).max(200).optional(),
+  // #235 R7C — SELL offers only: the seller's own PaymentAccount buyers pay
+  // into. See liquidity.service.ts's CreateOfferInput.
+  paymentAccountHash: z.string().min(1).optional(),
 })
 
 const offerIdParamsSchema = z.object({ id: z.string().min(1) })
