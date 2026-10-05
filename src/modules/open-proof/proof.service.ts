@@ -526,12 +526,10 @@ export class ProofService {
       await persistCanonicalEvidenceSubmittedEvent(reservation.id)
       return existing
     }
-    if (reservation.status === 'UNKNOWN') {
-      throw new EvidenceStorageError(
-        'Evidence upload has an ambiguous prior storage outcome and requires reconciliation before retry',
-        'UNAVAILABLE'
-      )
-    }
+    // UNKNOWN is reconciled by re-running the same content-addressed store
+    // with the request bytes already bound to this operation key. A failed
+    // re-PUT stays UNKNOWN; a successful re-PUT is positive storage evidence
+    // and may converge the reservation to COMMITTED below.
     if (reservation.status === 'RELEASED') {
       throw new ValidationError('Evidence upload operation was released; use a new idempotency key for a new attempt')
     }
