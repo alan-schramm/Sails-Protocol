@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Master Backlog R6 — security windows fail closed.** A window configured as 0 or negative
+  silently disabled the protection it bounds: the Redis-shared auth/critical rate limits (a
+  non-positive PEXPIRE deletes the counter), the WebSocket message limit, the escrow circuit
+  breaker and suspicious-activity detection (a max <= 0 also never fired). Those settings are now
+  strict positive integers; an invalid value refuses to boot. Defaults are unchanged.
+
 - **Master Backlog R5 — escrow timelock authority.** A trade party could set `timelockHours` on
   `POST /v1/settlement/escrow` (0 or negative made the escrow expire as soon as funds locked; a
   huge value made it never expire). The field is now accepted but ignored: `createEscrow()` freezes
