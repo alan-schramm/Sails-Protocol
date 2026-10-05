@@ -16,6 +16,7 @@
 import { createHash, randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { computeEntryHash, GENESIS_HASH } from '../../common/events/event-store'
+import { resolveEvidenceProviderByLabel } from './evidence-provider'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { ValidationError } from '../../common/errors'
@@ -277,4 +278,36 @@ export async function persistCanonicalEvidenceSubmittedEvent(reservationId: stri
     }
     return event
   })
+}
+
+
+/**
+ * #267 content-addressed liveness guard.
+ *
+ * Deletion is deliberately two-phase: Postgres first serializes all cleanup
+ * attempts for the same provider+uri and proves that no durable
+ * EvidenceReference currently points at the object. Only then is the
+ * provider delete attempted.
+ *
+ * This helper is ONLY for objects known to be orphan candidates. It never
+ * deletes a valid EvidenceReference and it never treats provider failure as
+ * proof of deletion. Callers must not use it as evidence-retention policy.
+ */
+export async function deleteEvidenceObjectIfUnreferenced(provider: string, uri: string): Promise<boolean> {
+  const safeToDelete = await prisma.$transaction(async (tx) => {
+    const lockKey = `openproof:evidence-object:${provider}:${uri}`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
+    const references = await tx.evidenceReference.count({ where: { provider, uri } })
+    return references === 0
+  })
+
+  if (!safeToDelete) return false
+
+  // Network/storage I/O stays outside the database transaction. A new
+  // reference to this exact object must only be created from a successful
+  // provider.store() path; content-addressed store is responsible for making
+  // the object present before that reference is committed.
+  const providerAdapter = resolveEvidenceProviderByLabel(provider)
+  await providerAdapter.delete(uri)
+  return true
 }
