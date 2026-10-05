@@ -121,7 +121,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
     mockEvidenceReferenceCreate.mockResolvedValue({ id: 'ref-1', proofId: 'proof-1' })
 
     const service = new ProofService()
-    const result = await service.attachEvidence('proof-1', media, 'image', 'user-1', signatureHex)
+    const result = await service.attachEvidence('proof-1', media, 'image', 'user-1', signatureHex, 'proof-service-test-1')
 
     expect(mockStore).toHaveBeenCalledWith(media, 'image')
     expect(mockEvidenceReferenceCreate).toHaveBeenCalledWith({
@@ -143,7 +143,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
 
     const service = new ProofService()
     await expect(
-      service.attachEvidence('proof-1', media, 'image', 'user-1', Buffer.from(signature).toString('hex'))
+      service.attachEvidence('proof-1', media, 'image', 'user-1', Buffer.from(signature, 'proof-service-test-2').toString('hex'))
     ).rejects.toThrow(/does not verify/)
     expect(mockStore).not.toHaveBeenCalled()
   })
@@ -151,7 +151,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
   it('throws NotFoundError for an unknown proofId', async () => {
     mockProofFindUnique.mockResolvedValue(null)
     const service = new ProofService()
-    await expect(service.attachEvidence('nope', new Uint8Array(), 'image', 'user-1', 'ab')).rejects.toThrow('Proof')
+    await expect(service.attachEvidence('nope', new Uint8Array(), 'image', 'user-1', 'ab', 'proof-service-test-3')).rejects.toThrow('Proof')
   })
 
   it('throws NotFoundError for an unknown submittedBy', async () => {
@@ -162,7 +162,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
     mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { tradeId: null, claimedBy: 'nope' } })
     mockUserFindUnique.mockResolvedValue(null)
     const service = new ProofService()
-    await expect(service.attachEvidence('proof-1', new Uint8Array(), 'image', 'nope', 'ab')).rejects.toThrow('User')
+    await expect(service.attachEvidence('proof-1', new Uint8Array(), 'image', 'nope', 'ab', 'proof-service-test-4')).rejects.toThrow('User')
   })
 
   // Issue #265 CTO Gate R2, BLOCKER 2 — a faulty (or malicious) storage
@@ -188,7 +188,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
 
     const service = new ProofService()
     await expect(
-      service.attachEvidence('proof-1', media, 'image', 'user-1', signatureHex)
+      service.attachEvidence('proof-1', media, 'image', 'user-1', signatureHex, 'proof-service-test-5')
     ).rejects.toMatchObject({ storageReason: 'CORRUPTED' })
     expect(mockEvidenceReferenceCreate).not.toHaveBeenCalled()
   })
