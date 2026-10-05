@@ -59,14 +59,17 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     pg.requirePostgres(name)
   }
 
-  async function createFixtureTrade(suffix: string) {
+  // #235 R7F-B — createEscrow() now requires lockedAmount to equal the
+  // trade's own amount, so the fixture trade carries the amount each test
+  // escrows (0.001 BTC by default; 0.01 BTC where Fmax must clear dust).
+  async function createFixtureTrade(suffix: string, amount = '0.001', totalUsd = '65') {
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fase41-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fase41-${suffix}` } })
     const offer = await prisma.offer.create({
       data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' },
+      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount, priceUsd: '65000', totalUsd },
     })
     return { trade, buyer, seller }
   }
@@ -131,7 +134,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t2-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
     // 0.01 BTC = 1,000,000 sats; rate=0.004 -> Fmax=4,000 sats, well above dust.
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
@@ -149,7 +152,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = undefined
     const suffix = `t3-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
 
@@ -207,7 +210,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t5-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
     const first = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
     expect(first.feePolicyVersionId).not.toBeNull()
