@@ -80,9 +80,9 @@ const mockCommitEvidenceReservation = jest.fn(async (reservationId: string, stor
   })
 )
 jest.mock('../src/modules/open-proof/evidence-quota', () => ({
-  reserveEvidenceQuota: (...args: unknown[]) => mockReserveEvidenceQuota(...args),
+  reserveEvidenceQuota: (input: any) => mockReserveEvidenceQuota(input),
   markEvidenceReservationUnknown: (...args: unknown[]) => mockMarkEvidenceReservationUnknown(...args),
-  commitEvidenceReservation: (...args: unknown[]) => mockCommitEvidenceReservation(...args),
+  commitEvidenceReservation: (reservationId: string, stored: any, signature: string) => mockCommitEvidenceReservation(reservationId, stored, signature),
   persistCanonicalEvidenceSubmittedEvent: (...args: unknown[]) => mockPersistCanonicalEvidenceSubmittedEvent(...args),
 }))
 
