@@ -55,3 +55,14 @@ CREATE INDEX evidence_upload_reservations_proofId_submittedBy_idx
 
 CREATE UNIQUE INDEX evidence_upload_reservations_eventRecordId_key
   ON evidence_upload_reservations("eventRecordId");
+
+CREATE TABLE "evidence_object_cleanup_claims" (
+  "id" TEXT NOT NULL,
+  "provider" TEXT NOT NULL,
+  "uri" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "evidence_object_cleanup_claims_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "evidence_object_cleanup_claims_provider_uri_key"
+  ON "evidence_object_cleanup_claims"("provider", "uri");
