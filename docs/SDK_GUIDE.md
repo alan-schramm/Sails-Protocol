@@ -222,7 +222,7 @@ interface SailsClient {
   // releaseAsset()/dispute() above is the path most applications
   // should use instead
   settlement: {
-    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
+    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session; timelockHours is deprecated and ignored (the server's DEFAULT_TIMELOCK_HOURS policy applies, returned as Escrow.timelockHours)
     get(escrowId: string): Promise<Escrow>   // requires an active session + trade party/assigned arbiter
     submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one
     lock(escrowId: string): Promise<Escrow>   // requires an active session

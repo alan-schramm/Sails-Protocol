@@ -61,6 +61,7 @@ import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
+import { isValidTimelockHours } from './escrow-timelock-policy'
 import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
 import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './capability-profile'
 
@@ -396,6 +397,15 @@ export class EscrowService {
 
     const type = resolveEscrowType(input.asset, input.type)
 
+    // Master Backlog R5 — the timelock is protocol policy, frozen on the
+    // escrow here; input.timelockHours (still accepted by the route for
+    // compatibility) is never read. Re-checked although boot already
+    // validated it, so no path can insert an escrow under an invalid value.
+    const timelockHours = config.trade.defaultTimelockHours
+    if (!isValidTimelockHours(timelockHours)) {
+      throw new Error(`DEFAULT_TIMELOCK_HOURS policy value ${timelockHours} is not a valid escrow timelock — refusing to create an escrow`)
+    }
+
     // Missão 11 Fase 4.1 §4 — computed BEFORE the escrow row exists and
     // folded into the SAME insert below, not a separate best-effort update
     // afterward (Fase 4's earlier, now-superseded design). This is what
@@ -424,7 +434,7 @@ export class EscrowService {
       lockedAmount: input.lockedAmount,
       asset: input.asset,
       network: input.network,
-      timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
+      timelockHours,
       ...(feeSnapshot ? { feeSnapshot } : {}),
     })
 

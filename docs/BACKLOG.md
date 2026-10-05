@@ -5532,6 +5532,16 @@ obligation" is defined anywhere in this repository.
       `timelockHours` be validated against the chosen rail's own
       intrinsic constraint at all" is a protocol-enforcement question,
       not a presentation one, and is not covered by that boundary.
+      **Corrigido 2026-10-05 (Master Backlog R5):** `timelockHours` is no
+      longer caller-influenceable — `createEscrow()` freezes
+      `DEFAULT_TIMELOCK_HOURS` on every new escrow and ignores the
+      request field (accepted-but-inert for compatibility), and the
+      config value is a strict positive integer, required in production
+      (`escrow-timelock-policy.ts`, `config/index.ts`). Still open: the
+      cross-check against a rail's intrinsic window (the 144-block
+      `LIGHTNING_HODL` exit leaf) and any minimum/maximum beyond the
+      structural floor of 1 hour are economic policy decisions, not made
+      there.
     - **A participant who disappears after funds are already locked, at
       `PAYMENT_PENDING`, with no automatic escalation —
       `DAY0_DECISION_REQUIRED` + `RED_TEAM_INPUT`, genuinely new and

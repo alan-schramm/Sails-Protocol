@@ -65,6 +65,8 @@ RATE_LIMIT_AUTH_MAX=10
 RATE_LIMIT_AUTH_WINDOW=1 minute
 MOCK_ESCROW=true
 MOCK_SETTLEMENT=true
+# Required in production: escrow timelock policy in whole hours (>= 1),
+# frozen on each escrow at creation (Master Backlog R5).
 DEFAULT_TIMELOCK_HOURS=24
 AUTO_SETTLE_ON_MATCH=false
 TRUSTED_ARBITRATORS=
