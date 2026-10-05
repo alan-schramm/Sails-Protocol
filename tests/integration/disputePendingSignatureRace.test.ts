@@ -36,7 +36,7 @@ describe('#244 stale cleanup vs signature arrival (real Postgres)', () => {
     const pending = await prisma.escrowPendingTransaction.create({
       data: { escrowId: escrow.id, kind: 'release', unsignedPsbtBase64: 'unsigned', toAddress: 'tb1qcleanupfixture0000000000000000000000000', requiredSigners: [buyer.id, seller.id], triggeredBy: buyer.id },
     })
-    return { escrow, pending, buyer }
+    return { escrow, pending, buyer, seller, trade }
   }
 
   async function conditionalCleanup(client: PrismaClient, pendingId: string, escrowId: string) {
@@ -176,4 +176,39 @@ describe('#244 stale cleanup vs signature arrival (real Postgres)', () => {
       await fresh.$disconnect()
     }
   })
+  it('T4: the real stale-pending reconciler deletes a genuinely stale zero-signature invalid generation against real Postgres', async () => {
+    pg.requirePostgres('real reconciler stale invalid pending')
+    const f = await fixture()
+
+    await prisma.dispute.create({
+      data: {
+        tradeId: f.trade.id,
+        escrowId: f.escrow.id,
+        openedBy: f.buyer.id,
+        reason: '#244 T4 stale invalid pending proof',
+        arbiterId: f.seller.id,
+        status: 'RESOLVED',
+        ruling: 'RELEASE',
+        resolvedAt: new Date(),
+      },
+    })
+    await prisma.escrowPendingTransaction.update({
+      where: { id: f.pending.id },
+      data: { createdAt: new Date(Date.now() - 10 * 60 * 1000) },
+    })
+
+    // Deliberately no SemanticTransitionRecord exists for this resolved
+    // dispute. That is the reconciler's explicit DELETED_NO_OUTCOME invalid
+    // stale-generation case. Exercise the production reconciler itself,
+    // not a test-local copy of its conditional DELETE.
+    const { reconcileStalePendingDisputeTranslations } = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.reconciled).toEqual(expect.arrayContaining([
+      { escrowId: f.escrow.id, pendingTransactionId: f.pending.id, verdict: 'DELETED_NO_OUTCOME' },
+    ]))
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: f.pending.id } })).toBeNull()
+    expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: f.pending.id } })).toBe(0)
+  })
+
 })
