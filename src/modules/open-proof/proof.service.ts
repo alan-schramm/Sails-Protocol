@@ -375,6 +375,15 @@ export class ProofService {
     nonce: string,
     reason?: string
   ) {
+    // Issue #267 / CTO Policy V1 — service-boundary decoded-byte limit.
+    // Route-level Base64 validation is only a cheap representation guard;
+    // direct/internal callers must not be able to bypass the real-media cap.
+    if (media.byteLength > config.proof.evidenceMaxDecodedBytes) {
+      throw new ValidationError(
+        `Evidence media exceeds the Day-0 decoded size limit of ${config.proof.evidenceMaxDecodedBytes} bytes`
+      )
+    }
+
     const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
     await assertClaimEconomicScopeAccess(proof.claim, verifiedBy)
