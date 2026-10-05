@@ -117,6 +117,10 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // check ties the signature to the AUTHENTICATED caller's public key,
   // not to a client-supplied participantId).
   app.post('/v1/proof/proofs/:id/evidence', {
+    // #267 CTO Policy V1: reject oversized JSON before Fastify parses it.
+    // mediaBase64 itself is capped at 14 MiB; the extra 64 KiB is only
+    // structural JSON/signature/idempotency overhead, not extra media budget.
+    bodyLimit: config.proof.evidenceMaxBase64Chars + 64 * 1024,
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema, body: attachEvidenceSchema }),
   }, async (request, reply) => {
