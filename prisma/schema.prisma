@@ -2400,10 +2400,13 @@ model EvidenceReference {
   sha256      String // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
   mimeType    String
   signature   String // signed by the submitting Participant's key
+  submittedBy String // Issue #267 — immutable actual authenticated uploader; quota attribution authority
+  sizeBytes   Int    // Issue #267 — immutable decoded-media byte size; durable quota accounting authority
   anchorProof Json? // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded } once/if anchored; null until then
   createdAt   DateTime @default(now())
 
   @@index([proofId])
+  @@index([proofId, submittedBy])
   @@map("evidence_references")
 }
 
