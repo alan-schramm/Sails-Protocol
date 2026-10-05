@@ -30,6 +30,11 @@ import { eventBus } from '../../common/events/event-bus'
 import { proofRegistry } from './proof-registry'
 import { evidenceProvider, resolveEvidenceProviderByLabel } from './evidence-provider'
 import { timestampAnchor } from './timestamp-anchor'
+import {
+  reserveEvidenceQuota,
+  commitEvidenceReservation,
+  markEvidenceReservationUnknown,
+} from './evidence-quota'
 import { getTimeline } from '../../core/timeline'
 import { tradeService } from '../open-p2p/trade.service'
 import type { Prisma } from '@prisma/client'
@@ -469,8 +474,19 @@ export class ProofService {
     media: Uint8Array,
     mimeType: 'image' | 'video' | 'document' | 'ocr' | 'external_reference',
     submittedBy: string,
-    signatureHex: string
+    signatureHex: string,
+    operationKey?: string
   ) {
+    // Issue #267 / CTO Policy V1 — service-boundary decoded-byte limit.
+    if (media.byteLength > config.proof.evidenceMaxDecodedBytes) {
+      throw new ValidationError(
+        `Evidence media exceeds the Day-0 decoded size limit of ${config.proof.evidenceMaxDecodedBytes} bytes`
+      )
+    }
+    if (!operationKey) {
+      throw new ValidationError('Evidence upload requires an idempotency operation key')
+    }
+
     const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
     await assertClaimEconomicScopeAccess(proof.claim, submittedBy)
@@ -493,38 +509,57 @@ export class ProofService {
       throw new ForbiddenError(`Signature does not verify against ${submittedBy}'s registered public key for this media's own hash`)
     }
 
-    const stored = await evidenceProvider.store(media, mimeType)
-    // Issue #265 CTO Gate R2, BLOCKER 2 — corrects the previous comment
-    // here, which claimed this divergence "would mean a bug in the
-    // provider itself, not an adversarial input" and left it unchecked.
-    // That reasoning assumed a well-behaved provider; it never actually
-    // enforced the frozen property "storage provider != source of
-    // evidence truth." `digestHex` is the hash `submittedBy`'s signature
-    // was verified against, above — the one thing this method already
-    // knows for certain is genuine. `stored.sha256` is whatever the
-    // provider itself claims to have written; a faulty or malicious
-    // provider (corrupting bytes in flight, or simply misreporting its
-    // own hash) must never get to silently become the canonical,
-    // caller-trusted `EvidenceReference.sha256`. Checked here, before
-    // persistence — the provider's own hash is used only to detect this
-    // mismatch, never stored.
+    // All cheap/definitive validation above happens before durable quota
+    // admission. The reservation itself is the multi-instance-safe claim
+    // on count+bytes and survives the storage call/crash gap.
+    const reservation = await reserveEvidenceQuota({
+      proofId,
+      submittedBy,
+      sizeBytes: media.byteLength,
+      operationKey,
+      mediaSha256: digestHex,
+      mimeType,
+    })
+
+    if (reservation.status === 'COMMITTED' && reservation.evidenceRefId) {
+      const existing = await prisma.evidenceReference.findUnique({ where: { id: reservation.evidenceRefId } })
+      if (!existing) throw new ValidationError('Committed evidence upload points to a missing durable reference')
+      return existing
+    }
+    if (reservation.status === 'UNKNOWN') {
+      throw new EvidenceStorageError(
+        'Evidence upload has an ambiguous prior storage outcome and requires reconciliation before retry',
+        'UNAVAILABLE'
+      )
+    }
+    if (reservation.status === 'RELEASED') {
+      throw new ValidationError('Evidence upload operation was released; use a new idempotency key for a new attempt')
+    }
+
+    let stored
+    try {
+      stored = await evidenceProvider.store(media, mimeType)
+    } catch (err) {
+      // Once provider.store() has begun, a thrown network/provider error is
+      // not proof that no object was written. Preserve quota and force
+      // reconciliation instead of falsely releasing/retrying the operation.
+      await markEvidenceReservationUnknown(reservation.id)
+      throw err
+    }
+
     if (stored.sha256 !== digestHex) {
+      await markEvidenceReservationUnknown(reservation.id)
       throw new EvidenceStorageError(
         `Evidence provider '${stored.provider}' returned sha256 ${stored.sha256} for stored media, ` +
         `but ${submittedBy}'s signature covers ${digestHex} — refusing to persist a mismatched EvidenceReference`,
         'CORRUPTED'
       )
     }
-    const reference = await prisma.evidenceReference.create({
-      data: {
-        proofId,
-        provider: stored.provider,
-        uri: stored.uri,
-        sha256: digestHex, // canonical, service-computed, signer-bound digest — never the provider's own self-report
-        mimeType,
-        signature: signatureHex,
-      },
-    })
+
+    const reference = await commitEvidenceReservation(reservation.id, {
+      provider: stored.provider,
+      uri: stored.uri,
+    }, signatureHex)
 
     await eventBus.emit('proof.submitted', { proofId, claimId: proof.claimId }, proof.claimId)
 
