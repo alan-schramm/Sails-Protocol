@@ -165,6 +165,13 @@ export async function commitEvidenceReservation(
     const objectLockKey = `openproof:evidence-object:${stored.provider}:${stored.uri}`
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${objectLockKey})::bigint)`
 
+    const cleanupClaim = await tx.evidenceObjectCleanupClaim.findUnique({
+      where: { provider_uri: { provider: stored.provider, uri: stored.uri } },
+    })
+    if (cleanupClaim) {
+      throw new ValidationError('Evidence object is under durable orphan cleanup and cannot receive a new reference')
+    }
+
     const reservation = await tx.evidenceUploadReservation.findUnique({ where: { id: reservationId } })
     if (!reservation) throw new ValidationError('Evidence upload reservation no longer exists')
 
@@ -297,13 +304,29 @@ export async function persistCanonicalEvidenceSubmittedEvent(reservationId: stri
  * deletes a valid EvidenceReference and it never treats provider failure as
  * proof of deletion. Callers must not use it as evidence-retention policy.
  */
-export async function deleteEvidenceObjectIfUnreferenced(provider: string, uri: string): Promise<boolean> {
-  // Fail closed rather than pretend a transaction-scoped lock can protect
-  // the gap between the DB zero-reference check and provider.delete().
-  // A safe delete requires a durable cleanup claim/tombstone that reference
-  // creation also observes. Until that claim exists, retaining an orphan is
-  // preferable to deleting an object that may become durably referenced.
-  const references = await prisma.evidenceReference.count({ where: { provider, uri } })
-  if (references !== 0) return false
-  return false
+export async function claimEvidenceObjectCleanup(provider: string, uri: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const lockKey = `openproof:evidence-object:${provider}:${uri}`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
+
+    const references = await tx.evidenceReference.count({ where: { provider, uri } })
+    if (references !== 0) return false
+
+    await tx.evidenceObjectCleanupClaim.upsert({
+      where: { provider_uri: { provider, uri } },
+      update: {},
+      create: { provider, uri },
+    })
+    return true
+  })
+}
+
+/**
+ * Removes the durable cleanup claim after the provider object is known to
+ * have been deleted, or when an operator/reconciler deliberately abandons
+ * cleanup. The claim itself is what prevents a new EvidenceReference from
+ * racing into the delete window.
+ */
+export async function releaseEvidenceObjectCleanupClaim(provider: string, uri: string): Promise<void> {
+  await prisma.evidenceObjectCleanupClaim.deleteMany({ where: { provider, uri } })
 }
