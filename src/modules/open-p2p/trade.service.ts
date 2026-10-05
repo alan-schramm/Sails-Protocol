@@ -15,6 +15,7 @@ import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
 import { withIdempotency } from '../../common/idempotency'
+import { paymentAccountService } from '../open-settlement/payment-account.service'
 
 export interface CreateTradeInput {
   offerId: string
@@ -25,6 +26,10 @@ export interface CreateTradeInput {
   // src/common/idempotency.ts's own header for why this is a caller-
   // supplied key, not a composite-business-key uniqueness constraint.
   idempotencyKey?: string
+  // #235 R7C — on a BUY offer the caller is the seller (fiat receiver) and
+  // may bind their own PaymentAccount here, by its public hash. Rejected on
+  // a SELL offer, where the seller already declared it on the Offer.
+  paymentAccountHash?: string
 }
 
 export interface TradePagination {
@@ -65,7 +70,7 @@ export class TradeService {
         // offerId + amount are the only fields that make two requests
         // "the same logical attempt" for this operation — counterpartyId
         // is already the scoping key itself, not part of the payload hash.
-        requestPayload: { offerId: input.offerId, amount: input.amount },
+        requestPayload: { offerId: input.offerId, amount: input.amount, paymentAccountHash: input.paymentAccountHash },
       },
       () => this.persistTrade(input),
       (trade) => this.postPersistTrade(input, trade),
@@ -130,6 +135,23 @@ export class TradeService {
     const [buyerId, sellerId] =
       offer.side === 'SELL' ? [input.counterpartyId, offer.userId] : [offer.userId, input.counterpartyId]
 
+    // #235 R7C — the seller's (fiat receiver's) PaymentAccount is bound
+    // here, in the same single write that creates the Trade, never later.
+    // Whoever is the seller declares it: the maker on a SELL offer (already
+    // on the Offer, re-verified), the taker on a BUY offer. No declaration
+    // means an unbound trade, which can never attest any account.
+    let sellerPaymentAccountId: string | null = null
+    if (offer.side === 'SELL') {
+      if (input.paymentAccountHash) {
+        throw new ValidationError('On a SELL offer the seller declares the payment account when publishing the offer; the buyer cannot choose one')
+      }
+      if (offer.paymentAccountId) {
+        sellerPaymentAccountId = await paymentAccountService.bindableAccountId({ id: offer.paymentAccountId }, sellerId, offer.paymentMethod)
+      }
+    } else if (input.paymentAccountHash) {
+      sellerPaymentAccountId = await paymentAccountService.bindableAccountId({ accountHash: input.paymentAccountHash }, sellerId, offer.paymentMethod)
+    }
+
     const priceUsd = offer.priceUsd
     const totalUsd = (Number(priceUsd) * Number(input.amount)).toFixed(8)
 
@@ -143,6 +165,7 @@ export class TradeService {
       totalUsd,
       network: offer.network,
       intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
+      sellerPaymentAccountId,
     })
 
     return trade

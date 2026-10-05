@@ -36,6 +36,9 @@ const createTradeSchema = z.object({
   // that omits it gets exactly today's behavior. See
   // src/common/idempotency.ts's own header for the full contract.
   idempotencyKey: z.string().min(1).max(200).optional(),
+  // #235 R7C — on a BUY offer, the caller (the seller) may bind their own
+  // PaymentAccount to the trade. See trade.service.ts's CreateTradeInput.
+  paymentAccountHash: z.string().min(1).optional(),
 })
 
 const updateStatusSchema = z.object({
@@ -86,6 +89,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
       counterpartyId: participantId,
       amount: body.amount,
       idempotencyKey: body.idempotencyKey,
+      paymentAccountHash: body.paymentAccountHash,
     })
     return reply.code(201).send({ success: true, data: trade })
   })

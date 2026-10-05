@@ -32,6 +32,10 @@ export interface PublishOfferInput {
   // `SailsOpenP2PModule.trade()`'s own doc comment for the full
   // contract — the same rule applies here.
   idempotencyKey?: string
+  // #235 R7C — SELL offers only: the hash of your own registered payment
+  // account (paymentAccounts.register()) buyers will pay into. Bound to every
+  // trade taken from this offer; the only account those trades can attest.
+  paymentAccountHash?: string
 }
 
 // The shape GET /v1/liquidity/offers actually returns per item

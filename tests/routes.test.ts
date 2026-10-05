@@ -1926,10 +1926,34 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
     })
 
-    it('signs an unsigned payment account for real — signer is not the owner (the real RFC-021 D1 case: an arbiter/peer attesting someone else\'s account), so the response is the narrow public projection, not the raw row', async () => {
-      const token = await authedSession('arbiter-1')
-      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: false, firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
-      mockPaymentAccountUpdate.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: true, signedBy: 'arbiter-1', firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+    // #235 R7C — the route is a thin shell over paymentAccountService.attestFromTrade() (its authority
+    // branches: tests/paymentAccountService.test.ts; real PostgreSQL: paymentAccountBindingAuthority.test.ts).
+    it('attests through the trade: forwards (tradeId, path hash, session principal) and answers with the narrow public projection — the attester (the buyer) is never the owner', async () => {
+      const token = await authedSession('buyer-2')
+      const { paymentAccountService } = require('../src/modules/open-settlement/payment-account.service')
+      const attest = jest.spyOn(paymentAccountService, 'attestFromTrade').mockResolvedValueOnce(
+        { accountHash: 'hash-1', ownerId: 'seller-2', paymentMethod: 'PIX', signed: true, signedBy: 'buyer-2', signedAt: new Date('2026-01-02'), firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts/hash-1/sign',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-9', signedBy: 'forged', ownerId: 'forged' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(attest).toHaveBeenCalledWith('trade-9', 'hash-1', 'buyer-2')
+      const body = JSON.parse(res.body)
+      expect(body.data.signed).toBe(true)
+      expect(body.data).not.toHaveProperty('signedBy')
+      expect(body.data).not.toHaveProperty('ownerId')
+      attest.mockRestore()
+    })
+
+    it('#235 R7C — without a tradeId there is nothing to attest: 400, the service is never reached', async () => {
+      const token = await authedSession('buyer-2')
+      const { paymentAccountService } = require('../src/modules/open-settlement/payment-account.service')
+      const attest = jest.spyOn(paymentAccountService, 'attestFromTrade')
 
       const res = await app.inject({
         method: 'POST',
@@ -1937,11 +1961,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         headers: { authorization: `Bearer ${token}` },
       })
 
-      expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.body)
-      expect(body.data.signed).toBe(true)
-      expect(body.data).not.toHaveProperty('signedBy')
-      expect(body.data).not.toHaveProperty('ownerId')
+      expect(res.statusCode).toBe(400)
+      expect(attest).not.toHaveBeenCalled()
+      attest.mockRestore()
     })
 
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface

@@ -42,6 +42,15 @@ export interface OpenP2PMessageSentEvent {
 }
 
 // ─── Sails OpenSettlement events ───────────────────────────────────────────────
+// #235 R7C — the one emitter is payment-account.service.ts's attestFromTrade(), after the atomic
+// write that made the account PEER-signed (same post-write shape as reputation.vouch.created).
+export interface PaymentAccountAttestedEvent {
+  accountHash: string
+  tradeId: string
+  attesterId: string
+  attestationSource: 'PEER'
+}
+
 export interface SettlementEscrowCreatedEvent {
   escrowId: string
   tradeId: string
@@ -397,6 +406,7 @@ export interface SailsEventMap {
 
   // Sails OpenSettlement — escrow lifecycle
   'settlement.escrow.created': SettlementEscrowCreatedEvent
+  'settlement.payment_account.attested': PaymentAccountAttestedEvent // #235 R7C
   'settlement.escrow.locked': SettlementEscrowStatusChangedEvent
   'settlement.escrow.payment_pending': SettlementEscrowStatusChangedEvent
   'settlement.escrow.released': SettlementEscrowStatusChangedEvent

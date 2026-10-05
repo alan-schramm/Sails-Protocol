@@ -82,6 +82,8 @@ export interface Offer {
   status: OfferStatus
   network: string | null
   description: string | null
+  /** #235 R7C — SELL offers: the seller's declared PaymentAccount (internal id). */
+  paymentAccountId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -100,6 +102,8 @@ export interface Trade {
   network: string | null
   completedAt: string | null
   cancelledAt: string | null
+  /** #235 R7C — the seller's PaymentAccount bound to this trade (internal id); null if none was declared. */
+  sellerPaymentAccountId?: string | null
   createdAt: string
   updatedAt: string
   // Only populated by openp2p.getTrade() (GET /v1/openp2p/trades/:id) —
