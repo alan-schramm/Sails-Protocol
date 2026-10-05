@@ -353,7 +353,7 @@ describe('OpenProof economic-scope authorization (Issue #261) — HTTP level', (
       const res = await app.inject({
         method: 'POST', url: `/v1/proof/proofs/${PROOF_TRADE1.id}/evidence`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex },
+        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex, idempotencyKey: 'scope-auth-buyer-evidence-1' },
       })
 
       // 403, not 201 — the signature genuinely verifies (proven by the
