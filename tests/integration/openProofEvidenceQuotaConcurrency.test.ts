@@ -8,12 +8,15 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
   const pg = createPostgresIntegrationHarness()
   let prisma: import('@prisma/client').PrismaClient
   let reserveEvidenceQuota: typeof import('../../src/modules/open-proof/evidence-quota').reserveEvidenceQuota
+  let commitEvidenceReservation: typeof import('../../src/modules/open-proof/evidence-quota').commitEvidenceReservation
+  let persistCanonicalEvidenceSubmittedEvent: typeof import('../../src/modules/open-proof/evidence-quota').persistCanonicalEvidenceSubmittedEvent
 
   beforeAll(async () => {
     await pg.probe()
     if (!pg.isAvailable()) return
     ;({ prisma } = require('../../src/common/database'))
-    ;({ reserveEvidenceQuota } = require('../../src/modules/open-proof/evidence-quota'))
+    ;({ reserveEvidenceQuota, commitEvidenceReservation, persistCanonicalEvidenceSubmittedEvent } =
+      require('../../src/modules/open-proof/evidence-quota'))
   })
 
   afterAll(async () => {
@@ -42,7 +45,13 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
   }
 
   async function cleanup(ids: { uploaderId: string; claimId: string; proofId: string }) {
+    const reservations = await prisma.evidenceUploadReservation.findMany({
+      where: { proofId: ids.proofId },
+      select: { eventRecordId: true },
+    })
+    const eventIds = reservations.flatMap((r) => r.eventRecordId ? [r.eventRecordId] : [])
     await prisma.evidenceUploadReservation.deleteMany({ where: { proofId: ids.proofId } })
+    if (eventIds.length) await prisma.durableEventRecord.deleteMany({ where: { id: { in: eventIds } } })
     await prisma.evidenceReference.deleteMany({ where: { proofId: ids.proofId } })
     await prisma.proof.deleteMany({ where: { id: ids.proofId } })
     await prisma.claim.deleteMany({ where: { id: ids.claimId } })
@@ -123,4 +132,86 @@ describe('OpenProof evidence quota admission (#267, real Postgres)', () => {
       await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
     }
   })
+  it('concurrent commit + event publication converges to one reference and one durable event', async () => {
+    requirePostgres('issue #267 canonical commit/event concurrency')
+    const { uploader, claim, proof } = await fixture()
+    try {
+      const reservation = await reserveEvidenceQuota({
+        proofId: proof.id,
+        submittedBy: uploader.id,
+        sizeBytes: 2048,
+        operationKey: 'commit-event-once',
+        mediaSha256: '1'.repeat(64),
+        mimeType: 'document',
+      })
+
+      // The reference transition itself is intentionally exercised once:
+      // provider.store() is outside Postgres and the service admits only one
+      // RESERVED operation into that side effect. What must remain safe under
+      // multi-instance/retry pressure is the durable completion/publication.
+      const reference = await commitEvidenceReservation(
+        reservation.id,
+        { provider: 'test-provider', uri: 'test://267/canonical-object' },
+        '2'.repeat(128),
+      )
+
+      const events = await Promise.all(
+        Array.from({ length: 12 }, () => persistCanonicalEvidenceSubmittedEvent(reservation.id)),
+      )
+
+      expect(new Set(events.map((event) => event.id)).size).toBe(1)
+      expect(await prisma.evidenceReference.count({ where: { proofId: proof.id } })).toBe(1)
+      expect(await prisma.durableEventRecord.count({
+        where: { eventName: 'proof.submitted', correlationId: claim.id },
+      })).toBe(1)
+
+      const persisted = await prisma.evidenceUploadReservation.findUnique({ where: { id: reservation.id } })
+      expect(persisted?.status).toBe('COMMITTED')
+      expect(persisted?.evidenceRefId).toBe(reference.id)
+      expect(persisted?.eventRecordId).toBe(events[0].id)
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
+  it('restart-style retry returns the same committed reservation/reference/event identity', async () => {
+    requirePostgres('issue #267 restart committed convergence')
+    const { uploader, claim, proof } = await fixture()
+    try {
+      const input = {
+        proofId: proof.id,
+        submittedBy: uploader.id,
+        sizeBytes: 4096,
+        operationKey: 'restart-stable-operation',
+        mediaSha256: '3'.repeat(64),
+        mimeType: 'image',
+      }
+      const reservation = await reserveEvidenceQuota(input)
+      const reference = await commitEvidenceReservation(
+        reservation.id,
+        { provider: 'test-provider', uri: 'test://267/restart-object' },
+        '4'.repeat(128),
+      )
+      const event = await persistCanonicalEvidenceSubmittedEvent(reservation.id)
+
+      // Fresh database reads model a process restart: no in-memory state is
+      // required to recover the operation's canonical identities.
+      const retried = await reserveEvidenceQuota(input)
+      const retriedEvent = await persistCanonicalEvidenceSubmittedEvent(retried.id)
+      const durableReference = await prisma.evidenceReference.findUnique({ where: { id: reference.id } })
+
+      expect(retried.id).toBe(reservation.id)
+      expect(retried.evidenceRefId).toBe(reference.id)
+      expect(retried.eventRecordId).toBe(event.id)
+      expect(retriedEvent.id).toBe(event.id)
+      expect(durableReference?.id).toBe(reference.id)
+      expect(await prisma.evidenceReference.count({ where: { proofId: proof.id } })).toBe(1)
+      expect(await prisma.durableEventRecord.count({
+        where: { eventName: 'proof.submitted', correlationId: claim.id },
+      })).toBe(1)
+    } finally {
+      await cleanup({ uploaderId: uploader.id, claimId: claim.id, proofId: proof.id })
+    }
+  })
+
 })
