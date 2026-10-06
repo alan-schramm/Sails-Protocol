@@ -6,17 +6,20 @@
 // its escrow; every provider operation derives exactly that path, on every node. Independent module
 // graphs and Prisma pools stand in for separate nodes. The wallet is a fake whose address is a
 // function of the derivation path (@tetherto/wdk-wallet-evm ships ESM only); the real-wallet/EVM
-// proof is the local-EVM evidence script.
+// proof is the local-EVM evidence script. #235 R7G-F6C: outbound legs are signed through
+// signEscrowTransaction() (tests/integration/wdkOutboundAuthority); the provider's transfer() path is retired.
 
 process.env.WDK_SEED_PHRASE = process.env.WDK_SEED_PHRASE || 'test only seed phrase for wdk escrow account identity integration tests'
 process.env.WDK_USDT_CONTRACT = process.env.WDK_USDT_CONTRACT || '0x0000000000000000000000000000000000000001'
 
 const derivedPaths: string[] = []
 const mockTransfer = jest.fn()
+const mockSign = jest.fn()
 const mockReceipt = jest.fn()
 const accountFor = (path: string) => ({
   getAddress: async () => `addr:${path}`,
   transfer: (...a: unknown[]) => mockTransfer(path, ...a),
+  signTransaction: (...a: unknown[]) => mockSign(path, ...a),
   getTransactionReceipt: (...a: unknown[]) => mockReceipt(path, ...a),
 })
 jest.mock('@tetherto/wdk-wallet-evm', () => ({
@@ -88,6 +91,8 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
     derivedPaths.length = 0
     mockTransfer.mockReset()
     mockReceipt.mockReset()
+    mockSign.mockReset()
+    mockSign.mockImplementation(async (path: string) => `signed-by:${path}`)
     mockTransfer.mockImplementation(async () => ({ hash: `0x${randomBytes(32).toString('hex')}`, fee: 1n }))
     mockReceipt.mockResolvedValue({ status: 1 })
   })
@@ -255,21 +260,23 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
 
   // ── L / M / O — every operation, every node, derives the persisted identity ────────────────────
 
-  it('L/M23: the LOCK recipient, release, refund, split and reconciliation derive the same persisted path on two nodes', async () => {
+  it('L/M23: the LOCK recipient, the outbound signer and reconciliation derive the same persisted path on two nodes', async () => {
     pg.requirePostgres('L')
     const f = await trade('l')
     const e = input(await create(A, f))
     const B = node()
     const eB = input(await row(e.id, B))
     expect(await A.wdk.escrowAddress(e)).toBe(`addr:${e.wdkAccountPath}`) // the LOCK recipient (#235 R7G-F6B)
-    await B.wdk.releaseFunds(eB, '0xbuyer')
-    await A.wdk.refundFunds(e)
-    await B.wdk.splitFunds(eB, '0xbuyer', '0xseller', 2500)
+    const TX = { to: '0x0000000000000000000000000000000000000002', value: 0n }
+    expect([await A.wdk.signEscrowTransaction(e, TX), await B.wdk.signEscrowTransaction(eB, TX)]).toEqual([`signed-by:${e.wdkAccountPath}`, `signed-by:${e.wdkAccountPath}`]) // every outbound leg (#235 R7G-F6C)
+    for (const op of [() => B.wdk.releaseFunds(eB, '0xbuyer'), () => A.wdk.refundFunds(e), () => B.wdk.splitFunds(eB, '0xbuyer', '0xseller', 2500)]) {
+      await expect(op()).rejects.toThrow(/executed only by the signed outbound authority/) // the retired transfer() path
+    }
     await prisma.wdkTransferAttempt.create({ data: { escrowId: e.id, operationType: 'RELEASE', destination: '0xbuyer2', amount: '5', status: 'SUBMITTED', txHash: '0xsub', activeKey: null } })
     await A.wdk.reconcileTerminalTransfer(e, 'RELEASE', '0xbuyer2', '5')
     const escrowPaths = derivedPaths.filter((p) => p !== "0'/0/0")
     expect(new Set(escrowPaths)).toEqual(new Set([e.wdkAccountPath]))
-    expect(mockTransfer.mock.calls.map((c) => c[0])).toEqual([e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath])
+    expect(mockTransfer).not.toHaveBeenCalled()
     expect(mockReceipt.mock.calls[mockReceipt.mock.calls.length - 1][0]).toBe(e.wdkAccountPath)
   })
 
@@ -284,15 +291,16 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
     expect(derivedPaths).not.toContain(`0'/0/${escrowIndexFor(COLLIDING[0])}`)
   })
 
-  it('O/M13: a persisted address that the path does not derive fails closed before any transfer, and nothing is corrected', async () => {
+  it('O/M13: a persisted address that the path does not derive fails closed before anything is signed, and nothing is corrected', async () => {
     pg.requirePostgres('O')
     const f = await trade('o')
     const created = await create(A, f)
     await prisma.escrow.update({ where: { id: created.id }, data: { multisigAddr: '0xnot-this-account' } })
     const e = input(await row(created.id))
-    for (const op of [() => A.wdk.escrowAddress(e), () => A.wdk.releaseFunds(e, '0xbuyer'), () => A.wdk.refundFunds(e), () => A.wdk.splitFunds(e, '0xb', '0xs', 5000)]) {
+    for (const op of [() => A.wdk.escrowAddress(e), () => A.wdk.signEscrowTransaction(e, { to: '0x0000000000000000000000000000000000000002', value: 0n })]) {
       await expect(op()).rejects.toThrow(/not its persisted address 0xnot-this-account/)
     }
+    expect(mockSign).not.toHaveBeenCalled()
     expect(mockTransfer).not.toHaveBeenCalled()
     const after = await row(created.id)
     expect([after.multisigAddr, after.wdkAccountPath]).toEqual(['0xnot-this-account', created.wdkAccountPath])

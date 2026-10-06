@@ -109,12 +109,38 @@ export async function laneStatus(chainId: number, account: string) {
   return {
     lane,
     nextNonce: row ? row.nextNonce.toString() : null,
+    laneGap: await observeLaneGap(lane, unresolved.map((a) => a.nonce).filter((n): n is bigint => n !== null)),
     halted: halts.length > 0,
     activeHalts: halts.map((h) => ({ id: h.id, reason: h.reason, detail: h.detail, raisedBy: h.raisedBy, raisedAt: h.raisedAt })),
     unresolvedSigned: unresolved.map((a) => ({ ...a, nonce: a.nonce?.toString() ?? null, signedAtBlock: a.signedAtBlock?.toString() ?? null })),
     stuckThresholdBlocks: config.wdk.laneStuckBlocks ?? null,
     recentAudit: audit.map((a) => ({ ...a, previousNextNonce: a.previousNextNonce?.toString() ?? null, newNextNonce: a.newNextNonce?.toString() ?? null, dbTxId: a.dbTxId.toString() })),
   }
+}
+
+/**
+ * UNFILLABLE_LANE_GAP_V1 (operator visibility): nonces the chain is still waiting for below the lane's lowest
+ * unresolved signed transaction, that no Sails transaction uses - a foreign pending transaction the lane was
+ * initialized past has disappeared. Sails' transactions behind the gap can never be mined; the lane fails closed
+ * (no resume, no rewind, no filler transaction) until an operator recovery policy exists. Null when there is no
+ * gap or the chain cannot be read (status stays read-only and never fails on it).
+ */
+async function observeLaneGap(lane: LaneKey, unresolvedNonces: bigint[]): Promise<{ chainLatestNonce: number; lowestUnresolvedNonce: number; unsignedNonces: number[] } | null> {
+  if (unresolvedNonces.length === 0 || config.wdk.chainId !== lane.chainId) return null
+  let chainLatest: number
+  try {
+    chainLatest = await wdkSettlementProvider.rpc().nonce(lane.account, 'latest')
+  } catch {
+    return null
+  }
+  const lowest = Number(unresolvedNonces.reduce((a, b) => (a < b ? a : b)))
+  if (lowest <= chainLatest) return null
+  const signed = new Set((await prisma.wdkTransferAttempt.findMany({
+    where: { chainId: lane.chainId, fromAddress: lane.account, signedRawTx: { not: null }, nonce: { gte: BigInt(chainLatest), lt: BigInt(lowest) } },
+    select: { nonce: true },
+  })).map((a) => Number(a.nonce)))
+  const unsignedNonces = Array.from({ length: lowest - chainLatest }, (_, i) => chainLatest + i).filter((n) => !signed.has(n))
+  return unsignedNonces.length > 0 ? { chainLatestNonce: chainLatest, lowestUnresolvedNonce: lowest, unsignedNonces } : null
 }
 
 /** Operator pause (availability). Returns false when the lane was already paused. */

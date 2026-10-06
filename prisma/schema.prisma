@@ -758,6 +758,8 @@ enum WdkTransferOperationType {
   REFUND
   SPLIT_BUYER
   SPLIT_SELLER
+  // #235 R7G-F6C - a treasury transaction funding the gas of one signed outbound leg (fundsAttemptId).
+  GAS_FUNDING
 }
 
 // The execution-boundary states WdkTransferAttempt tracks — deliberately
@@ -863,6 +865,12 @@ model WdkTransferAttempt {
   corroboratingHeadBlock BigInt?
   nonceConsumedAtBlock   BigInt?
   signedAtBlock          BigInt?
+  // #235 R7G-F6C - a GAS_FUNDING row's funded outbound leg (one funding per signed leg) and its exact value in
+  // wei; both immutable. See migration 20261011120000.
+  fundsAttemptId         String?                  @unique
+  fundsAttempt           WdkTransferAttempt?      @relation("WdkGasFunding", fields: [fundsAttemptId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gasFunding             WdkTransferAttempt?      @relation("WdkGasFunding")
+  valueWei               Decimal?                 @db.Decimal(78, 0)
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   // Exactly one row per logical operation may own submission authority.

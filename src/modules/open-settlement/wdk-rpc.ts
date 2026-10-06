@@ -16,6 +16,8 @@ export interface WdkRpc {
   blockNumber(): Promise<number>
   /** eth_getTransactionCount at a block tag or number. */
   nonce(address: string, block: 'latest' | 'pending' | number): Promise<number>
+  /** eth_getBalance (native currency, wei) at a block tag. */
+  balance(address: string, block: 'latest' | 'pending'): Promise<bigint>
   estimateGas(tx: { from: string; to: string; data: string }): Promise<bigint>
   feeData(): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>
   /** eth_sendRawTransaction; the raw JSON-RPC result (normally the transaction hash). */
@@ -38,6 +40,7 @@ export function createWdkRpc(url: string, chainId: number): WdkRpc {
     blockNumber: async () => Number(toBigInt(await provider.send('eth_blockNumber', []), 'block number')),
     nonce: async (address, block) =>
       Number(toBigInt(await provider.send('eth_getTransactionCount', [address, typeof block === 'number' ? `0x${block.toString(16)}` : block]), 'nonce')),
+    balance: async (address, block) => toBigInt(await provider.send('eth_getBalance', [address, block]), 'balance'),
     estimateGas: async (tx) => toBigInt(await provider.send('eth_estimateGas', [tx]), 'gas estimate'),
     feeData: async () => {
       const fee = await provider.getFeeData()

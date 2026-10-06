@@ -8,6 +8,11 @@
  * (fee markets, eviction policy, reorgs) is not modelled — those are REQUIRES_LIVE_ECONOMIC_REHEARSAL; the
  * local-EVM evidence covers a real node.
  *
+ * #235 R7G-F6C — opt-in native gas accounting (gasAccounting = true): an account must hold
+ * gasLimit x maxFeePerGas + value to have a transaction accepted, mining charges gasUsed x the effective price
+ * (min(maxFee, baseFee + priority)) and moves a native value. Off by default, so suites written before it keep
+ * their gas-free treasury.
+ *
  * #235 R7G-F6B-P1 — corroboratorRpc() is a second observer of the same chain (the corroborating RPC), with
  * its own faults: unavailable, another chain, lagging behind the head (it then knows nothing past its own
  * head), or arbitrary receipt / nonce answers. It never accepts broadcasts.
@@ -16,7 +21,7 @@ import { Interface, Transaction, getAddress, id } from 'ethers'
 
 const ERC20 = new Interface(['function transfer(address to, uint256 amount) returns (bool)'])
 
-type Pending = { raw: string; hash: string; from: string; nonce: number; to: string | null; data: string; maxFeePerGas: bigint }
+type Pending = { raw: string; hash: string; from: string; nonce: number; to: string | null; data: string; maxFeePerGas: bigint; maxPriorityFeePerGas?: bigint; gasLimit?: bigint; value?: bigint }
 type Mined = { hash: string; from: string; nonce: number; blockNumber: number; blockHash: string; status: 0 | 1; pending: Pending }
 
 export class WdkChainDouble {
@@ -27,6 +32,13 @@ export class WdkChainDouble {
   readonly minedNonce = new Map<string, number>()
   readonly nonceHistory: Array<Map<string, number>> = [new Map()]
   readonly tokenBalances = new Map<string, bigint>()
+  /** #235 R7G-F6C — native gas accounting (see the header). */
+  gasAccounting = false
+  baseFee = 1_000_000_000n
+  readonly nativeBalances = new Map<string, bigint>()
+  readonly gasSpent = new Map<string, bigint>()
+  static readonly TOKEN_TRANSFER_GAS = 50_000n
+  static readonly NATIVE_TRANSFER_GAS = 21_000n
   readonly balanceHistory: Array<Map<string, bigint>> = [new Map()]
   /** Fork identity: blocks mined after a reorg get different hashes. */
   branch = 0
@@ -62,6 +74,12 @@ export class WdkChainDouble {
   balance(address: string) {
     return this.tokenBalances.get(getAddress(address)) ?? 0n
   }
+  fundNative(address: string, wei: bigint) {
+    this.nativeBalances.set(getAddress(address), this.nativeBalance(address) + wei)
+  }
+  nativeBalance(address: string) {
+    return this.nativeBalances.get(getAddress(address)) ?? 0n
+  }
   latestNonce(address: string, block?: number) {
     const a = getAddress(address)
     if (block === undefined) return this.minedNonce.get(a) ?? 0
@@ -86,7 +104,10 @@ export class WdkChainDouble {
     if (this.mempool.has(hash)) throw new Error('already known')
     const clash = [...this.mempool.values()].find((p) => p.from === from && p.nonce === tx.nonce)
     if (clash) throw new Error('replacement transaction underpriced')
-    this.mempool.set(hash, { raw, hash, from, nonce: tx.nonce, to: tx.to, data: tx.data, maxFeePerGas: tx.maxFeePerGas ?? 0n })
+    if (this.gasAccounting && this.nativeBalance(from) < tx.gasLimit * (tx.maxFeePerGas ?? 0n) + tx.value) {
+      throw new Error(`insufficient funds for gas * price + value: balance ${this.nativeBalance(from)}, tx cost ${tx.gasLimit * (tx.maxFeePerGas ?? 0n) + tx.value}`)
+    }
+    this.mempool.set(hash, { raw, hash, from, nonce: tx.nonce, to: tx.to, data: tx.data, maxFeePerGas: tx.maxFeePerGas ?? 0n, maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? 0n, gasLimit: tx.gasLimit, value: tx.value })
     if (directive === 'ACCEPT_THEN_THROW') throw new Error('socket hang up (response lost after the node accepted the transaction)')
     return hash
   }
@@ -113,6 +134,18 @@ export class WdkChainDouble {
         for (const p of [...this.mempool.values()].sort((x, y) => x.nonce - y.nonce)) {
           if (p.nonce !== this.latestNonce(p.from)) continue
           let status: 0 | 1 = 1
+          if (this.gasAccounting && p.raw) {
+            const price = p.maxFeePerGas < this.baseFee + (p.maxPriorityFeePerGas ?? 0n) ? p.maxFeePerGas : this.baseFee + (p.maxPriorityFeePerGas ?? 0n)
+            const used = p.data === '0x' ? WdkChainDouble.NATIVE_TRANSFER_GAS : WdkChainDouble.TOKEN_TRANSFER_GAS
+            const cost = used * price
+            if (this.nativeBalance(p.from) < cost + (p.value ?? 0n)) continue // not executable yet (cannot pay): stays pending
+            this.nativeBalances.set(p.from, this.nativeBalance(p.from) - cost)
+            this.gasSpent.set(p.from, (this.gasSpent.get(p.from) ?? 0n) + cost)
+            if ((p.value ?? 0n) > 0n && p.to) {
+              this.nativeBalances.set(p.from, this.nativeBalance(p.from) - (p.value as bigint))
+              this.fundNative(p.to, p.value as bigint)
+            }
+          }
           if (p.data !== '0x' && p.to) {
             const d = ERC20.parseTransaction({ data: p.data })!
             const amount = d.args[1] as bigint
@@ -169,6 +202,7 @@ export class WdkChainDouble {
       nonce: async (address: string, block: 'latest' | 'pending' | number) =>
         block === 'pending' ? (this.hooks.pendingNonce?.(address) ?? this.pendingNonce(address))
           : this.latestNonce(address, block === 'latest' ? (lag() ? head() : undefined) : Math.min(block, head())),
+      balance: async (address: string) => this.nativeBalance(address),
       estimateGas: async () => this.hooks.estimateGas?.() ?? 60_000n,
       feeData: async () => ({ maxFeePerGas: 3_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }),
       sendRawTransaction: async (raw: string) => this.sendRaw(raw),
@@ -196,6 +230,7 @@ export class WdkChainDouble {
         if (override !== undefined) return override
         return this.latestNonce(address, block === 'latest' || block === 'pending' ? head() : Math.min(block, head()))
       },
+      balance: async (address: string) => { up(); return this.nativeBalance(address) },
       estimateGas: async () => { throw new Error('the corroborating RPC is evidence only (estimateGas)') },
       feeData: async () => { throw new Error('the corroborating RPC is evidence only (feeData)') },
       sendRawTransaction: async () => { throw new Error('the corroborating RPC must never broadcast') },

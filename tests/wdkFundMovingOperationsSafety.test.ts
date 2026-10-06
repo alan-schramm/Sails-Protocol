@@ -122,14 +122,14 @@ const baseEscrowDisputed = {
   id: 'escrow-1', tradeId: 'trade-1', type: 'WDK_USDT_EVM', lockedAmount: '5', timelockHours: 24, status: 'DISPUTED',
 }
 
-// #235 R7G-F6B — the gap this file demonstrated (a retry after a provider call that had already moved funds
-// reached the provider again) cannot occur while WDK outbound has no transaction authority: release, refund
-// and split are refused before any claim or provider call (escrow.service's assertWdkOutboundAvailable), so a
-// first call and a retry both reach the provider zero times. The provider-level mechanism the earlier
-// remediation built (wdk-execution-truth.ts) is still covered by tests/wdkExecutionTruth.test.ts and returns
-// to service-level coverage with F6C.
+// #235 R7G-F6B / R7G-F6C — the gap this file demonstrated (a retry after a provider call that had already moved
+// funds reached the provider again) cannot occur here: WDK outbound never reaches the provider's (transfer())
+// methods at all - it is executed by the signed outbound authority (wdk-outbound-authority.ts, proven on real
+// PostgreSQL in tests/integration/wdkOutboundAuthority.test.ts), and without its network policy (no chain, no
+// finality rule, no corroborating RPC, no gas caps - as in this unit environment) release, refund and split are
+// refused before any claim, so a first call and a retry both reach the provider zero times.
 describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving operations safety sweep', () => {
-  const refused = /WDK outbound settlement has no transaction authority yet/
+  const refused = /WDK_USDT_EVM outbound settlement for escrow escrow-1 is unavailable: no .* configured \(network policy\)/
 
   beforeEach(() => {
     jest.clearAllMocks()

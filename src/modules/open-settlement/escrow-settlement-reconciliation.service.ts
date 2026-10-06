@@ -1,5 +1,6 @@
 import { prisma } from '../../common/database'
 import { reconcileWdkLocks, type LockReconcileReport } from './wdk-lock-authority'
+import { hasSignedOutbound, runWdkOutbound } from './wdk-outbound-authority'
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
@@ -583,6 +584,12 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
 // WdkTransferAttempt or calls transfer()). SPLIT is explicitly out of this mission's scope (Issue
 // #250 owns it) and falls through to the generic manual-review path below unchanged.
 async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  // #235 R7G-F6C - an escrow settled by the signed outbound authority converges through it; the read-only
+  // transfer() reconciliation below stays for legacy attempts only.
+  if (await hasSignedOutbound(escrow.id)) {
+    await reconcileSignedWdkOutbound(escrow, report)
+    return
+  }
   if (escrow.status === 'SPLIT') {
     await reconcileWdkSplitTransfer(escrow, report)
     return
@@ -666,6 +673,74 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
   // idempotency claim is what actually prevents a double-fire, exactly as the MULTISIG path above.
   await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', directExecutionActor(escrow, trade), result.txHash, escrow, null, undefined)
   report.recovered.push({ escrowId: escrow.id, txId: result.txHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+/**
+ * #235 R7G-F6C - an escrow claimed COMPLETED / REFUNDED / SPLIT whose outbound obligation is signed-raw: the
+ * obligation is driven from durable state (never re-signing a signed leg; see runWdkOutbound()), and once every
+ * leg is final and corroborated the settlement result is written once and the completion effects run, through
+ * the same write-once primitive and idempotent effects as every other PASS 1 convergence.
+ */
+async function reconcileSignedWdkOutbound(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  const run = await runWdkOutbound(escrow.id, { waitForReceipt: false })
+  if (run.state === 'PENDING') {
+    log.info({ msg: 'WDK outbound obligation not final yet', escrowId: escrow.id, reason: run.reason })
+    return
+  }
+  if (run.state !== 'COMPLETE') {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK outbound obligation of escrow ${escrow.id} (${escrow.status}): ${run.reason}` })
+    return
+  }
+  const expected = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }[run.kind]
+  if (escrow.status !== expected) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${run.kind} obligation of escrow ${escrow.id} is final, but the escrow is ${escrow.status} — anomaly, nothing written` })
+    return
+  }
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (WDK outbound convergence).` })
+    return
+  }
+  const txId = run.txIds.join(',')
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      if (run.kind === 'RELEASE') await escrowRepository.updateReleaseResult(escrow.id, { txReleaseId: txId, releasedAt: new Date(), feeCharged: null }, { tx })
+      else if (run.kind === 'REFUND') await escrowRepository.updateRefundResult(escrow.id, txId, { tx })
+      else await escrowRepository.updateSplitResult(escrow.id, { txReleaseId: txId, releasedAt: new Date() }, { tx })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+  log.info({ msg: 'WDK outbound obligation final: settlement result written once', escrowId: escrow.id, kind: run.kind, txId, wroteTxReleaseId })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, expected as 'COMPLETED' | 'REFUNDED' | 'SPLIT', directExecutionActor(escrow, trade), txId, escrow, null, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId, outcome: 'ALREADY_CONFIRMED' })
+}
+
+/**
+ * #235 R7G-F6C - one escrow's signed WDK outbound obligation, driven and (once final) converged now: the operator's
+ * "reconcile this escrow" (scripts/wdk-lane.ts) and PASS 1's own path. Never signs a leg that is already signed.
+ */
+export async function reconcileWdkOutboundEscrow(escrowId: string): Promise<ReconciliationReport> {
+  const report = emptyReport()
+  const escrow = await escrowRepository.findById(escrowId)
+  if (!escrow || escrow.type !== 'WDK_USDT_EVM' || !(await hasSignedOutbound(escrowId))) {
+    report.requiresManualReview.push({ escrowId, reason: `escrow ${escrowId} has no signed WDK outbound obligation` })
+    return report
+  }
+  try {
+    await reconcileSignedWdkOutbound(escrow, report)
+  } catch (err) {
+    report.failed.push({ escrowId, error: err instanceof Error ? err.message : String(err) })
+  }
+  return report
 }
 
 // Issue #250 - WDK_USDT_EVM SPLIT restart convergence. A SPLIT is two INDEPENDENT external transfers
@@ -1109,11 +1184,15 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
  * its queue: an escrow PASS 1 converges simply moves to PASS 2's queue,
  * which finds its completion already done and marks it verified.
  */
-export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
-  const report: ReconciliationReport = {
+function emptyReport(): ReconciliationReport {
+  return {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
     resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [],
   }
+}
+
+export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
+  const report = emptyReport()
 
   await reconcileUnclaimedFullySignedPending(report)
 

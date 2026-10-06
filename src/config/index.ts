@@ -49,6 +49,14 @@ function optionalPositiveInt(name: string): number | undefined {
   return (process.env[name] ?? '').trim() === '' ? undefined : requiredPositiveInt(name, 1)
 }
 
+// An optional strictly positive integer too large for a JS number (wei amounts): unset or empty is undefined.
+function optionalPositiveBigInt(name: string): bigint | undefined {
+  const raw = (process.env[name] ?? '').trim()
+  if (raw === '') return undefined
+  if (!/^[1-9][0-9]{0,77}$/.test(raw)) throw new Error(`${name} must be a positive integer (got ${JSON.stringify(raw)})`)
+  return BigInt(raw)
+}
+
 // Node clamps any timer delay above 2^31-1 ms (about 24.8 days) to 1 ms with
 // only a warning, so a too-large scheduler interval would become a hot loop.
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -743,6 +751,12 @@ export const config = {
     // unresolved signed transaction may stay unresolved before the lane stops signing new ones (operator
     // review; never a failure). No default: unset means no stuck classification.
     laneStuckBlocks: optionalPositiveInt('WDK_LANE_STUCK_BLOCKS'),
+    // #235 R7G-F6C - WDK outbound gas policy (network policy; no defaults, no production value frozen): the
+    // largest gas limit an outbound leg (release / refund / split leg) may be signed with, and its highest
+    // maxFeePerGas in wei. Their product bounds the native value one gas funding may send to an escrow
+    // account. Either unset: WDK outbound settlement is refused before anything is claimed or signed.
+    outboundMaxGasLimit: optionalPositiveInt('WDK_OUTBOUND_MAX_GAS_LIMIT'),
+    outboundMaxFeePerGasWei: optionalPositiveBigInt('WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI'),
   },
 
   // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3
