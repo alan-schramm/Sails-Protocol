@@ -83,6 +83,10 @@ jest.mock('../src/modules/open-settlement/lightning-hodl.provider', () => ({
     custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
     buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
+    // #235 R7G-B2A - signature submission validates locally first. The REAL LIGHTNING_HODL/SAFE_GUARD_EVM providers
+    // have no validator, so production refuses their signatures (fail closed); this file's subject is the
+    // destination binding around the provider, so its stand-ins accept.
+    validatePartialSignature: jest.fn(),
   },
 }))
 // Bare, import-safe stand-in — escrow-providers.ts imports this at module
@@ -104,6 +108,10 @@ jest.mock('../src/modules/open-settlement/safe-guard-evm.provider', () => ({
     custodyModel: 'client-held-buyer-seller-keys-kms-arbiter',
     buildUnsignedRelease: (...args: unknown[]) => mockSafeGuardBuildUnsignedRelease(...args),
     finalizeRelease: (...args: unknown[]) => mockSafeGuardFinalizeRelease(...args),
+    // #235 R7G-B2A - signature submission validates locally first. The REAL LIGHTNING_HODL/SAFE_GUARD_EVM providers
+    // have no validator, so production refuses their signatures (fail closed); this file's subject is the
+    // destination binding around the provider, so its stand-ins accept.
+    validatePartialSignature: jest.fn(),
   },
 }))
 // WDK_USDT_EVM is a DIRECT-CALL rail (releaseFunds()/refundFunds()/
@@ -142,7 +150,10 @@ async function lockedDisputeRead(): Promise<unknown[]> {
   return last ? [{ status: last.status, appealRound: last.appealRound, arbiterId: last.arbiterId ?? null }] : []
 }
 const mockDisputeUpdate = jest.fn()
-const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null) // no committed arbiter — non-MULTISIG
+// no committed arbiter — non-MULTISIG. #235 R7G-B2A - a buyer/seller lookup (submitTransactionSignature()'s signer key)
+// finds a key; the provider stand-ins validate.
+const mockEscrowParticipantKeyFindUnique = jest.fn(async (args: any) =>
+  ['buyer', 'seller'].includes(args?.where?.escrowId_role?.role) ? { pubkey: '02' + '11'.repeat(32) } : null)
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
@@ -193,7 +204,7 @@ jest.mock('../src/common/database', () => ({
     },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
     escrowParticipantKey: {
-      findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args),
+      findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...(args as [any])),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
     },
     escrowEvent: {

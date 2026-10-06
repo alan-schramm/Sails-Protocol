@@ -385,6 +385,23 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // (#238 opens disputes under it): a cooperative round accepts no signature once a dispute exists for the
   // escrow (H2), and the signature that completes a cooperative round while none exists durably marks the
   // round's bilateral authority (H1, bilateralAuthorityAt) in the same transaction.
+  // #235 R7G-B2A — LOCAL_SIGNATURE_VALIDATION_V1: the signature is checked
+  // against the stored round and the signer's frozen participant key before it
+  // is persisted, counted toward the threshold, finalized or broadcast.
+  const collector = getSignatureCollectionProvider(escrow.type)
+  if (!collector?.validatePartialSignature) {
+    throw new EscrowError(`Escrow type '${escrow.type}' has no local signature validation — refusing to accept a signature`)
+  }
+  const signerTrade = await tradeRepository.findById(escrow.tradeId)
+  const signerRole = participantId === signerTrade?.buyerId ? 'buyer' : participantId === signerTrade?.sellerId ? 'seller' : null
+  const signerKey = signerRole
+    ? await prisma.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId, role: signerRole } }, select: { pubkey: true } })
+    : null
+  if (!signerKey) {
+    throw new EscrowError(`${participantId} has no participant key on escrow ${escrowId} to verify a signature against`)
+  }
+  collector.validatePartialSignature(escrow, pending.unsignedPsbtBase64, signedPsbtBase64, signerKey.pubkey)
+
   await withEscrowFundingLock(escrowId, async (tx) => {
     const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { id: true, disputeId: true } })
     if (current?.id !== pending.id) {

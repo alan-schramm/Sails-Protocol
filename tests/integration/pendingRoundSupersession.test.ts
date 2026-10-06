@@ -13,6 +13,7 @@ import { PrismaClient } from '@prisma/client'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
+import { ECPairFactory } from 'ecpair'
 import nacl from 'tweetnacl'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
@@ -51,8 +52,19 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
   const ARBITER_ID = 'r3-239-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
-  const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
+  // #235 R7G-B2A — signatures are verified before they are accepted, so this suite signs for real: each signer
+  // signs the round that is pending when it calls (the round it "read").
+  const ECPair = ECPairFactory(ecc)
+  const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('r3-239-buyer').digest(), { network: bitcoin.networks.testnet })
+  const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('r3-239-seller').digest(), { network: bitcoin.networks.testnet })
+  const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
+  const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+  async function signPending(escrowId: string, key: typeof buyerKey, db: { escrowPendingTransaction: PrismaClient['escrowPendingTransaction'] } = prisma): Promise<string> {
+    const round = await db.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId } })
+    const copy = bitcoin.Psbt.fromBase64(round.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
+    copy.signInput(0, key)
+    return copy.toBase64()
+  }
   let realFetch: typeof fetch
 
   function mockExplorerForUtxo(txid: string, vout: number, valueSats: number): void {
@@ -150,12 +162,12 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
     const cooperative = await escrowService.initiateRefund(escrow.id, seller.id)
     expect(cooperative.requiredSigners).toEqual([seller.id, buyer.id])
-    if (opts.sellerSigned) await escrowService.submitTransactionSignature(escrow.id, seller.id, 'seller-signed-cooperative-refund')
+    if (opts.sellerSigned) await escrowService.submitTransactionSignature(escrow.id, seller.id, await signPending(escrow.id, sellerKey))
     // #239D H1: the buyer completes the set before any dispute. Its execution starts and fails at the
-    // provider (these test signatures are not a real spend), so the status reverts and the fully signed
-    // round remains - with its pre-dispute bilateral authority marked.
+    // provider (this file's explorer stand-in cannot accept a broadcast), so the status reverts and the fully
+    // signed round remains - with its pre-dispute bilateral authority marked.
     if (opts.completedBeforeDispute) {
-      await expect(escrowService.submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed-cooperative-refund')).rejects.toThrow()
+      await expect(escrowService.submitTransactionSignature(escrow.id, buyer.id, await signPending(escrow.id, buyerKey))).rejects.toThrow()
     }
 
     let disputeId: string | undefined
@@ -221,7 +233,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
     // The dead round cannot even be completed any more: #239D refuses cooperative signatures once a dispute
     // exists (it stays partial, so a ruling may supersede it).
-    const completed = await settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signed-cooperative-refund'))
+    const completed = await settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, await signPending(f.escrowId, buyerKey)))
     expect(completed).toEqual({ ok: false, e: expect.stringMatching(/dispute authority took over before its cooperative refund round/) })
     expect(await signaturesOfRound(f.cooperativeRoundId)).toBe(1)
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } })).status).toBe('DISPUTED')
@@ -288,7 +300,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     const f = await fixture('t3a', { sellerSigned: false, disputed: true, ruled: true })
     const release = await holdEscrowLock(f.escrowId)
 
-    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.sellerId, 'seller-signed-late'))
+    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.sellerId, await signPending(f.escrowId, sellerKey)))
     await untilWaiting(1)
     const dispatch = settle(dispatchRuling(f))
     await untilWaiting(2)
@@ -306,7 +318,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     const f = await fixture('t3b', { sellerSigned: true, disputed: true, ruled: true })
     const release = await holdEscrowLock(f.escrowId)
 
-    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signed-late'))
+    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, await signPending(f.escrowId, buyerKey)))
     await untilWaiting(1)
     const dispatch = settle(dispatchRuling(f))
     await untilWaiting(2)
@@ -325,7 +337,8 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
     const dispatch = settle(dispatchRuling(f))
     await untilWaiting(1)
-    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signed-old-round'))
+    const oldRoundSignature = await signPending(f.escrowId, buyerKey) // the signer read the cooperative round
+    const signer = settle(escrowService.submitTransactionSignature(f.escrowId, f.buyerId, oldRoundSignature))
     await untilWaiting(2) // the signer read the cooperative round
     await release()
 
@@ -357,7 +370,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
 
     expect(await roundsOf(f.escrowId, fresh.prisma)).toEqual([{ id: ruling.id, kind: 'release', disputeId: f.disputeId, signatures: [] }])
     // The seller is not a signer of the ruling round; the old round is gone.
-    await expect(fresh.escrowService.submitTransactionSignature(f.escrowId, f.sellerId, 'seller-signed-old-round')).rejects.toThrow(/is not one of the required signers/)
+    await expect(fresh.escrowService.submitTransactionSignature(f.escrowId, f.sellerId, await signPending(f.escrowId, sellerKey, fresh.prisma))).rejects.toThrow(/is not one of the required signers/)
     expect(await signaturesOfRound(ruling.id, fresh.prisma)).toBe(0)
   })
 
@@ -398,8 +411,9 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     await expect(dispatchRuling(f)).rejects.toThrow(/already has a pending release transaction awaiting signatures/)
     expect((await roundsOf(f.escrowId)).map((r) => r.id)).toEqual([ruling.id])
     // The old round's signers can contribute nothing: the buyer's signature now belongs to the ruling round only.
-    const signed = await escrowService.submitTransactionSignature(f.escrowId, f.buyerId, 'buyer-signs-ruling-round').then(() => 'accepted', (e: Error) => e.message)
-    expect(await roundsOf(f.escrowId)).toEqual([{ id: ruling.id, kind: 'release', disputeId: f.disputeId, signatures: [{ participantId: f.buyerId, signedPsbtBase64: 'buyer-signs-ruling-round' }] }])
+    const rulingSignature = await signPending(f.escrowId, buyerKey)
+    const signed = await escrowService.submitTransactionSignature(f.escrowId, f.buyerId, rulingSignature).then(() => 'accepted', (e: Error) => e.message)
+    expect(await roundsOf(f.escrowId)).toEqual([{ id: ruling.id, kind: 'release', disputeId: f.disputeId, signatures: [{ participantId: f.buyerId, signedPsbtBase64: rulingSignature }] }])
     expect(signed).not.toMatch(/no longer exists/)
     expect(await signaturesOfRound(f.cooperativeRoundId)).toBe(0)
   })

@@ -19,6 +19,21 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-B2A — a MULTISIG escrow's script authority is frozen and every signature is verified.** The
+  buyer/seller keys could be replaced at any time after they had derived the deposit address — even after
+  funding — while lock, refund, release and recovery re-derived the script from those mutable rows: a swap
+  blocked settlement, misdirected funding (lockFunds then overwrote the address), and duplicate keys were
+  accepted (one key listed twice lets its holder, or the server for the arbiter key, spend alone). Partial
+  signatures were never verified by Sails: a well-formed signature over the wrong message was accepted,
+  finalized and broadcast. Now: once the address exists the keys that derived it and the address itself are
+  immutable (service check plus database triggers; resubmitting the same key is a no-op); the three keys
+  must be distinct; every lock, rescan, spend and reconciliation asserts the keys still derive the persisted
+  address and fails closed otherwise; each submitted signature is verified against the stored signing round
+  and the signer's key (SIGHASH_ALL) before it is stored or counted, and every signature is verified again
+  before finalization. Migration `20261006120000_multisig_script_authority` refuses to install over any
+  inconsistent MULTISIG escrow; run `npm run multisig:preflight` (read-only) against production first.
+  LIGHTNING_HODL and SAFE_GUARD_EVM have no signature validator and now refuse signature submissions.
+
 - **#235 R7G-B1 — a trade is cancelled unilaterally only while no funds can exist for it.** A manual
   cancellation used to be accepted while the escrow was CREATED, FUNDS_LOCKED, PAYMENT_PENDING or EXPIRED,
   marking the trade CANCELLED while funds stayed locked (or a buyer had already paid). It is now refused once

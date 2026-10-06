@@ -185,7 +185,7 @@ describe('#239D signature confidentiality + bilateral intent authority + MOOT co
     const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: f.roundId }, include: { signatures: true } })
     expect(round.bilateralAuthorityAt).not.toBeNull()
     const dispute = await getDisputeService().raiseDispute(f.tradeId, f.sellerId, 'buyer reversed the fiat payment')
-    const expectedTx = multisigProvider.buildFinalizedTransaction(f.tradeId, round.unsignedPsbtBase64, round.requiredSigners.map((id) => round.signatures.find((s) => s.participantId === id)!.signedPsbtBase64))
+    const expectedTx = multisigProvider.buildFinalizedTransaction({ tradeId: f.tradeId, multisigAddr: (await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } })).multisigAddr }, round.unsignedPsbtBase64, round.requiredSigners.map((id) => round.signatures.find((s) => s.participantId === id)!.signedPsbtBase64))
     return { ...f, disputeId: dispute.id, expectedTxid: expectedTx.getId() as string, expectedTx }
   }
 
@@ -454,7 +454,7 @@ describe('#239D signature confidentiality + bilateral intent authority + MOOT co
     await prisma.escrowTransactionSignature.create({ data: { pendingTxId: f.roundId, participantId: f.buyerId, signedPsbtBase64: signPsbt(f.unsigned, buyerKey) } })
     const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: f.roundId }, include: { signatures: true } })
     expect(round.bilateralAuthorityAt).toBeNull()
-    const txid = multisigProvider.buildFinalizedTransaction(f.tradeId, round.unsignedPsbtBase64, round.requiredSigners.map((id) => round.signatures.find((s) => s.participantId === id)!.signedPsbtBase64)).getId()
+    const txid = multisigProvider.buildFinalizedTransaction({ tradeId: f.tradeId, multisigAddr: (await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } })).multisigAddr }, round.unsignedPsbtBase64, round.requiredSigners.map((id) => round.signatures.find((s) => s.participantId === id)!.signedPsbtBase64)).getId()
 
     // Not D1 (no pre-dispute authority), not supersedable (fully signed): C8 asks the chain, then the gate refuses.
     chain.sailsBroadcasts = []
