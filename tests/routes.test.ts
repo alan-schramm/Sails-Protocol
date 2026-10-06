@@ -93,6 +93,15 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: any[]) => (args[0]?.select?.status ? Promise.resolve({ status: 'ACTIVE' }) : mockTradeUpdate(...args)),
     },
+    // #235 R7G-B1 - a manual cancellation transitions the trade's Intent inside the same transaction.
+    intent: {
+      findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
+    },
+    intentEvent: {
+      findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+      create: (...args: unknown[]) => mockIntentEventCreate(...args),
+    },
   })
 )
 const mockIntentCreate = jest.fn()

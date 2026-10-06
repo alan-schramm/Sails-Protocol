@@ -19,6 +19,16 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-B1 — a trade is cancelled unilaterally only while no funds can exist for it.** A manual
+  cancellation used to be accepted while the escrow was CREATED, FUNDS_LOCKED, PAYMENT_PENDING or EXPIRED,
+  marking the trade CANCELLED while funds stayed locked (or a buyer had already paid). It is now refused once
+  funds may exist: any escrow status other than CREATED, a MULTISIG escrow with a deposit address, or a
+  WDK_USDT_EVM escrow with a transfer attempt that may have been submitted (even if the escrow reads CREATED).
+  Those trades end through refund, dispute or settlement, which are unchanged. Submitting a participant key
+  and locking funds now take the same trade-lifecycle lock and refuse a CANCELLED trade. A cancellation that
+  fails leaves nothing behind: the trade's Intent is cancelled in the same transaction as the trade (an Intent
+  that cannot be cancelled refuses the whole request), and events are published only after the commit.
+
 - **#235 R7G-A — a cancelled trade takes no new escrow.** `createEscrow()` never checked the trade's
   status, and a manual cancellation (#294) only serialized against an escrow that already existed, so a
   CANCELLED trade could still get an escrow, including one created after the cancellation committed. A

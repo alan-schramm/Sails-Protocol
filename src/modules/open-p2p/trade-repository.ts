@@ -48,6 +48,7 @@ import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType, TradeStatus } from '../../common/types'
 import { lockTradeLifecycle } from './trade-lifecycle-lock'
+import { unilateralRevocationBlocker } from '../open-settlement/unilateral-revocation'
 
 type TradeRow = NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>>
 type OfferRow = NonNullable<Awaited<ReturnType<typeof prisma.offer.findUnique>>>
@@ -119,9 +120,15 @@ export interface TradeRepository {
    * ACTIVE/CANCELLED) with the same authoritative-state discipline as the
    * Escrow-derived projection: CAS on the Trade's expected current status,
    * serialized under the escrow lock, and refused once the Escrow already
-   * governs the economic outcome (DISPUTED / COMPLETED / SPLIT / REFUNDED).
+   * governs the economic outcome (DISPUTED / COMPLETED / SPLIT / REFUNDED / EXPIRED).
+   * #235 R7G-B1 - a cancellation is also refused once funds may exist for the
+   * trade (unilateral-revocation.ts), and `withinTransaction` runs after the
+   * Trade write in the same transaction: if it throws, nothing is persisted.
    */
-  transitionManually(tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined): Promise<ManualTradeTransitionResult>
+  transitionManually(
+    tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined,
+    withinTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<ManualTradeTransitionResult>
 }
 
 export type TradeProjectionResult =
@@ -131,6 +138,7 @@ export type TradeProjectionResult =
 export type ManualTradeTransitionResult =
   | { ok: true; trade: NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>> }
   | { ok: false; reason: 'STALE_STATUS' | 'ESCROW_GOVERNED'; escrowStatus?: string }
+  | { ok: false; reason: 'ECONOMIC_COMMITMENT'; escrowStatus: string; detail: string }
 
 // Escrow (authoritative) -> the Trade status it projects. EXPIRED/CREATED project nothing.
 const ESCROW_TO_TRADE_STATUS: Record<string, TradeStatus | undefined> = {
@@ -142,7 +150,8 @@ const ESCROW_TO_TRADE_STATUS: Record<string, TradeStatus | undefined> = {
   REFUNDED: 'CANCELLED',
 }
 const TRADE_RANK: Record<string, number> = { PENDING: 0, ACTIVE: 1, DISPUTED: 2, COMPLETED: 3, CANCELLED: 3 }
-const ESCROW_GOVERNED_STATUSES = new Set(['DISPUTED', 'COMPLETED', 'SPLIT', 'REFUNDED'])
+// #235 R7G-B1 - EXPIRED is economically governed: funds are still locked and its recovery path decides.
+const ESCROW_GOVERNED_STATUSES = new Set(['DISPUTED', 'COMPLETED', 'SPLIT', 'REFUNDED', 'EXPIRED'])
 
 const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
 
@@ -273,7 +282,10 @@ class PrismaTradeRepository implements TradeRepository {
     return opts.tx ? run(opts.tx) : prisma.$transaction(run)
   }
 
-  async transitionManually(tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined): Promise<ManualTradeTransitionResult> {
+  async transitionManually(
+    tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined,
+    withinTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<ManualTradeTransitionResult> {
     return prisma.$transaction(async (tx) => {
       // #235 R7G-A — serialized against the creation of the trade's first escrow
       // (trade-lifecycle-lock.ts), so the escrow read below is authoritative.
@@ -285,12 +297,15 @@ class PrismaTradeRepository implements TradeRepository {
         if (fresh && ESCROW_GOVERNED_STATUSES.has(fresh.status)) {
           return { ok: false, reason: 'ESCROW_GOVERNED', escrowStatus: fresh.status } as const
         }
+        const blocker = fresh && to === 'CANCELLED' ? await unilateralRevocationBlocker(tx, fresh) : null
+        if (blocker) return { ok: false, reason: 'ECONOMIC_COMMITMENT', escrowStatus: fresh!.status, detail: blocker } as const
       }
       const claimed = await tx.trade.updateMany({
         where: { id: tradeId, status: from },
         data: { status: to, ...(cancelledAt ? { cancelledAt } : {}) },
       })
       if (claimed.count === 0) return { ok: false, reason: 'STALE_STATUS' } as const
+      if (withinTransaction) await withinTransaction(tx)
       const trade = await tx.trade.findUnique({ where: { id: tradeId } })
       return { ok: true, trade: trade! } as const
     })

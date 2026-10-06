@@ -167,6 +167,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       create: (...args: unknown[]) => mockEscrowCreate(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    // #235 R7G-B1 - submitParticipantKey() writes keys and the derived address under the trade-lifecycle lock.
+    escrowParticipantKey: {
+      upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
+      findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
+      create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
+    },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
       // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.

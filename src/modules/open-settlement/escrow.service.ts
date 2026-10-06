@@ -59,7 +59,7 @@ import { claimEscrowTransitionRecord } from './escrow-transition-claim'
 import { Prisma } from '@prisma/client'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { assertFirstEscrowAllowed } from '../open-p2p/trade-lifecycle-lock'
+import { assertFirstEscrowAllowed, lockTradeLifecycle } from '../open-p2p/trade-lifecycle-lock'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
 import { isValidTimelockHours } from './escrow-timelock-policy'
@@ -539,63 +539,77 @@ export class EscrowService {
     // the backward-compatibility decision an omitted declaration gets).
     assertKnownCapabilityProfile(capabilityProfile)
 
-    await prisma.escrowParticipantKey.upsert({
-      where: { escrowId_role: { escrowId, role } },
-      update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
-      create: { escrowId, role, participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
-    })
+    // #235 R7G-B1 — a key, and the deposit address the second key derives, are
+    // written under the trade-lifecycle lock a cancellation also takes, after
+    // re-reading the trade: a cancelled trade gets no new funding surface, and a
+    // cancellation that comes later sees the address (unilateral-revocation.ts).
+    return prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, trade.id)
+      const current = await tx.trade.findUnique({ where: { id: trade.id }, select: { status: true } })
+      if (current?.status === 'CANCELLED') {
+        throw new EscrowError(`Trade ${trade.id} is CANCELLED: no participant key can be submitted for its escrow`)
+      }
+      const fresh = await tx.escrow.findUnique({ where: { id: escrowId } })
+      if (!fresh) throw new NotFoundError('Escrow', escrowId)
 
-    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
-    const buyerKey = keys.find((k: { role: string }) => k.role === 'buyer')
-    const sellerKey = keys.find((k: { role: string }) => k.role === 'seller')
+      await tx.escrowParticipantKey.upsert({
+        where: { escrowId_role: { escrowId, role } },
+        update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
+        create: { escrowId, role, participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
+      })
 
-    let updatedEscrow = escrow
-    if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
-      // Missão 11 Fase 9.1 §4, fail-closed per Fase 9.1.1 CTO decision —
-      // "a trade must not commit to [this escrow type] unless every
-      // required participant has a compatible profile," checked right
-      // here, immediately before the deposit address (the actual commit
-      // point) is derived and persisted. An OMITTED declaration now
-      // blocks exactly like an incompatible one — "unknown capability =
-      // unsupported" applies to silence too, no exception for either
-      // role or for who `participantId` happens to be.
-      const blocker = findCapabilityCommitBlocker(
-        escrow.type as EscrowType, buyerKey.capabilityProfile, sellerKey.capabilityProfile
-      )
-      if (blocker) {
-        const detail = blocker.reason === 'missing'
-          ? 'declared no capability profile at all'
-          : `declared an incompatible capability profile ('${blocker.declared}')`
-        throw new EscrowError(
-          `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
-          `every participant must declare a compatible capability profile before this escrow type can commit.`,
-          'INELIGIBLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real maturity/capability-profile mismatch, not a technical, policy, or config gap
+      const keys = await tx.escrowParticipantKey.findMany({ where: { escrowId } })
+      const buyerKey = keys.find((k: { role: string }) => k.role === 'buyer')
+      const sellerKey = keys.find((k: { role: string }) => k.role === 'seller')
+
+      let updatedEscrow = fresh
+      if (buyerKey && sellerKey && !fresh.multisigAddr && !config.features.mockEscrow) {
+        // Missão 11 Fase 9.1 §4, fail-closed per Fase 9.1.1 CTO decision —
+        // "a trade must not commit to [this escrow type] unless every
+        // required participant has a compatible profile," checked right
+        // here, immediately before the deposit address (the actual commit
+        // point) is derived and persisted. An OMITTED declaration now
+        // blocks exactly like an incompatible one — "unknown capability =
+        // unsupported" applies to silence too, no exception for either
+        // role or for who `participantId` happens to be.
+        const blocker = findCapabilityCommitBlocker(
+          escrow.type as EscrowType, buyerKey.capabilityProfile, sellerKey.capabilityProfile
         )
+        if (blocker) {
+          const detail = blocker.reason === 'missing'
+            ? 'declared no capability profile at all'
+            : `declared an incompatible capability profile ('${blocker.declared}')`
+          throw new EscrowError(
+            `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
+            `every participant must declare a compatible capability profile before this escrow type can commit.`,
+            'INELIGIBLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real maturity/capability-profile mismatch, not a technical, policy, or config gap
+          )
+        }
+
+        const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
+        updatedEscrow = await tx.escrow.update({ where: { id: escrowId }, data: { multisigAddr: address } })
+
+        // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
+        // arbiter public-key commitment, using the EXACT bytes
+        // getDepositAddress() just used to build the script (never a second,
+        // independent derivation). Only MULTISIG populates arbiterPubkeyHex/
+        // arbiterId today (LIGHTNING_HODL/SAFE_GUARD_EVM leave them
+        // undefined — a disclosed, out-of-scope analogous gap, not fixed
+        // this phase). create() (not upsert) — this row is meant to be
+        // write-once; the DB trigger (escrow_participant_keys_arbiter_
+        // immutability_guard) is the defense-in-depth backstop if this
+        // branch is ever reached twice for the same escrow, which the
+        // `!escrow.multisigAddr` guard above should already make impossible
+        // in the normal flow.
+        if (arbiterPubkeyHex && arbiterId) {
+          await tx.escrowParticipantKey.create({
+            data: { escrowId, role: 'arbiter', participantId: arbiterId, pubkey: arbiterPubkeyHex },
+          })
+        }
       }
 
-      const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
-      updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
-
-      // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
-      // arbiter public-key commitment, using the EXACT bytes
-      // getDepositAddress() just used to build the script (never a second,
-      // independent derivation). Only MULTISIG populates arbiterPubkeyHex/
-      // arbiterId today (LIGHTNING_HODL/SAFE_GUARD_EVM leave them
-      // undefined — a disclosed, out-of-scope analogous gap, not fixed
-      // this phase). create() (not upsert) — this row is meant to be
-      // write-once; the DB trigger (escrow_participant_keys_arbiter_
-      // immutability_guard) is the defense-in-depth backstop if this
-      // branch is ever reached twice for the same escrow, which the
-      // `!escrow.multisigAddr` guard above should already make impossible
-      // in the normal flow.
-      if (arbiterPubkeyHex && arbiterId) {
-        await prisma.escrowParticipantKey.create({
-          data: { escrowId, role: 'arbiter', participantId: arbiterId, pubkey: arbiterPubkeyHex },
-        })
-      }
-    }
-
-    return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
+      return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
+    })
   }
 
   async lockFunds(escrowId: string, triggeredBy: string) {
@@ -624,7 +638,20 @@ export class EscrowService {
     // WHERE still matches the row's *current* status affects a row —
     // the loser gets `count: 0` and is rejected before ever touching the
     // provider, not after. ────────────────────────────────────────────
-    await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+    //
+    // #235 R7G-B1 — the FUNDS_LOCKED claim is made under the trade-lifecycle lock
+    // a cancellation also takes, after re-reading the trade: a cancelled trade's
+    // escrow is never locked (no provider call), and a cancellation that comes
+    // later sees FUNDS_LOCKED and is refused. The provider call stays outside the
+    // lock.
+    await prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, escrow.tradeId)
+      const current = await tx.trade.findUnique({ where: { id: escrow.tradeId }, select: { status: true } })
+      if (current?.status === 'CANCELLED') {
+        throw new EscrowError(`Trade ${escrow.tradeId} is CANCELLED: its escrow cannot be locked`)
+      }
+      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+    })
 
     try {
       const provider = getSettlementProvider(escrow.type)
