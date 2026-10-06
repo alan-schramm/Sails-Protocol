@@ -43,7 +43,9 @@ All notable changes to this project will be documented in this file.
     - nothing signed yet: the escrow claim is reverted;
     - anything signed: the claim stays and reconciliation (PASS 1, or `npm run wdk:lane -- reconcile --escrow`)
       continues the same transactions;
-    - a final revert or a nonce consumed elsewhere stops the obligation for manual review — nothing is re-signed.
+    - a final revert or a nonce consumed elsewhere stops the obligation for manual review — nothing is re-signed;
+    - the process dies after the claim, before the obligation is recorded: reconciliation records it once from
+      the same durable authority (registered payout addresses, treasury, frozen buyerBps) and drives it.
   - **Database guarantees:**
     - one economic outbound family per escrow (no RELEASE beside a REFUND);
     - no signed obligation beside a legacy `transfer()` attempt that may have moved funds;

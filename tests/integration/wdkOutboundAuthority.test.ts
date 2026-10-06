@@ -454,6 +454,51 @@ describe('#235 R7G-F6C — WDK outbound settlement authority (real PostgreSQL)',
     expect(chain.balance(f.buyerPayout)).toBe(5_000_000n)
   })
 
+  it('R1-R3: the process dies after the claim, before the obligation is recorded — reconciliation records it from durable authority and converges; once recorded, a failing generation is never re-recorded', async () => {
+    pg.requirePostgres('crash before record')
+    const crashAfterClaim = async (f: F, call: () => Promise<unknown>, claimed: string) => {
+      const spy = jest.spyOn(A.outbound, 'settleWdkOutbound').mockImplementation(() => new Promise(() => undefined)) // the process dies here
+      try {
+        void call()
+        for (let i = 0; i < 100 && (await escrowOf(f)).status !== claimed; i++) await new Promise((r) => setTimeout(r, 20))
+      } finally {
+        spy.mockRestore()
+      }
+      expect([(await escrowOf(f)).status, (await escrowOf(f)).txReleaseId, (await legs(f)).length]).toEqual([claimed, null, 0])
+    }
+    // RELEASE: recorded by a fresh node from the buyer's registered payout address, then one leg, one funding, one event
+    const r = await funded('r1')
+    await paymentPending(r)
+    await crashAfterClaim(r, () => release(A, r), 'COMPLETED')
+    await reconcileEscrow(node(), r)
+    expect((await legs(r)).map((l) => [l.operationType, l.destination, l.amount.toFixed()])).toEqual([['RELEASE', r.buyerPayout, '5']])
+    await converge(r, node())
+    expect([(await escrowOf(r)).txReleaseId, chain.balance(r.buyerPayout), (await legs(r)).length, (await fundings(r)).length, await events(r, 'COMPLETED')])
+      .toEqual([(await legs(r))[0].txHash, 5_000_000n, 1, 1, 1])
+    // SPLIT (arbitrated): the frozen buyerBps of the claim, through the reconciliation pass itself
+    const s = await funded('r1s')
+    await paymentPending(s)
+    await disputed(s)
+    await crashAfterClaim(s, () => split(A, s, 2500), 'SPLIT')
+    await A.reconcile({ projectionGraceMs: 0 })
+    expect((await legs(s)).map((l) => [l.operationType, l.amount.toFixed()])).toEqual([['SPLIT_BUYER', '1.25'], ['SPLIT_SELLER', '3.75']])
+    await converge(s)
+    expect([(await escrowOf(s)).status, chain.balance(s.buyerPayout), chain.balance(s.sellerPayout)]).toEqual(['SPLIT', 1_250_000n, 3_750_000n])
+    // bounded: a recorded generation refused before signing (fee above the cap) is not re-recorded on every pass
+    const b = await funded('r1b')
+    await paymentPending(b)
+    await crashAfterClaim(b, () => release(A, b), 'COMPLETED')
+    A.config.wdk.outboundMaxFeePerGasWei = 2_000_000_000n
+    try {
+      await reconcileEscrow(A, b)
+      const report = await reconcileEscrow(A, b)
+      expect(report.requiresManualReview.some((m: any) => /RELEASE failed before anything was signed/.test(m.reason))).toBe(true)
+    } finally {
+      A.config.wdk.outboundMaxFeePerGasWei = 5_000_000_000n
+    }
+    expect([(await escrowOf(b)).status, (await legs(b)).map((l) => l.status), broadcastsFrom(b.account)]).toEqual(['COMPLETED', ['FAILED_BEFORE_SUBMISSION'], []])
+  })
+
   it('R4/R5/M1: persisting the signed leg fails — nothing was broadcast, nothing signed is durable, the claim is reverted', async () => {
     pg.requirePostgres('persist failure')
     const f = await funded('persist')

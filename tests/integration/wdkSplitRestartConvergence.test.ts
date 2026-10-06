@@ -202,9 +202,12 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
 
     const report = await reconcilePendingSettlements({ projectionGraceMs: 0 })
     expect(report.recovered).toEqual([])
-    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /NO_ATTEMPT/.test(m.reason))).toBe(true)
+    // #235 R7G-F6C: the R1 crash window - recorded only from proven funding under a configured outbound policy;
+    // neither exists here, so nothing is recorded or moved.
+    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /has no live outbound obligation and none can be recorded/.test(m.reason))).toBe(true)
     expect(mockTransfer).not.toHaveBeenCalled()
     expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
+    expect(await prisma.wdkTransferAttempt.count({ where: { escrowId: c.escrowId } })).toBe(0)
   })
 
   // ── 1) first leg CONFIRMED, second not started ─────────────────────────────────────────────────

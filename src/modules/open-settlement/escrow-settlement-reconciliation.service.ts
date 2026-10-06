@@ -1,6 +1,6 @@
 import { prisma } from '../../common/database'
 import { reconcileWdkLocks, type LockReconcileReport } from './wdk-lock-authority'
-import { hasSignedOutbound, runWdkOutbound } from './wdk-outbound-authority'
+import { hasLegacyOutbound, hasSignedOutbound, recordClaimedWdkOutbound, runWdkOutbound } from './wdk-outbound-authority'
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
@@ -584,9 +584,10 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
 // WdkTransferAttempt or calls transfer()). SPLIT is explicitly out of this mission's scope (Issue
 // #250 owns it) and falls through to the generic manual-review path below unchanged.
 async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
-  // #235 R7G-F6C - an escrow settled by the signed outbound authority converges through it; the read-only
-  // transfer() reconciliation below stays for legacy attempts only.
-  if (await hasSignedOutbound(escrow.id)) {
+  // #235 R7G-F6C - an escrow settled by the signed outbound authority converges through it - including one
+  // whose obligation was never recorded (crash after the claim, R1); the read-only transfer() reconciliation
+  // below stays for legacy attempts only.
+  if (await hasSignedOutbound(escrow.id) || !(await hasLegacyOutbound(escrow.id))) {
     await reconcileSignedWdkOutbound(escrow, report)
     return
   }
@@ -682,7 +683,25 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
  * the same write-once primitive and idempotent effects as every other PASS 1 convergence.
  */
 async function reconcileSignedWdkOutbound(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
-  const run = await runWdkOutbound(escrow.id, { waitForReceipt: false })
+  let run = await runWdkOutbound(escrow.id, { waitForReceipt: false })
+  if (run.state === 'NOT_STARTED' && !(await hasSignedOutbound(escrow.id))) {
+    // R1: claimed, but no obligation was ever recorded (the process died in between): nothing was signed, so it
+    // is recorded now from durable authority and driven like any other. Once recorded, a generation that fails
+    // before signing is never re-recorded here (bounded) - it stays for manual review below.
+    try {
+      const claimant = await tradeRepository.findById(escrow.tradeId)
+      if (!claimant) throw new Error(`trade ${escrow.tradeId} not found`)
+      await recordClaimedWdkOutbound(escrow, claimant)
+    } catch (err) {
+      report.requiresManualReview.push({
+        escrowId: escrow.id,
+        reason: `WDK escrow ${escrow.id} (${escrow.status}) has no live outbound obligation and none can be recorded: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      return
+    }
+    log.warn({ msg: 'WDK outbound obligation recorded by reconciliation after a claim whose obligation was never recorded (R1)', escrowId: escrow.id, status: escrow.status })
+    run = await runWdkOutbound(escrow.id, { waitForReceipt: false })
+  }
   if (run.state === 'PENDING') {
     log.info({ msg: 'WDK outbound obligation not final yet', escrowId: escrow.id, reason: run.reason })
     return
@@ -731,8 +750,8 @@ async function reconcileSignedWdkOutbound(escrow: NonNullable<Awaited<ReturnType
 export async function reconcileWdkOutboundEscrow(escrowId: string): Promise<ReconciliationReport> {
   const report = emptyReport()
   const escrow = await escrowRepository.findById(escrowId)
-  if (!escrow || escrow.type !== 'WDK_USDT_EVM' || !(await hasSignedOutbound(escrowId))) {
-    report.requiresManualReview.push({ escrowId, reason: `escrow ${escrowId} has no signed WDK outbound obligation` })
+  if (!escrow || escrow.type !== 'WDK_USDT_EVM' || (!(await hasSignedOutbound(escrowId)) && await hasLegacyOutbound(escrowId))) {
+    report.requiresManualReview.push({ escrowId, reason: `escrow ${escrowId} has no signed WDK outbound obligation (not WDK, or legacy transfer() attempts only)` })
     return report
   }
   try {

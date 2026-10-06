@@ -191,8 +191,12 @@ jest.mock('../src/common/database', () => ({
     // Issue #240 - reconcileSignatureCollectionTerminalTransfer()'s own durable evidence lookup.
     signatureCollectionFinalizationAttempt: { findUnique: (...args: unknown[]) => mockFinalizationAttemptFindUnique(...args) },
     // #235 R7G-F6B - the LOCK pass: no signed or legacy LOCK attempts and no halted lane by default.
-    // count: #235 R7G-F6C hasSignedOutbound() - no signed outbound obligation, so WDK escrows take the legacy path
-    wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    // count: #235 R7G-F6C hasSignedOutbound() / hasLegacyOutbound() - these WDK escrows carry legacy transfer()
+    // attempts (the provider mock's reconcileTerminalTransfer() reads them) and no signed obligation: the legacy path
+    wdkTransferAttempt: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn(async ({ where }: { where: { authority?: string } }) => (where.authority === 'LEGACY_TRANSFER_V0' ? 1 : 0)),
+    },
     wdkLaneHalt: { findMany: jest.fn().mockResolvedValue([]) }, // #235 R7G-F6B-P1: halts replaced wdk_nonce_lanes.haltedAt
   },
 }))

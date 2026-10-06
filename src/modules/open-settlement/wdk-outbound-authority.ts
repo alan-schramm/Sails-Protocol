@@ -45,6 +45,7 @@ import { childLogger } from '../../common/logger'
 import { lockTradeLifecycle } from '../open-p2p/trade-lifecycle-lock'
 import { wdkSettlementProvider, fromBaseUnits, type WdkEscrowAccountIdentity } from './wdk-settlement.provider'
 import { activeLaneHalts, lockLaneGovernance, raiseLaneHalt, type LaneKey } from './wdk-lane-governance'
+import { payoutAddressService } from './payout-address.service'
 import {
   broadcast, corroborateReceipt, isFinal, LaneHalted, lockNonceLane, observeNonceConsumption, queryReceipt, stuckLowestNonce,
   toExactBaseUnits, verifySignedLock, WdkSignedTransactionMismatch,
@@ -148,11 +149,14 @@ const sameLeg = (row: WdkTransferAttempt, leg: OutboundLeg) =>
  * anything was signed (every row FAILED_BEFORE_SUBMISSION, the claim reverted) is history: a new request
  * records a new generation.
  */
-export async function prepareWdkOutbound(escrow: EscrowRow, legs: OutboundLeg[]): Promise<void> {
+export async function prepareWdkOutbound(escrow: EscrowRow, legs: OutboundLeg[], claimed?: string): Promise<void> {
   const fromAddress = await wdkSettlementProvider.escrowAddress(escrow)
   const tokenContract = getAddress(config.wdk.usdtContract)
   await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM escrows WHERE id = ${escrow.id} FOR UPDATE`
+    const [row] = await tx.$queryRaw<Array<{ status: string; txReleaseId: string | null }>>`SELECT status::text AS status, "txReleaseId" FROM escrows WHERE id = ${escrow.id} FOR UPDATE`
+    if (claimed && (row?.status !== claimed || row.txReleaseId !== null)) {
+      throw new EscrowError(`Escrow ${escrow.id} is no longer a pending ${claimed} (now ${row?.status ?? 'missing'}) — no outbound obligation recorded`)
+    }
     const existing = (await outboundRows(tx, escrow.id)).filter((r) => r.status !== 'FAILED_BEFORE_SUBMISSION')
     if (existing.length > 0) {
       const latest = latestPerLeg(existing)
@@ -195,6 +199,32 @@ function latestPerLeg(rows: WdkTransferAttempt[]): Map<OutboundLegOp, WdkTransfe
 
 export async function hasSignedOutbound(escrowId: string): Promise<boolean> {
   return (await prisma.wdkTransferAttempt.count({ where: { escrowId, authority: 'SIGNED_RAW_V1', operationType: { in: OUTBOUND_OPS } } })) > 0
+}
+
+/** A legacy transfer() outbound attempt exists: the escrow converges through the legacy read-only path only. */
+export async function hasLegacyOutbound(escrowId: string): Promise<boolean> {
+  return (await prisma.wdkTransferAttempt.count({ where: { escrowId, authority: 'LEGACY_TRANSFER_V0', operationType: { in: OUTBOUND_OPS } } })) > 0
+}
+
+/**
+ * Crash matrix R1: the escrow claimed its terminal status but the process died before the obligation was
+ * recorded (or a later generation was), so nothing was signed and nothing could move. The claim is the economic
+ * decision; its obligation is re-derived from the same durable authority the live call plans from - the
+ * registered payout addresses, the treasury, the frozen buyerBps - and recorded under the escrow row lock while
+ * the escrow is still that pending claim. A live call still in flight records the same legs (prepare is
+ * idempotent) or, if they differ, is refused and its DF1 handling decides; either way one obligation exists.
+ */
+export async function recordClaimedWdkOutbound(escrow: EscrowRow, trade: { buyerId: string; sellerId: string }): Promise<void> {
+  const kind = ({ COMPLETED: 'RELEASE', REFUNDED: 'REFUND', SPLIT: 'SPLIT' } as Record<string, OutboundKind | undefined>)[escrow.status]
+  if (!kind || escrow.txReleaseId !== null) throw new EscrowError(`Escrow ${escrow.id} is ${escrow.status}${escrow.txReleaseId ? ' with a settlement result' : ''}, not a pending outbound claim`)
+  assertWdkOutboundPolicy(escrow.id)
+  const registered = async (participantId: string, role: string) => {
+    const payout = await payoutAddressService.getPayoutAddress(participantId, escrow.asset)
+    if (!payout) throw new EscrowError(`Escrow ${escrow.id}: the ${role} has no registered ${escrow.asset} payout address`)
+    return payout.address
+  }
+  const payout = kind === 'REFUND' ? {} : { buyer: await registered(trade.buyerId, 'buyer'), ...(kind === 'SPLIT' ? { seller: await registered(trade.sellerId, 'seller') } : {}) }
+  await prepareWdkOutbound(escrow, await planWdkOutbound(escrow, kind, payout, escrow.splitBuyerBps ?? undefined), escrow.status)
 }
 
 /**
