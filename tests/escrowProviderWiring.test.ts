@@ -108,6 +108,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     finalizeRefund: (...args: unknown[]) => mockFinalizeRefund(...args),
     buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
     finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
+    // #235 R7G-B2A - signature submission now validates locally first; the real cryptographic check is proven in tests/integration/multisigScriptAuthority.test.ts.
+    validatePartialSignature: jest.fn(),
   },
 }))
 
@@ -123,6 +125,14 @@ const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockParticipantKeyCreate = jest.fn()
+// #235 R7G-B2A - single-key lookups (submitParticipantKey()'s committed-key check, submitTransactionSignature()'s
+// signer key) answer from the same per-test findMany fixture, so every test keeps one source of key truth.
+const mockParticipantKeyFindUnique = jest.fn(async (args: any) => {
+  const where = args?.where?.escrowId_role
+  const rows = (await mockParticipantKeyFindMany({ where: { escrowId: where?.escrowId } })) ?? []
+  return rows.find((r: any) => r.escrowId === where?.escrowId && r.role === where?.role)
+    ?? (where?.role === 'buyer' || where?.role === 'seller' ? { escrowId: where.escrowId, role: where.role, pubkey: '02' + '11'.repeat(32) } : null)
+})
 const mockPendingTxFindUnique = jest.fn()
 // Missão 11 Fase 9.1 §1/§2 — assertFundingNotUncertain() (wired into
 // initiateSignatureCollectionCore() for release/split) now queries this
@@ -172,6 +182,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
       create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
+      findUnique: (...args: unknown[]) => mockParticipantKeyFindUnique(...(args as [any])),
     },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
@@ -228,6 +239,7 @@ jest.mock('../src/common/database', () => ({
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
       create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
+      findUnique: (...args: unknown[]) => mockParticipantKeyFindUnique(...(args as [any])),
     },
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -1067,6 +1079,20 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockParticipantKeyUpsert).not.toHaveBeenCalled() // #235 R7G-B2A - the same key again is a no-op
+  })
+
+  it('#235 R7G-B2A - refuses a DIFFERENT key once the funding address exists, and writes nothing', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: 'tb1qalreadyset' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+    ])
+
+    await expect(escrowService.submitParticipantKey('escrow-1', 'buyer-1', SELLER_PUBKEY)).rejects.toThrow(/key can no longer change/)
+    expect(mockParticipantKeyUpsert).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
   })
 
   it('rejects a submission from someone who is not the trade\'s buyer or seller', async () => {
@@ -1701,13 +1727,14 @@ describe('getSignatureCollectionProvider() — production deployment-eligibility
         { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
       ])
 
-      // The final signature's own bookkeeping upsert is not itself an
-      // economic action — it is allowed to persist. Only what follows
-      // (combine/broadcast/status-claim) must be refused.
+      // #235 R7G-B2A — a signature is validated by its rail's provider BEFORE it
+      // is persisted (LOCAL_SIGNATURE_VALIDATION_V1), so an ineligible provider
+      // now refuses even the bookkeeping upsert — stricter than before, when
+      // only what follows (combine/broadcast/status-claim) was refused.
       await expect(escrowService.submitTransactionSignature('escrow-ineligible-4', 'seller-1', 'seller-signed')).rejects.toThrow(
         /not economically eligible in production/
       )
-      expect(mockTxSignatureUpsert).toHaveBeenCalled()
+      expect(mockTxSignatureUpsert).not.toHaveBeenCalled()
 
       // No economic side effect, and no fallback to any other provider's
       // finalize method or to a plain SettlementProvider.

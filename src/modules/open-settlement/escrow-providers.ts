@@ -321,6 +321,10 @@ export interface SignatureCollectionProvider {
   // reason they can't (see each one's own buildUnsignedSplit() override).
   buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
   finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
+  // #235 R7G-B2A — LOCAL_SIGNATURE_VALIDATION_V1: throws unless the submitted
+  // copy carries a valid signature by `signerPubkeyHex` over the stored round.
+  // A provider without it cannot accept signatures (escrow-pending-tx.ts).
+  validatePartialSignature?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64: string, signerPubkeyHex: string): void
 }
 export const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
   MULTISIG: multisigProvider,

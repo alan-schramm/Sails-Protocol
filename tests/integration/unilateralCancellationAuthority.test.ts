@@ -65,9 +65,11 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
         WHERE table_schema = 'public' AND column_name IN ('tradeId', 'escrowId', 'interactionId', 'disputeId')
           AND table_name NOT IN ('trades', 'escrows', 'disputes', 'escrow_participant_keys')`
       await prisma.$transaction(async (tx) => {
-        // The arbiter key commitment is immutable by trigger; test-owned rows only, re-enabled in the same transaction.
+        // The key commitments are immutable by trigger (#235 R7G-B2A); test-owned rows only, re-enabled in the same transaction.
         await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys DISABLE TRIGGER escrow_participant_keys_arbiter_immutability_guard')
+        await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys DISABLE TRIGGER escrow_participant_keys_script_authority_guard')
         await tx.$executeRaw`DELETE FROM escrow_participant_keys WHERE "escrowId" = ANY(${escrowIds})`
+        await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys ENABLE TRIGGER escrow_participant_keys_script_authority_guard')
         await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys ENABLE TRIGGER escrow_participant_keys_arbiter_immutability_guard')
       })
       for (let pass = 0; pass < 4; pass++) {

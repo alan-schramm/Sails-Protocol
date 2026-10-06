@@ -67,6 +67,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
     buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
+    // #235 R7G-B2A - signature submission now validates locally first; the real cryptographic check is proven in tests/integration/multisigScriptAuthority.test.ts.
+    validatePartialSignature: jest.fn(),
   },
   identifyFeeOutput: jest.fn(),
   networkFor: jest.fn(),
@@ -130,7 +132,11 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
     },
-    escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
+    escrowParticipantKey: {
+      findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
+      // #235 R7G-B2A - submitTransactionSignature() looks up the signer's key (the provider stand-in validates).
+      findUnique: async () => ({ pubkey: '02' + '11'.repeat(32) }),
+    },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     payoutAddress: { findUnique: (...args: unknown[]) => mockPayoutAddressFindUnique(...args) },
     escrowPendingTransaction: {

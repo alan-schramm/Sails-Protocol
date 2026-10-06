@@ -552,6 +552,21 @@ export class EscrowService {
       const fresh = await tx.escrow.findUnique({ where: { id: escrowId } })
       if (!fresh) throw new NotFoundError('Escrow', escrowId)
 
+      // #235 R7G-B2A — SCRIPT_AUTHORITY_IMMUTABILITY_V1: once the funding
+      // address exists, the keys that derived it are its authority. The same
+      // key again is a no-op; any other key is refused (the database refuses it
+      // too: escrow_participant_keys_script_authority_guard).
+      if (fresh.multisigAddr) {
+        const committed = await tx.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId, role } } })
+        const sameKey = committed && Buffer.from(committed.pubkey, 'hex').equals(Buffer.from(pubkey, 'hex'))
+          && (committed.capabilityProfile ?? null) === (capabilityProfile ?? null)
+        if (!sameKey) {
+          throw new EscrowError(`Escrow ${escrowId}'s funding address is already derived from its participant keys — the ${role} key can no longer change`)
+        }
+        const keys = await tx.escrowParticipantKey.findMany({ where: { escrowId } })
+        return { escrow: fresh, buyerKeySubmitted: keys.some((k) => k.role === 'buyer'), sellerKeySubmitted: keys.some((k) => k.role === 'seller') }
+      }
+
       await tx.escrowParticipantKey.upsert({
         where: { escrowId_role: { escrowId, role } },
         update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
@@ -681,8 +696,14 @@ export class EscrowService {
       // policy-aware escrow (MULTISIG). Purely observational, per
       // Escrow.fundedAmount's own schema comment — never persisted for a
       // legacy escrow or a provider that doesn't report it.
+      // #235 R7G-B2A — a persisted funding address is never re-pointed: a lock
+      // that reports a different address fails closed (and the database
+      // refuses the write: escrows_multisig_addr_write_once_guard).
+      if (escrow.multisigAddr && result.address !== escrow.multisigAddr) {
+        throw new EscrowError(`Escrow ${escrowId} was locked at ${result.address}, not at its persisted funding address ${escrow.multisigAddr} — refusing to change it`)
+      }
       const updated = await this.repo.updateLockResult(escrowId, {
-        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: result.address, lockedAt: now, expiresAt,
+        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
         ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
       })
 

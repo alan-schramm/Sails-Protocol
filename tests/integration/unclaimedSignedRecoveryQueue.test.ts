@@ -126,7 +126,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     jest.isolateModules(() => {
       require('../../src/common/events/handlers').registerEventHandlers()
       const provider = require('../../src/modules/open-settlement/multisig.provider').multisigProvider
-      jest.spyOn(provider, 'buildFinalizedTransaction').mockImplementation(((tradeId: string) => ({ getId: () => txidOf(tradeId), toHex: () => '00' })) as any)
+      jest.spyOn(provider, 'buildFinalizedTransaction').mockImplementation(((escrow: { tradeId: string }) => ({ getId: () => txidOf(escrow.tradeId), toHex: () => '00' })) as any) // #235 R7G-B2A: takes the escrow (its funding surface is checked)
       const recon = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
       node = {
         pass0: async () => { const r = newReport(); await recon.reconcileUnclaimedFullySignedPending(r); return r },

@@ -12,7 +12,10 @@
 //
 // "Restart" means an independent module graph with its own PrismaClient (jest.isolateModules), not an OS crash.
 import { PrismaClient } from '@prisma/client'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
+import * as bitcoin from 'bitcoinjs-lib'
+import * as ecc from '@bitcoinerlab/secp256k1'
+import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
@@ -60,6 +63,33 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
 
   const newUser = () => prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
 
+  // #235 R7G-B2A — a submitted signature is verified against its round and the signer's frozen key before it
+  // is stored, so the rounds here are real PSBTs over a real 2-of-3 funding surface and the buyer signs for real.
+  const ECPair = ECPairFactory(ecc)
+  const keyOf = (label: string) => ECPair.fromPrivateKey(createHash('sha256').update(`r244-${label}`).digest())
+  const buyerKey = keyOf('buyer'), sellerKey = keyOf('seller'), arbiterKey = keyOf('arbiter')
+  const network = () => {
+    const { config } = require('../../src/config')
+    return require('../../src/modules/open-settlement/multisig.provider').networkFor(config.multisig.network) as bitcoin.Network
+  }
+  const fundingSurface = () => bitcoin.payments.p2wsh({
+    redeem: bitcoin.payments.p2ms({ m: 2, pubkeys: [buyerKey, sellerKey, arbiterKey].map((k) => Buffer.from(k.publicKey)).sort(Buffer.compare), network: network() }),
+    network: network(),
+  })
+  /** A real unsigned round spending a (fixture) outpoint of the funding surface. */
+  const round = (to: string) => {
+    const fs = fundingSurface()
+    const psbt = new bitcoin.Psbt({ network: network() })
+    psbt.addInput({ hash: randomBytes(32).toString('hex'), index: 0, witnessUtxo: { script: fs.output!, value: 100_000n }, witnessScript: fs.redeem!.output! })
+    psbt.addOutput({ address: bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keyOf(to).publicKey), network: network() }).address!, value: 99_000n })
+    return psbt.toBase64()
+  }
+  const buyerSigns = (unsignedPsbtBase64: string) => {
+    const copy = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network: network() })
+    copy.signInput(0, buyerKey)
+    return copy.toBase64()
+  }
+
   /** A MULTISIG escrow with a RESOLVED dispute and a zero-signature pending round older than the cleanup margin. */
   async function fixture(requiredSigners: 'both' | 'buyer' = 'both') {
     const [buyer, seller, arbiter] = await Promise.all([newUser(), newUser(), newUser()])
@@ -69,14 +99,19 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const trade = await prisma.trade.create({
       data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
     })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED', multisigAddr: fundingSurface().address! } })
+    await prisma.escrowParticipantKey.createMany({ data: [
+      { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: Buffer.from(buyerKey.publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: Buffer.from(sellerKey.publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'arbiter', participantId: arbiter.id, pubkey: Buffer.from(arbiterKey.publicKey).toString('hex') },
+    ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
     })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
-        escrowId: escrow.id, kind: 'release', toAddress: 'bc1qtest', unsignedPsbtBase64: 'stub',
+        escrowId: escrow.id, kind: 'release', toAddress: 'bc1qtest', unsignedPsbtBase64: round('release'),
         requiredSigners: requiredSigners === 'both' ? [buyer.id, seller.id] : [buyer.id], triggeredBy: arbiter.id,
         // The ruling's round (the only kind this cleanup ever meets): it carries its dispute's provenance.
         // #239D refuses cooperative signatures once a dispute exists, so a provenance-less round here would
@@ -149,7 +184,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const { escrow, pending, buyer } = await fixture()
     const release = await holdEscrowLock(escrow.id)
 
-    const signer = submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed')
+    const signer = submitTransactionSignature(escrow.id, buyer.id, buyerSigns(pending.unsignedPsbtBase64))
     await untilWaiting(1) // signer queued first
     const cleaner = cleanup(pending.id, escrow.id)
     await untilWaiting(2) // cleanup took its snapshot, queued second
@@ -169,7 +204,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
 
     const cleaner = cleanup(pending.id, escrow.id)
     await untilWaiting(1) // cleanup queued first
-    const signer = submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed').then(() => 'accepted', (err: Error) => err.message)
+    const signer = submitTransactionSignature(escrow.id, buyer.id, buyerSigns(pending.unsignedPsbtBase64)).then(() => 'accepted', (err: Error) => err.message)
     await untilWaiting(2) // signer read the (still existing) round, queued second
     await release()
 
@@ -191,11 +226,11 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const creator = prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrow.id})::bigint)`
       return tx.escrowPendingTransaction.create({
-        data: { escrowId: escrow.id, kind: 'refund', toAddress: 'bc1qrefund', unsignedPsbtBase64: 'stub-b', requiredSigners: [buyer.id, seller.id], triggeredBy: seller.id },
+        data: { escrowId: escrow.id, kind: 'refund', toAddress: 'bc1qrefund', unsignedPsbtBase64: round('refund'), requiredSigners: [buyer.id, seller.id], triggeredBy: seller.id },
       })
     }, { timeout: 30_000 })
     await untilWaiting(2)
-    const signer = submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed').then(() => 'accepted', (err: Error) => err.message)
+    const signer = submitTransactionSignature(escrow.id, buyer.id, buyerSigns(pending.unsignedPsbtBase64)).then(() => 'accepted', (err: Error) => err.message)
     await untilWaiting(3) // the signer read round A
     await release()
     expect(await cleaner).toMatchObject({ outcome: 'DELETED' })
@@ -235,7 +270,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   it('T6 restart: an independent process observes only durable truth for both winners and decides the same way', async () => {
     pg.requirePostgres('restart')
     const signed = await fixture()
-    await submitTransactionSignature(signed.escrow.id, signed.buyer.id, 'buyer-signed')
+    await submitTransactionSignature(signed.escrow.id, signed.buyer.id, buyerSigns(signed.pending.unsignedPsbtBase64))
     const unsigned = await fixture()
     expect(await deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id)).toBe('DELETED')
 
@@ -251,7 +286,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
 
   it('T7 the escrow lock is released before the first post-signature gate (and so before any provider/economic step)', async () => {
     pg.requirePostgres('lock scope')
-    const { escrow, buyer } = await fixture('buyer') // the buyer's signature completes the round
+    const { escrow, pending, buyer } = await fixture('buyer') // the buyer's signature completes the round
     const authority = require('../../src/modules/open-settlement/economic-disposition-authority')
     let lockFreeAtFirstGate: boolean | undefined
     jest.spyOn(authority, 'authorizeDisputedPendingExecution').mockImplementation(async () => {
@@ -261,7 +296,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
       throw new Error('stop before the economic path (test)')
     })
 
-    await expect(submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed')).rejects.toThrow(/stop before the economic path/)
+    await expect(submitTransactionSignature(escrow.id, buyer.id, buyerSigns(pending.unsignedPsbtBase64))).rejects.toThrow(/stop before the economic path/)
     expect(lockFreeAtFirstGate).toBe(true)
   })
 })

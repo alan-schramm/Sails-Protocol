@@ -64,7 +64,16 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
 
   afterEach(() => {
     jest.restoreAllMocks()
+    delete (lightningHodlProvider as any).validatePartialSignature
+    delete (safeGuardEvmProvider as any).validatePartialSignature
   })
+
+  // #235 R7G-B2A — submitTransactionSignature() now verifies a signature through its rail's provider before
+  // storing it. The REAL LIGHTNING_HODL/SAFE_GUARD_EVM providers have no validator, so production refuses their
+  // signatures (proven by the last test below). This suite's subject is the dispute provenance AROUND the
+  // provider — it already stands in for their finalization — so it stands in for their validation the same way.
+  const standInValidator = (provider: object) =>
+    Object.defineProperty(provider, 'validatePartialSignature', { value: jest.fn(), configurable: true, writable: true })
 
   afterAll(async () => {
     if (dbAvailable) {
@@ -122,6 +131,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
       await prisma.durableEventRecord.deleteMany({ where: { correlationId: { in: createdTradeIds } } })
       await prisma.trade.updateMany({ where: { id: { in: createdTradeIds } }, data: { escrowId: null } })
     }
+    if (createdEscrowIds.length) await prisma.escrowParticipantKey.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
     if (createdEscrowIds.length) await prisma.escrow.deleteMany({ where: { id: { in: createdEscrowIds } } })
     if (createdTradeIds.length) await prisma.trade.deleteMany({ where: { id: { in: createdTradeIds } } })
     if (createdUserIds.length) {
@@ -150,6 +160,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     createdTradeIds.push(trade.id)
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'DISPUTED', lockedAmount: '0.001', asset: 'BTC' } })
     createdEscrowIds.push(escrow.id)
+    // The signer's participant key: a signature is checked against it (#235 R7G-B2A).
+    await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: '02' + '11'.repeat(32) } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     return { trade, escrow, buyer, seller }
   }
@@ -160,9 +172,10 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
   // needing the full initiateRelease()/initiateRefund() authorization/PSBT-building machinery, which
   // tests/disputeFlow.test.ts and tests/escrowPendingReleaseDestinationBinding.test.ts already cover.
   async function makeDisputedPending(escrowId: string, kind: 'release' | 'refund', disputeId: string, arbiterId: string, ruling: 'RELEASE' | 'REFUND') {
+    const { buyerId } = await prisma.trade.findFirstOrThrow({ where: { escrowId }, select: { buyerId: true } })
     return prisma.escrowPendingTransaction.create({
       data: {
-        escrowId, kind, toAddress: 'dest-address', requiredSigners: ['buyer-signer'], triggeredBy: arbiterId,
+        escrowId, kind, toAddress: 'dest-address', requiredSigners: [buyerId], triggeredBy: arbiterId,
         unsignedPsbtBase64: 'unsigned-bundle-b64',
         disputeId, rulingAppealRound: 0, rulingArbiterId: arbiterId, rulingOutcome: ruling,
       },
@@ -172,6 +185,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
   async function spyFinalize(provider: typeof lightningHodlProvider | typeof safeGuardEvmProvider, kind: 'release' | 'refund', txId: string) {
     const method = kind === 'release' ? 'finalizeRelease' : 'finalizeRefund'
     jest.spyOn(provider as any, method).mockResolvedValue({ txId })
+    standInValidator(provider)
   }
 
   // ─── 1-4: PROVENANCE for both rails, both operations (before any appeal) ───────────────────────────
@@ -193,7 +207,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     const fakeTxId = `0x${randomUUID().replace(/-/g, '')}`
     await spyFinalize(provider, kind, fakeTxId)
 
-    const submitted = await escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')
+    const submitted = await escrowService.submitTransactionSignature(escrow.id, buyer.id, 'signed-bundle')
     expect(submitted.complete).toBe(true)
 
     const eventName = kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
@@ -241,7 +255,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
             const isolatedProvider = require('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
             const isolatedPrisma = require('../../src/common/database').prisma
             jest.spyOn(isolatedProvider, 'finalizeRelease').mockResolvedValue({ txId: fakeTxId })
-            await isolatedEscrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')
+            standInValidator(isolatedProvider)
+            await isolatedEscrowService.submitTransactionSignature(escrow.id, buyer.id, 'signed-bundle')
             const durable = await isolatedPrisma.durableEventRecord.findFirst({ where: { correlationId: trade.id, eventName: 'settlement.escrow.released' } })
             publishedEventId = durable.id
             resolve()
@@ -291,7 +306,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
             const isolatedProvider = require('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
             const isolatedPrisma = require('../../src/common/database').prisma
             jest.spyOn(isolatedProvider, 'finalizeRefund').mockResolvedValue({ txId: fakeTxId })
-            await isolatedEscrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')
+            standInValidator(isolatedProvider)
+            await isolatedEscrowService.submitTransactionSignature(escrow.id, buyer.id, 'signed-bundle')
             const durable = await isolatedPrisma.durableEventRecord.findFirst({ where: { correlationId: trade.id, eventName: 'settlement.escrow.refunded' } })
             publishedEventId = durable.id
             resolve()
@@ -323,12 +339,12 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING' } })
     // No disputeId/rulingOutcome — the exact shape a cooperative seller-triggered release produces.
     await prisma.escrowPendingTransaction.create({
-      data: { escrowId: escrow.id, kind: 'release', toAddress: 'dest-address', requiredSigners: ['buyer-signer'], triggeredBy: seller.id, unsignedPsbtBase64: 'unsigned-bundle-b64' },
+      data: { escrowId: escrow.id, kind: 'release', toAddress: 'dest-address', requiredSigners: [buyer.id], triggeredBy: seller.id, unsignedPsbtBase64: 'unsigned-bundle-b64' },
     })
     const fakeTxId = `0x${randomUUID().replace(/-/g, '')}`
     await spyFinalize(lightningHodlProvider, 'release', fakeTxId)
 
-    await escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')
+    await escrowService.submitTransactionSignature(escrow.id, buyer.id, 'signed-bundle')
     const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: trade.id, eventName: 'settlement.escrow.released' } }))!
     expect((durable.payload as any).disputeId).toBeUndefined()
     const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } }))!
@@ -337,5 +353,18 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     const [buyerRow, sellerRow] = await Promise.all([userOf(buyer.id), userOf(seller.id)])
     expect(buyerRow!.reputationScore).toBe(2)
     expect(sellerRow!.reputationScore).toBe(2) // both positive - a real cooperative completion, not a dispute
+  })
+
+  it.each(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const)('#235 R7G-B2A — production %s (no signature validator) refuses a signature and stores nothing', async (type) => {
+    requirePostgres(`${type} fail closed`)
+    const arbiterId = await makeArbiter()
+    const { trade, escrow, buyer } = await makeTradeEscrow(type)
+    const dispute = await prisma.dispute.create({
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'test', arbiterId, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
+    })
+    const pending = await makeDisputedPending(escrow.id, 'release', dispute.id, arbiterId, 'RELEASE')
+    await expect(escrowService.submitTransactionSignature(escrow.id, buyer.id, 'signed-bundle')).rejects.toThrow(/has no local signature validation/)
+    expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: pending.id } })).toBe(0)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('DISPUTED')
   })
 })

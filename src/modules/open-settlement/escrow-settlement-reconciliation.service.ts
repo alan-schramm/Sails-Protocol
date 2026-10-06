@@ -365,7 +365,7 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
       const input: MultisigEscrowInput = {
         tradeId: trade.id, lockedAmount: escrow.lockedAmount.toString(),
         buyerId: trade.buyerId, sellerId: trade.sellerId,
-        buyerPubkey, sellerPubkey, arbiterPubkey,
+        buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
         status: escrow.status,
       }
@@ -524,7 +524,7 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   const input: MultisigEscrowInput = {
     tradeId: trade.id, lockedAmount: escrow.lockedAmount.toString(),
     buyerId: trade.buyerId, sellerId: trade.sellerId,
-    buyerPubkey, sellerPubkey, arbiterPubkey,
+    buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
     status: escrow.status,
   }
@@ -911,7 +911,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
               {
                 tradeId: trade.id, lockedAmount: escrow.lockedAmount.toString(),
                 buyerId: trade.buyerId, sellerId: trade.sellerId,
-                buyerPubkey, sellerPubkey, arbiterPubkey,
+                buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
                 txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
                 status: escrow.status,
               },
