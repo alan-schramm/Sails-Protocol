@@ -155,9 +155,16 @@ export async function ensureAttempt(
           `WDK_USDT_EVM ${operationType} for escrow ${escrowId} was already submitted (tx ${latest.txHash}) and is still pending confirmation on-chain — refusing to submit a second transfer for the same logical operation. Retry later; this same check will re-query the transaction's receipt automatically.`
         )
       }
-      if (receipt.status === 1) {
+      const status = receiptStatusOf(receipt)
+      if (status === 1) {
         await wdkTransferAttemptRepository.updateStatus(latest.id, 'CONFIRMED', undefined, ['SUBMITTED'])
         return { action: 'RESUME_CONFIRMED', txHash: latest.txHash }
+      }
+      if (status === null) {
+        // #235 R7G-F6B — NF2: a receipt without status 1 or 0 proves nothing; never a new generation.
+        throw new EscrowError(
+          `WDK_USDT_EVM ${operationType} for escrow ${escrowId}: the receipt of ${latest.txHash} has no recognizable status (${JSON.stringify((receipt as { status?: unknown }).status)}) — unresolved, refusing to submit a second transfer.`
+        )
       }
       // status === 0 — reverted on-chain. The prior attempt definitively
       // did not deliver funds (a receipt with a real, queried status is
@@ -218,6 +225,11 @@ export async function ensureAttempt(
       return { action: 'PROCEED', attemptId: created.id }
     }
 
+    case 'SIGNED':
+    case 'NONCE_CONSUMED_ELSEWHERE':
+      // #235 R7G-F6B — signed-raw states belong to the LOCK authority (wdk-lock-authority.ts) only.
+      throw new EscrowError(`WdkTransferAttempt ${latest.id} is ${latest.status}, a signed-transaction state this transfer path never resumes`)
+
     default: {
       const exhaustive: never = latest.status
       throw new EscrowError(`WdkTransferAttempt ${latest.id} has an unrecognized status: ${String(exhaustive)}`)
@@ -245,6 +257,16 @@ export async function markSubmissionAttempted(attemptId: string): Promise<void> 
 export type ReceiptOutcome = 'CONFIRMED' | 'REVERTED' | 'PENDING'
 
 /**
+ * #235 R7G-F6B — NF2. A receipt proves success only with status 1 and a revert only with status 0
+ * (ethers TransactionReceipt.status: number | null). null, undefined, any other number or a malformed
+ * receipt is unresolved: never REVERTED, never a reason to start another transfer.
+ */
+export function receiptStatusOf(receipt: unknown): 1 | 0 | null {
+  const status = (receipt as { status?: unknown } | null | undefined)?.status
+  return status === 1 ? 1 : status === 0 ? 0 : null
+}
+
+/**
  * Bounded poll for a transaction's receipt after a fresh broadcast — NOT
  * a background worker, NOT unbounded: a plain in-request loop, same
  * category as bounded-rpc.ts's own withBoundedRetry() for reads, applied
@@ -265,7 +287,9 @@ export async function waitForReceiptOutcome(account: ReceiptCapableAccount, hash
   for (let attempt = 0; attempt < attempts; attempt++) {
     const receipt = await account.getTransactionReceipt(hash)
     if (receipt) {
-      return receipt.status === 1 ? 'CONFIRMED' : 'REVERTED'
+      // #235 R7G-F6B — NF2: only status 1 / 0 decide; any other shape stays PENDING (unresolved).
+      const status = receiptStatusOf(receipt)
+      if (status !== null) return status === 1 ? 'CONFIRMED' : 'REVERTED'
     }
     if (attempt < attempts - 1) {
       await delay(intervalMs)

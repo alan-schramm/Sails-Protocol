@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import { lockWdkEscrow, assertWdkFundingProven, wdkLockMayHoldFunds } from './wdk-lock-authority'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
@@ -640,6 +641,10 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
     }
 
+    // #235 R7G-F6B — a WDK LOCK is a signed, persisted transaction; the escrow becomes FUNDS_LOCKED only
+    // when that transaction is final (WDK_TRANSFER_ATTEMPT_TRUTH_V1), never by an up-front claim.
+    if (escrow.type === 'WDK_USDT_EVM') return lockWdkEscrow(escrowId, triggeredBy)
+
     // ─── Robustness-audit fix (2026-07-20): claim the transition
     // atomically BEFORE calling the external provider, not after. The
     // old code read `escrow.status`, checked it in memory
@@ -678,9 +683,7 @@ export class EscrowService {
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await loadParticipantPubkeys(escrowId)
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
-      const result = await provider.lockFunds({
-        ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey,
-      } as unknown as EscrowRecord)
+      const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
@@ -752,6 +755,8 @@ export class EscrowService {
     // exists for: a buyer claiming they've sent real-world fiat based on
     // funding evidence a background reorg sweep has already invalidated.
     await assertFundingNotUncertain(escrowId, escrow.type)
+    // #235 R7G-F6B — PAYMENT_CLAIM_REQUIRES_PROVEN_FUNDING_V1 (early, cheap; re-checked under the lock below).
+    if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(prisma, escrowId)
 
     // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
     const trade = await tradeRepository.findById(escrow.tradeId)
@@ -779,6 +784,7 @@ export class EscrowService {
     // header comment on withEscrowFundingLock() for why this specific
     // mechanism closes the race.
     const claimedCount = await withEscrowFundingLock(escrowId, async (tx) => {
+      if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(tx, escrowId)
       const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
       if (uncertain) {
         throw new EscrowError(
@@ -820,6 +826,7 @@ export class EscrowService {
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
+    assertWdkOutboundAvailable(escrow, 'release')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
     // RFC-014: the real capability check. Lives here, not in
@@ -883,7 +890,7 @@ export class EscrowService {
     try {
       const provider = getSettlementProvider(escrow.type)
       result = await provider.releaseFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
+        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
         resolvedToAddress
       )
     } catch (err) {
@@ -995,6 +1002,13 @@ export class EscrowService {
   async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
+    // #235 R7G-F6B — DF2: a refund of a never-locked escrow must not become a second economic operation
+    // while a LOCK transaction may hold or move its funds. Checked before the outbound gate below so it
+    // stands on its own when outbound authority exists (F6C).
+    if (escrow.type === 'WDK_USDT_EVM' && escrow.status === 'CREATED' && await wdkLockMayHoldFunds(escrowId)) {
+      throw new EscrowError(`Escrow ${escrowId} is CREATED but has a WDK LOCK transaction that may hold or move funds — refusing a refund until that LOCK is resolved`)
+    }
+    assertWdkOutboundAvailable(escrow, 'refund')
 
     // Missão 06.9 (RFC-014 wiring completion) — same check releaseFunds()
     // above already had; refund moves the exact same class of real,
@@ -1010,7 +1024,7 @@ export class EscrowService {
     try {
       const provider = getSettlementProvider(escrow.type)
       result = await provider.refundFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
+        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy })
       )
     } catch (err) {
       await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
@@ -1054,6 +1068,7 @@ export class EscrowService {
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'SPLIT')
+    assertWdkOutboundAvailable(escrow, 'split')
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')
     const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
     const resolvedSellerAddress = await resolvePayoutAddress(sellerAddress, trade.sellerId, escrow.asset)
@@ -1073,7 +1088,7 @@ export class EscrowService {
     let result: { txIds: string[] }
     try {
       result = await provider.splitFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
+        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
         resolvedBuyerAddress,
         resolvedSellerAddress,
         buyerBps
@@ -1375,3 +1390,36 @@ export class EscrowService {
 }
 
 export const escrowService = new EscrowService()
+
+/**
+ * #235 R7G-F6B — NF1: the record a SettlementProvider receives. lockedAmount is the exact decimal string of
+ * the Prisma Decimal (toFixed(): never exponent notation, never a JS number); every other field is the
+ * escrow's own, plus the caller's extra fields.
+ */
+function providerEscrow(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, extra: Record<string, unknown>): EscrowRecord {
+  return { ...escrow, lockedAmount: exactDecimalString(escrow.lockedAmount), ...extra } as EscrowRecord
+}
+
+function exactDecimalString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value !== null && typeof value === 'object' && typeof (value as { toFixed?: unknown }).toFixed === 'function') {
+    return (value as { toFixed(): string }).toFixed()
+  }
+  // Never through a JS number (RFC-009). Absent stays absent, as the provider received it before.
+  if (value === undefined || value === null) return value as unknown as string
+  throw new EscrowError(`escrow lockedAmount must be an exact decimal, got ${typeof value}`)
+}
+
+/**
+ * #235 R7G-F6B — WDK outbound (release / refund / split, cooperative, arbitrated, swept or auto-settled) is
+ * unavailable until its outbound transaction authority exists (F6C): refused before any claim or provider
+ * call, distinctly from an economic failure.
+ */
+function assertWdkOutboundAvailable(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split'): void {
+  if (escrow.type === 'WDK_USDT_EVM') {
+    throw new EscrowError(
+      `WDK_USDT_EVM ${operation} for escrow ${escrow.id} is unavailable: WDK outbound settlement has no transaction authority yet (#235 F6C). Nothing was executed.`,
+      'UNAVAILABLE'
+    )
+  }
+}

@@ -190,6 +190,9 @@ jest.mock('../src/common/database', () => ({
     },
     // Issue #240 - reconcileSignatureCollectionTerminalTransfer()'s own durable evidence lookup.
     signatureCollectionFinalizationAttempt: { findUnique: (...args: unknown[]) => mockFinalizationAttemptFindUnique(...args) },
+    // #235 R7G-F6B - the LOCK pass: no signed or legacy LOCK attempts and no halted lane by default.
+    wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([]) },
+    wdkNonceLane: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }))
 
@@ -391,7 +394,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockClaimResultRecoveryBatch.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [] })
   })
 
   it('a rail with no automated recovery primitive at all (e.g. a legacy/unregistered type) fails closed, flagged for manual review, no chain calls attempted', async () => {

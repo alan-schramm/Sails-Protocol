@@ -19,6 +19,26 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-F6B — a WDK LOCK is one signed transaction, persisted before it is broadcast; the escrow is
+  FUNDS_LOCKED only once that transaction is final.** WDK `transfer()` let the RPC choose the treasury
+  nonce and exposed the hash only after broadcast, so a lost response, a crash or a retry could not tell
+  whether funds had moved; the escrow was claimed FUNDS_LOCKED up front and reverted to CREATED on any
+  error, and any receipt status other than 1 counted as a revert (a malformed receipt could start a second
+  treasury transfer). Now the LOCK is: nonce allocated from a PostgreSQL lane per (chain, treasury), the
+  transaction built with every field explicit (pinned `WDK_CHAIN_ID`), signed locally, decoded and checked,
+  and persisted with its hash in the same transaction — then broadcast with ethers (pinned 6.17.0; WDK has
+  no safe raw-broadcast primitive). Every broadcast and rebroadcast sends those exact bytes after
+  re-verifying them; nothing ambiguous ever produces a new transaction. Only receipt status 0x1 / 0x0
+  decide; finality is `WDK_FINALITY_CONFIRMATIONS` (no default: unset means never final). A final success
+  projects FUNDS_LOCKED with its transition in one transaction; a final revert allows a new LOCK; a nonce
+  consumed by a foreign transaction is NONCE_CONSUMED_ELSEWHERE, and foreign treasury activity halts the
+  lane (operator review). Reconciliation advances signed LOCKs from durable state on any node. A committed
+  signed LOCK blocks cancellation and refund-from-CREATED; WDK `markPaymentSent` requires the final LOCK;
+  WDK release/refund/split are refused until outbound authority exists (F6C). Prisma `Decimal` amounts now
+  reach providers as exact decimal strings (NF1); amounts finer than USDT's 6 decimals are refused.
+  Migration `20261008120000_wdk_signed_lock_authority`; run `npm run wdk:lock-preflight` (read-only)
+  against production first.
+
 - **#235 R7G-F6A-1 — every WDK escrow has its own account, allocated and frozen by the database.** A
   WDK_USDT_EVM escrow's account was derived on every use as `m/44'/60'/0'/0/<sha256(tradeId) % (2^31-1)>`.
   Distinct trades map to the same index (a real pair was found after ~50k trade ids; on a local EVM the

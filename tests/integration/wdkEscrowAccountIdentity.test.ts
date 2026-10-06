@@ -255,13 +255,13 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
 
   // ── L / M / O — every operation, every node, derives the persisted identity ────────────────────
 
-  it('L/M23: lock, release, refund, split and reconciliation derive the same persisted path on two nodes', async () => {
+  it('L/M23: the LOCK recipient, release, refund, split and reconciliation derive the same persisted path on two nodes', async () => {
     pg.requirePostgres('L')
     const f = await trade('l')
     const e = input(await create(A, f))
     const B = node()
     const eB = input(await row(e.id, B))
-    await A.wdk.lockFunds(e)
+    expect(await A.wdk.escrowAddress(e)).toBe(`addr:${e.wdkAccountPath}`) // the LOCK recipient (#235 R7G-F6B)
     await B.wdk.releaseFunds(eB, '0xbuyer')
     await A.wdk.refundFunds(e)
     await B.wdk.splitFunds(eB, '0xbuyer', '0xseller', 2500)
@@ -269,8 +269,7 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
     await A.wdk.reconcileTerminalTransfer(e, 'RELEASE', '0xbuyer2', '5')
     const escrowPaths = derivedPaths.filter((p) => p !== "0'/0/0")
     expect(new Set(escrowPaths)).toEqual(new Set([e.wdkAccountPath]))
-    expect(mockTransfer.mock.calls.map((c) => c[0])).toEqual(["0'/0/0", e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath])
-    expect(mockTransfer.mock.calls[0][1].recipient).toBe(`addr:${e.wdkAccountPath}`)
+    expect(mockTransfer.mock.calls.map((c) => c[0])).toEqual([e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath, e.wdkAccountPath])
     expect(mockReceipt.mock.calls[mockReceipt.mock.calls.length - 1][0]).toBe(e.wdkAccountPath)
   })
 
@@ -281,9 +280,7 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
     const [f1, f2] = [await trade('m14a', COLLIDING[0]), await trade('m14b', COLLIDING[1])]
     const [e1, e2] = [input(await create(A, f1)), input(await create(node(), f2))]
     expect(e1.wdkAccountPath).not.toBe(e2.wdkAccountPath)
-    await A.wdk.lockFunds(e1)
-    await A.wdk.lockFunds(e2)
-    expect(mockTransfer.mock.calls.map((c) => c[1].recipient)).toEqual([`addr:${e1.wdkAccountPath}`, `addr:${e2.wdkAccountPath}`])
+    expect([await A.wdk.escrowAddress(e1), await A.wdk.escrowAddress(e2)]).toEqual([`addr:${e1.wdkAccountPath}`, `addr:${e2.wdkAccountPath}`])
     expect(derivedPaths).not.toContain(`0'/0/${escrowIndexFor(COLLIDING[0])}`)
   })
 
@@ -293,7 +290,7 @@ describe('#235 R7G-F6A-1 — WDK escrow account identity (real PostgreSQL)', () 
     const created = await create(A, f)
     await prisma.escrow.update({ where: { id: created.id }, data: { multisigAddr: '0xnot-this-account' } })
     const e = input(await row(created.id))
-    for (const op of [() => A.wdk.lockFunds(e), () => A.wdk.releaseFunds(e, '0xbuyer'), () => A.wdk.refundFunds(e), () => A.wdk.splitFunds(e, '0xb', '0xs', 5000)]) {
+    for (const op of [() => A.wdk.escrowAddress(e), () => A.wdk.releaseFunds(e, '0xbuyer'), () => A.wdk.refundFunds(e), () => A.wdk.splitFunds(e, '0xb', '0xs', 5000)]) {
       await expect(op()).rejects.toThrow(/not its persisted address 0xnot-this-account/)
     }
     expect(mockTransfer).not.toHaveBeenCalled()

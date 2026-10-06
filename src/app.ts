@@ -30,6 +30,7 @@ import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
+import { wdkSettlementProvider } from './modules/open-settlement/wdk-settlement.provider'
 import { startSettlementRecoverySchedule, type SettlementRecoverySchedule } from './modules/open-settlement/settlement-recovery-schedule'
 import { startGuardedInterval, type GuardedInterval } from './common/guarded-interval'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
@@ -337,6 +338,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const pong = await redis.ping()
       if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`)
     })
+    // #235 R7G-F6B - WDK_CHAIN_ID_PINNING_V1: a configured WDK rail is ready only while its RPC serves the
+    // pinned chain (every WDK economic operation also re-checks it).
+    if (config.wdk.seedPhrase) await timed('wdk_chain', () => wdkSettlementProvider.verifyNetwork())
 
     const allOk = Object.values(checks).every((c) => c.ok)
     return reply.code(allOk ? 200 : 503).send({

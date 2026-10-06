@@ -44,8 +44,9 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome, decimalAmountsEqual } from './wdk-execution-truth'
+import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome, decimalAmountsEqual, receiptStatusOf } from './wdk-execution-truth'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { createWdkRpc, type WdkRpc } from './wdk-rpc'
 
 // Issue #251 - Day-0 restart convergence for a terminal WDK_USDT_EVM RELEASE/REFUND whose settlement
 // result was never durably persisted. 'MISMATCH' covers every fail-closed corruption/contradiction case
@@ -166,8 +167,48 @@ export class WdkSettlementProvider implements SettlementProvider {
     if (!config.wdk.usdtContract) {
       throw new EscrowError('WDK_USDT_EVM provider requires WDK_USDT_CONTRACT configured (.env.example) — no token address to transfer')
     }
-    this.wallet = new WalletManagerEvm(config.wdk.seedPhrase, { provider: config.wdk.rpcUrl })
+    this.wallet = new WalletManagerEvm(config.wdk.seedPhrase, { provider: config.wdk.rpcUrl, ...(config.wdk.chainId ? { chainId: config.wdk.chainId } : {}) })
     return this.wallet
+  }
+
+  private rpcClient: WdkRpc | null = null
+
+  /** #235 R7G-F6B — the JSON-RPC primitives WDK does not expose safely (wdk-rpc.ts), on the pinned chain. */
+  rpc(): WdkRpc {
+    if (this.rpcClient) return this.rpcClient
+    if (!config.wdk.chainId) {
+      throw new EscrowError('WDK_USDT_EVM requires WDK_CHAIN_ID: no WDK economic operation runs on an unpinned chain', 'UNAVAILABLE')
+    }
+    this.rpcClient = createWdkRpc(config.wdk.rpcUrl, config.wdk.chainId)
+    return this.rpcClient
+  }
+
+  /**
+   * #235 R7G-F6B — WDK_CHAIN_ID_PINNING_V1. The RPC must serve exactly the configured chain, checked before
+   * every economic operation (an endpoint behind a failover can change). Returns the pinned chain id.
+   */
+  async verifyNetwork(): Promise<number> {
+    const rpc = this.rpc()
+    const configured = config.wdk.chainId as number
+    const reported = await rpc.chainId()
+    if (reported !== BigInt(configured)) {
+      throw new EscrowError(`WDK RPC serves chain ${reported}, but WDK_CHAIN_ID is ${configured} — refusing every WDK economic operation`, 'UNAVAILABLE')
+    }
+    return configured
+  }
+
+  async treasuryAddress(): Promise<string> {
+    return (await this.treasuryAccount()).getAddress()
+  }
+
+  /** The escrow's own account address, from its persisted identity (WDK_ESCROW_ACCOUNT_STABILITY_V1). */
+  async escrowAddress(escrow: WdkEscrowAccountIdentity): Promise<string> {
+    return (await this.escrowAccount(escrow)).getAddress()
+  }
+
+  /** Signs locally with the treasury key; WDK's signTransaction() neither populates nor broadcasts. */
+  async signTreasuryTransaction(tx: Parameters<WalletAccountEvm['signTransaction']>[0]): Promise<string> {
+    return (await this.treasuryAccount()).signTransaction(tx)
   }
 
   private async treasuryAccount(): Promise<WalletAccountEvm> {
@@ -264,7 +305,12 @@ export class WdkSettlementProvider implements SettlementProvider {
         if (!receipt) {
           return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} is not yet confirmed on-chain — remains pending, no resubmission.` }
         }
-        if (receipt.status === 1) return { outcome: 'CONFIRMED', txHash: latest.txHash }
+        const status = receiptStatusOf(receipt)
+        if (status === 1) return { outcome: 'CONFIRMED', txHash: latest.txHash }
+        if (status === null) {
+          // #235 R7G-F6B — NF2: no recognizable status is unresolved, never a revert.
+          return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} has a receipt with no recognizable status (${JSON.stringify((receipt as { status?: unknown }).status)}) — unresolved, no resubmission.` }
+        }
         return { outcome: 'REVERTED', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} reverted on-chain — no funds were delivered by this attempt.` }
       }
 
@@ -288,6 +334,11 @@ export class WdkSettlementProvider implements SettlementProvider {
           reason: `WdkTransferAttempt ${latest.id} is ${latest.status} — no funds were ever delivered by this attempt; the escrow's terminal claim cannot be automatically corroborated from provider evidence.`,
         }
 
+      case 'SIGNED':
+      case 'NONCE_CONSUMED_ELSEWHERE':
+        // #235 R7G-F6B — signed-raw states exist only for LOCK, which this terminal reconciler never reads.
+        return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is ${latest.status}, a signed-transaction LOCK state, on a ${operationType} attempt.` }
+
       default: {
         const exhaustive: never = latest.status
         return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} has an unrecognized status: ${String(exhaustive)}` }
@@ -295,14 +346,11 @@ export class WdkSettlementProvider implements SettlementProvider {
     }
   }
 
+  // #235 R7G-F6B — a WDK LOCK is no longer a transfer() call (RPC-chosen nonce, hash known only after
+  // broadcast). It is signed, persisted and broadcast by wdk-lock-authority.ts, which escrow.service's
+  // lockFunds() uses for this rail; nothing else may lock WDK funds.
   async lockFunds(escrow: WdkEscrowInput): Promise<{ txId: string; address: string }> {
-    const treasury = await this.treasuryAccount()
-    const escrowAcct = await this.escrowAccount(escrow)
-    const escrowAddress = await escrowAcct.getAddress()
-    const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-
-    const txId = await this.executeTransfer(escrow.id, 'LOCK', treasury, escrowAddress, escrow.lockedAmount, amount)
-    return { txId, address: escrowAddress }
+    throw new EscrowError(`WDK_USDT_EVM LOCK for escrow ${escrow.id} is executed only by the signed-transaction LOCK authority (wdk-lock-authority.ts)`, 'UNAVAILABLE')
   }
 
   // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — the one
@@ -321,7 +369,7 @@ export class WdkSettlementProvider implements SettlementProvider {
   // abstraction).
   private async executeTransfer(
     escrowId: string,
-    operationType: 'LOCK' | 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
+    operationType: 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
     sourceAccount: WalletAccountEvm,
     destination: string,
     decimalAmount: string,
