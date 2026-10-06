@@ -47,6 +47,7 @@
 import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType, TradeStatus } from '../../common/types'
+import { lockTradeLifecycle } from './trade-lifecycle-lock'
 
 type TradeRow = NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>>
 type OfferRow = NonNullable<Awaited<ReturnType<typeof prisma.offer.findUnique>>>
@@ -274,6 +275,9 @@ class PrismaTradeRepository implements TradeRepository {
 
   async transitionManually(tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined): Promise<ManualTradeTransitionResult> {
     return prisma.$transaction(async (tx) => {
+      // #235 R7G-A — serialized against the creation of the trade's first escrow
+      // (trade-lifecycle-lock.ts), so the escrow read below is authoritative.
+      await lockTradeLifecycle(tx, tradeId)
       const escrow = await tx.escrow.findUnique({ where: { tradeId } })
       if (escrow) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrow.id})::bigint)`

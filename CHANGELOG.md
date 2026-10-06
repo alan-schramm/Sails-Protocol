@@ -19,6 +19,14 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-A — a cancelled trade takes no new escrow.** `createEscrow()` never checked the trade's
+  status, and a manual cancellation (#294) only serialized against an escrow that already existed, so a
+  CANCELLED trade could still get an escrow, including one created after the cancellation committed. A
+  trade now takes its first escrow only while PENDING or ACTIVE, and the cancellation and the escrow insert
+  take one trade-scoped PostgreSQL advisory lock before reading the trade: either the cancellation wins (no
+  escrow) or the escrow commits first and the cancellation then follows #294's rules. Existing rows are not
+  touched.
+
 - **#235 R7F-B (N3/N3b) — an escrow commits exactly its trade's economic intent.** `createEscrow()`
   took `asset` and `lockedAmount` from the caller unchecked, and for five legacy assets the caller also
   chose the rail — so a BTC 0.001 trade could get a USDT 500 escrow, or a SPARK trade lock BTC, USDT or
