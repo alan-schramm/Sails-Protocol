@@ -279,6 +279,17 @@ describe('#235 R7G-F6C — WDK outbound settlement authority (real PostgreSQL)',
     expect([await events(f, 'COMPLETED'), await durable(f, 'settlement.escrow.released'), (await legs(f)).length, (await fundings(f)).length]).toEqual([1, 1, 1, 1])
   })
 
+  it('M27/U: an amount above 2^53 base units moves exactly — the obligation is integer arithmetic, never floating point', async () => {
+    pg.requirePostgres('exact amount')
+    chain.fund(TREASURY, 10n ** 16n)
+    const f = await funded('big', '9007199254.740993') // 9007199254740993 base units = 2^53 + 1
+    await paymentPending(f)
+    await release(A, f)
+    expect((await legs(f)).map((l) => l.amount.toFixed())).toEqual(['9007199254.740993'])
+    await converge(f)
+    expect([(await escrowOf(f)).status, chain.balance(f.buyerPayout), chain.balance(f.account)]).toEqual(['COMPLETED', 9_007_199_254_740_993n, 0n])
+  })
+
   it('K1/T3: REFUND (FUNDS_LOCKED) returns exactly the principal to the treasury that funded the LOCK', async () => {
     pg.requirePostgres('refund')
     const f = await funded('refund')
@@ -629,6 +640,7 @@ describe('#235 R7G-F6C — WDK outbound settlement authority (real PostgreSQL)',
     const [funding] = await fundings(g)
     await expect(prisma.wdkTransferAttempt.update({ where: { id: funding.id }, data: { valueWei: '1' } })).rejects.toThrow(refuse)
     await expect(prisma.wdkTransferAttempt.update({ where: { id: funding.id }, data: { status: 'CONFIRMED' } })).rejects.toThrow(/corroboration_check|finality_evidence_check/)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: leg.id }, data: { status: 'REVERTED' } })).rejects.toThrow(/corroboration_check|finality_evidence_check/) // M21: no hand-written revert either
     await expect(prisma.wdkTransferAttempt.create({ data: { escrowId: f.e.id, operationType: 'GAS_FUNDING', destination: f.account, amount: '0', authority: 'SIGNED_RAW_V1', chainId: 31337, fromAddress: TREASURY, fundsAttemptId: (await legs(f))[0].id, valueWei: '1' } })).rejects.toThrow(refuse)
     await expect(prisma.wdkTransferAttempt.create({ data: { escrowId: f.e.id, operationType: 'GAS_FUNDING', destination: f.account, amount: '1', authority: 'SIGNED_RAW_V1', chainId: 31337, fromAddress: TREASURY } })).rejects.toThrow(refuse)
     // a legacy transfer() outbound attempt that may have moved funds blocks any signed outbound authority (M32)
