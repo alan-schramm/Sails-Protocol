@@ -270,6 +270,9 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     expect((await userOf(buyer.id))!.reputationScore).toBe(0) // confirmed: no projection ran yet in THIS graph
 
     const disputeService = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
+    // The appeal panel needs an eligible arbiter other than the original one; create it here so this test does not
+    // depend on arbiters other suites happen to leave behind (Jest's file order is not the listed order).
+    await makeArbiter()
     await disputeService.appeal(dispute.id, buyer.id)
     expect((await prisma.dispute.findUnique({ where: { id: dispute.id } }))!.status).toBe('APPEALED')
 
@@ -320,6 +323,9 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     expect(publishedEventId).not.toBe('')
 
     const disputeService = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
+    // The appeal panel needs an eligible arbiter other than the original one; create it here so this test does not
+    // depend on arbiters other suites happen to leave behind (Jest's file order is not the listed order).
+    await makeArbiter()
     await disputeService.appeal(dispute.id, seller.id)
     expect((await prisma.dispute.findUnique({ where: { id: dispute.id } }))!.status).toBe('APPEALED')
 
