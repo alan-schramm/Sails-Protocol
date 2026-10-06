@@ -59,6 +59,7 @@ import { claimEscrowTransitionRecord } from './escrow-transition-claim'
 import { Prisma } from '@prisma/client'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { assertFirstEscrowAllowed } from '../open-p2p/trade-lifecycle-lock'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
 import { isValidTimelockHours } from './escrow-timelock-policy'
@@ -436,6 +437,8 @@ export class EscrowService {
       throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
+    // #235 R7G-A — fail fast; this.repo.create() re-checks under the trade-lifecycle lock.
+    assertFirstEscrowAllowed(trade.id, trade.status)
 
     const { asset, lockedAmount } = bindEscrowToTrade(trade, input)
     const type = resolveEscrowType(asset, input.type)

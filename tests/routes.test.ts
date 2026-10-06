@@ -86,10 +86,12 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     // Issue #294 - TradeRepository.transitionManually() runs in one transaction: it checks the
     // trade's escrow (none by default here), CAS-updates the Trade status, then re-reads the row
     // (real Prisma's updateMany returns no row) - which is what mockTradeUpdate models below.
-    escrow: { findUnique: async () => null },
+    // #235 R7G-A - EscrowRepository.create() also runs here: under the trade-lifecycle lock it
+    // re-reads only the trade's status (an escrowable ACTIVE trade by default), then inserts.
+    escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
     trade: {
       updateMany: async () => ({ count: 1 }),
-      findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
+      findUnique: (...args: any[]) => (args[0]?.select?.status ? Promise.resolve({ status: 'ACTIVE' }) : mockTradeUpdate(...args)),
     },
   })
 )
@@ -1573,7 +1575,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('creates an escrow for an authenticated caller', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, asset: 'BTC', amount: '0.01' })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.01' })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'MOCK', lockedAmount: '0.01', asset: 'BTC', // Decimal fields — same .toString() note as above
@@ -1639,7 +1641,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // is refused before any rail is considered, and SAFE_GUARD_EVM locks native ETH, which no AssetType is.
     it('refuses SAFE_GUARD_EVM on a trade in an asset with no canonical scope mapping — nothing is created (#235 R7F-B)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, asset: 'STACKS', amount: '1.5' })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'STACKS', amount: '1.5' })
 
       const res = await app.inject({
         method: 'POST',
@@ -1655,7 +1657,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('rejects SAFE_GUARD_EVM for USDT_ERC20 — not the canonical {USDT,ETHEREUM} implementation (Mission 4 correction, previously silently accepted)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, asset: 'USDT_ERC20', amount: '1.5' })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '1.5' })
 
       const res = await app.inject({
         method: 'POST',

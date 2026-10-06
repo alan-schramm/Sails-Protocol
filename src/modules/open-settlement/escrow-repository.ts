@@ -35,6 +35,7 @@ import type { Prisma } from '@prisma/client'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
+import { assertFirstEscrowAllowed, lockTradeLifecycle } from '../open-p2p/trade-lifecycle-lock'
 
 /** #247/#248 - the economic intent a direct-call execution freezes on its first claim. */
 export type DirectExecutionDisposition = 'COMPLETED' | 'REFUNDED' | 'SPLIT'
@@ -216,24 +217,33 @@ export interface EscrowRepository {
 
 class PrismaEscrowRepository implements EscrowRepository {
   async create(input: CreateEscrowData) {
-    return prisma.escrow.create({
-      data: {
-        tradeId: input.tradeId,
-        type: input.type as any,
-        status: 'CREATED',
-        lockedAmount: input.lockedAmount,
-        asset: input.asset as any,
-        network: input.network,
-        timelockHours: input.timelockHours,
-        ...(input.feeSnapshot ? {
-          feePolicyVersionId: input.feeSnapshot.feePolicyVersionId,
-          snapshotProtocolFeeRate: input.feeSnapshot.snapshotProtocolFeeRate,
-          snapshotPayerModel: input.feeSnapshot.snapshotPayerModel,
-          snapshotEconomicBasis: input.feeSnapshot.snapshotEconomicBasis,
-          snapshotFeeCollectionAddress: input.feeSnapshot.snapshotFeeCollectionAddress,
-          snapshotFeeCollectionWaivedPreFunding: input.feeSnapshot.snapshotFeeCollectionWaivedPreFunding,
-        } : {}),
-      },
+    // #235 R7G-A — the trade's status is read under the trade-lifecycle lock a
+    // manual cancellation also takes, and the escrow is inserted in the same
+    // transaction: a cancellation that won is seen here, and one that comes later
+    // sees this escrow (trade-lifecycle-lock.ts).
+    return prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, input.tradeId)
+      const trade = await tx.trade.findUnique({ where: { id: input.tradeId }, select: { status: true } })
+      assertFirstEscrowAllowed(input.tradeId, trade?.status)
+      return tx.escrow.create({
+        data: {
+          tradeId: input.tradeId,
+          type: input.type as any,
+          status: 'CREATED',
+          lockedAmount: input.lockedAmount,
+          asset: input.asset as any,
+          network: input.network,
+          timelockHours: input.timelockHours,
+          ...(input.feeSnapshot ? {
+            feePolicyVersionId: input.feeSnapshot.feePolicyVersionId,
+            snapshotProtocolFeeRate: input.feeSnapshot.snapshotProtocolFeeRate,
+            snapshotPayerModel: input.feeSnapshot.snapshotPayerModel,
+            snapshotEconomicBasis: input.feeSnapshot.snapshotEconomicBasis,
+            snapshotFeeCollectionAddress: input.feeSnapshot.snapshotFeeCollectionAddress,
+            snapshotFeeCollectionWaivedPreFunding: input.feeSnapshot.snapshotFeeCollectionWaivedPreFunding,
+          } : {}),
+        },
+      })
     })
   }
 
