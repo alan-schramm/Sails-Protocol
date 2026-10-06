@@ -8,12 +8,12 @@
  * (fee markets, eviction policy, reorgs) is not modelled — those are REQUIRES_LIVE_ECONOMIC_REHEARSAL; the
  * local-EVM evidence covers a real node.
  */
-import { Interface, Transaction, getAddress } from 'ethers'
+import { Interface, Transaction, getAddress, id } from 'ethers'
 
 const ERC20 = new Interface(['function transfer(address to, uint256 amount) returns (bool)'])
 
 type Pending = { raw: string; hash: string; from: string; nonce: number; to: string | null; data: string; maxFeePerGas: bigint }
-type Mined = { hash: string; from: string; nonce: number; blockNumber: number; status: 0 | 1 }
+type Mined = { hash: string; from: string; nonce: number; blockNumber: number; blockHash: string; status: 0 | 1; pending: Pending }
 
 export class WdkChainDouble {
   chainIdValue = 31337n
@@ -23,6 +23,12 @@ export class WdkChainDouble {
   readonly minedNonce = new Map<string, number>()
   readonly nonceHistory: Array<Map<string, number>> = [new Map()]
   readonly tokenBalances = new Map<string, bigint>()
+  readonly balanceHistory: Array<Map<string, bigint>> = [new Map()]
+  /** Fork identity: blocks mined after a reorg get different hashes. */
+  branch = 0
+  blockHash(n: number) {
+    return id(`wdk-chain-double:${this.branch}:${n}`)
+  }
   sendCalls: string[] = []
   /** Test hooks. */
   hooks: {
@@ -36,6 +42,7 @@ export class WdkChainDouble {
 
   fund(address: string, amount: bigint) {
     this.tokenBalances.set(getAddress(address), (this.tokenBalances.get(getAddress(address)) ?? 0n) + amount)
+    this.balanceHistory[this.head] = new Map(this.tokenBalances)
   }
   balance(address: string) {
     return this.tokenBalances.get(getAddress(address)) ?? 0n
@@ -101,20 +108,40 @@ export class WdkChainDouble {
             }
           }
           this.mempool.delete(p.hash)
-          this.mined.set(p.hash, { hash: p.hash, from: p.from, nonce: p.nonce, blockNumber: this.head, status })
+          this.mined.set(p.hash, { hash: p.hash, from: p.from, nonce: p.nonce, blockNumber: this.head, blockHash: this.blockHash(this.head), status, pending: p })
           this.minedNonce.set(p.from, p.nonce + 1)
           progressed = true
         }
       }
       this.nonceHistory[this.head] = new Map(this.minedNonce)
+      this.balanceHistory[this.head] = new Map(this.tokenBalances)
     }
+  }
+
+  /** Reorg: drops the newest `depth` blocks; their transactions go back to the mempool (the fork is new). */
+  reorg(depth: number) {
+    const newHead = this.head - depth
+    for (const [hash, m] of [...this.mined]) {
+      if (m.blockNumber > newHead) {
+        this.mined.delete(hash)
+        if (m.pending.raw || m.pending.data === '0x') this.mempool.set(hash, m.pending)
+      }
+    }
+    this.minedNonce.clear()
+    for (const [a, n] of this.nonceHistory[newHead] ?? new Map()) this.minedNonce.set(a, n)
+    this.tokenBalances.clear()
+    for (const [a, v] of this.balanceHistory[newHead] ?? new Map()) this.tokenBalances.set(a, v)
+    this.nonceHistory.length = newHead + 1
+    this.balanceHistory.length = newHead + 1
+    this.head = newHead
+    this.branch++
   }
 
   receipt(hash: string): unknown {
     const override = this.hooks.receipt?.(hash)
     if (override !== undefined) return override
     const m = this.mined.get(hash)
-    return m ? { transactionHash: hash, blockNumber: `0x${m.blockNumber.toString(16)}`, status: m.status ? '0x1' : '0x0' } : null
+    return m ? { transactionHash: hash, blockNumber: `0x${m.blockNumber.toString(16)}`, blockHash: m.blockHash, status: m.status ? '0x1' : '0x0' } : null
   }
 
   /** The wdk-rpc.ts WdkRpc this double serves. */

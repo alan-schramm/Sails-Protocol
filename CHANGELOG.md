@@ -19,6 +19,18 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-F6B-P — WDK LOCK finality is evidenced, a single RPC never decides an irreversible anomaly, and
+  a nonce lane advances only by allocation.** A signed LOCK becomes CONFIRMED / REVERTED only together with
+  the evidence that made its receipt final — receipt block number and hash, observed head, and the rule
+  applied (`CONFIRMATIONS:<n>`, which they must satisfy) — immutable afterwards; the database refuses a
+  terminal state without it. One RPC showing the treasury nonce consumed by another transaction no longer
+  writes NONCE_CONSUMED_ELSEWHERE (irreversible, and a stale/forked endpoint can show exactly that): the
+  attempt stays unresolved and the lane is halted for operator review; the database refuses that terminal
+  state until corroborated evidence exists. `wdk_nonce_lanes.nextNonce` moves only by one, in the
+  transaction that persists the signed transaction using that nonce. The production finality value and
+  target network remain a CTO decision (`WDK_FINALITY_CONFIRMATIONS` still has no default). Migration
+  `20261009120000_wdk_lock_finality_evidence`; `npm run wdk:lock-preflight` lists rows it would refuse.
+
 - **#235 R7G-F6B — a WDK LOCK is one signed transaction, persisted before it is broadcast; the escrow is
   FUNDS_LOCKED only once that transaction is final.** WDK `transfer()` let the RPC choose the treasury
   nonce and exposed the hash only after broadcast, so a lost response, a crash or a retry could not tell

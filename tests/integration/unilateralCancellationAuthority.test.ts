@@ -161,8 +161,10 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
   const signedAttempt = (escrowId: string, status: string) => prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts DISABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
     await tx.$executeRawUnsafe(
-      `INSERT INTO wdk_transfer_attempts (id, "escrowId", "operationType", status, destination, amount, authority, "chainId", "fromAddress", "tokenContract", nonce, "signedRawTx", "txHash", "updatedAt")
-       VALUES (gen_random_uuid()::text, $1, 'LOCK', $2::"WdkTransferAttemptStatus", '0x${'ab'.repeat(20)}', 5, 'SIGNED_RAW_V1', 31337, $4, '0x${'ef'.repeat(20)}', 0, '0x02', $3, now())`,
+      `INSERT INTO wdk_transfer_attempts (id, "escrowId", "operationType", status, destination, amount, authority, "chainId", "fromAddress", "tokenContract", nonce, "signedRawTx", "txHash", "updatedAt",
+         "receiptBlockNumber", "receiptBlockHash", "finalityHeadBlock", "finalityRule", "finalizedAt")
+       VALUES (gen_random_uuid()::text, $1, 'LOCK', $2::"WdkTransferAttemptStatus", '0x${'ab'.repeat(20)}', 5, 'SIGNED_RAW_V1', 31337, $4, '0x${'ef'.repeat(20)}', 0, '0x02', $3, now(),
+         10, '0x${'cd'.repeat(32)}', 11, 'CONFIRMATIONS:2', now())`,  // finality evidence (#235 R7G-F6B-P), required for REVERTED/CONFIRMED
       escrowId, status, '0x' + randomBytes(32).toString('hex'), '0x' + randomBytes(20).toString('hex')) // own signer: (chain, signer, nonce) is unique
     await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts ENABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
   })

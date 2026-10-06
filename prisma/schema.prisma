@@ -847,6 +847,13 @@ model WdkTransferAttempt {
   tokenContract String?
   nonce         BigInt?
   signedRawTx   String?
+  // #235 R7G-F6B-P - the evidence that made a SIGNED_RAW_V1 receipt final, written with CONFIRMED / REVERTED
+  // and immutable: the receipt's block, the observed head, and the rule applied (CONFIRMATIONS:<n>).
+  receiptBlockNumber BigInt?
+  receiptBlockHash   String?
+  finalityHeadBlock  BigInt?
+  finalityRule       String?
+  finalizedAt        DateTime?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   // Exactly one row per logical operation may own submission authority.

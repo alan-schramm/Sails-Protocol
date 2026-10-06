@@ -16,7 +16,9 @@
  *   NONCE_CONSUMED_ELSEWHERE  a signed LOCK whose nonce was consumed by another transaction;
  *   HALTED_NONCE_LANE         a treasury nonce lane halted on foreign nonce consumption;
  *   DUPLICATE_TX_HASH         one transaction hash on more than one attempt;
- *   CHAIN_NOT_PINNED          WDK escrows exist but WDK_CHAIN_ID is not set.
+ *   CHAIN_NOT_PINNED          WDK escrows exist but WDK_CHAIN_ID is not set;
+ *   TERMINAL_WITHOUT_EVIDENCE a signed LOCK CONFIRMED / REVERTED without finality evidence (#235 R7G-F6B-P:
+ *                             migration 20261009120000 refuses to install over it).
  * Informational: WDK_FINALITY_CONFIRMATIONS unset (no WDK escrow will ever be projected FUNDS_LOCKED),
  * nonce lanes, legacy outbound attempts.
  *
@@ -51,6 +53,11 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
       SELECT status::text AS status, count(*)::int AS n FROM wdk_transfer_attempts
       WHERE "operationType" <> 'LOCK' AND status::text IN ('SUBMISSION_UNKNOWN', 'SUBMITTED') GROUP BY 1`)
     const [{ n: wdkEscrows }] = await q<{ n: number }>(`SELECT count(*)::int AS n FROM escrows WHERE type = 'WDK_USDT_EVM'`)
+    const hasEvidence = (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'wdk_transfer_attempts' AND column_name = 'receiptBlockNumber'`)).rowCount === 1
+    const terminalWithoutEvidence = await q<{ id: string; escrowId: string; status: string; txHash: string }>(`
+      SELECT id, "escrowId", status::text AS status, "txHash" FROM wdk_transfer_attempts
+      WHERE authority::text = 'SIGNED_RAW_V1' AND status::text IN ('CONFIRMED', 'REVERTED')
+      ${hasEvidence ? 'AND "receiptBlockNumber" IS NULL' : ''}`)
     await client.query('ROLLBACK')
 
     const blocking: Array<{ kind: string; detail: unknown }> = []
@@ -60,6 +67,7 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
     for (const d of duplicateHashes) blocking.push({ kind: 'DUPLICATE_TX_HASH', detail: d })
     const chainIdSet = (env.WDK_CHAIN_ID ?? '').trim() !== ''
     if (wdkEscrows > 0 && !chainIdSet) blocking.push({ kind: 'CHAIN_NOT_PINNED', detail: { wdkEscrows } })
+    for (const a of terminalWithoutEvidence) blocking.push({ kind: 'TERMINAL_WITHOUT_EVIDENCE', detail: a })
     return {
       wdkEscrows,
       config: { WDK_CHAIN_ID: chainIdSet ? env.WDK_CHAIN_ID : null, WDK_FINALITY_CONFIRMATIONS: (env.WDK_FINALITY_CONFIRMATIONS ?? '').trim() || null },
