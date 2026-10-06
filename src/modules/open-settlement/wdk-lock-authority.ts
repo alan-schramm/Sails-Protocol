@@ -62,7 +62,7 @@ export function toExactBaseUnits(decimal: string, decimals = USDT_DECIMALS): big
 export type LockReceipt =
   | { kind: 'NONE' }
   | { kind: 'UNRESOLVED'; reason: string }
-  | { kind: 'MINED'; success: boolean; blockNumber: number }
+  | { kind: 'MINED'; success: boolean; blockNumber: number; blockHash: string }
 
 /**
  * Classifies a raw eth_getTransactionReceipt result. Only status '0x1' (success) and '0x0' (revert) with a
@@ -70,14 +70,16 @@ export type LockReceipt =
  */
 export function classifyLockReceipt(raw: unknown, txHash: string): LockReceipt {
   if (raw === null) return { kind: 'NONE' }
-  const r = raw as { status?: unknown; blockNumber?: unknown; transactionHash?: unknown } | undefined
+  const r = raw as { status?: unknown; blockNumber?: unknown; blockHash?: unknown; transactionHash?: unknown } | undefined
   if (!r || typeof r !== 'object') return { kind: 'UNRESOLVED', reason: `malformed receipt ${JSON.stringify(raw)}` }
   if (typeof r.transactionHash === 'string' && r.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
     return { kind: 'UNRESOLVED', reason: `receipt is for ${r.transactionHash}, not ${txHash}` }
   }
   if (typeof r.blockNumber !== 'string' || !/^0x[0-9a-fA-F]+$/.test(r.blockNumber)) return { kind: 'UNRESOLVED', reason: `receipt without a block number (${JSON.stringify(r.blockNumber)})` }
-  if (r.status === '0x1') return { kind: 'MINED', success: true, blockNumber: Number(BigInt(r.blockNumber)) }
-  if (r.status === '0x0') return { kind: 'MINED', success: false, blockNumber: Number(BigInt(r.blockNumber)) }
+  if (typeof r.blockHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(r.blockHash)) return { kind: 'UNRESOLVED', reason: `receipt without a block hash (${JSON.stringify(r.blockHash)})` }
+  const blockHash = r.blockHash.toLowerCase()
+  if (r.status === '0x1') return { kind: 'MINED', success: true, blockNumber: Number(BigInt(r.blockNumber)), blockHash }
+  if (r.status === '0x0') return { kind: 'MINED', success: false, blockNumber: Number(BigInt(r.blockNumber)), blockHash }
   return { kind: 'UNRESOLVED', reason: `receipt status ${JSON.stringify(r.status)} is neither 0x1 nor 0x0` }
 }
 
@@ -90,13 +92,28 @@ async function queryReceipt(txHash: string): Promise<LockReceipt> {
   }
 }
 
+/**
+ * #235 R7G-F6B-P — the evidence that made a LOCK receipt final, persisted with its terminal state (CONFIRMED /
+ * REVERTED) and immutable from then on: the receipt's block (number and hash), the head that was observed, and
+ * the rule applied — the policy version, so a later change of WDK_FINALITY_CONFIRMATIONS never reinterprets an
+ * authorization already made.
+ */
+export type FinalityEvidence = { receiptBlockNumber: bigint; receiptBlockHash: string; finalityHeadBlock: bigint; finalityRule: string; finalizedAt: Date }
+
 /** Finality under WDK_FINALITY_CONFIRMATIONS; unset means nothing is ever final. */
-async function isFinal(blockNumber: number): Promise<{ final: boolean; reason?: string }> {
+async function isFinal(receipt: { blockNumber: number; blockHash: string }): Promise<{ final: true; evidence: FinalityEvidence } | { final: false; reason: string }> {
   const required = config.wdk.finalityConfirmations
   if (!required) return { final: false, reason: 'no WDK finality policy is configured (WDK_FINALITY_CONFIRMATIONS)' }
   const head = await wdkSettlementProvider.rpc().blockNumber()
-  const confirmations = head - blockNumber + 1
-  return confirmations >= required ? { final: true } : { final: false, reason: `${confirmations}/${required} confirmations` }
+  const confirmations = head - receipt.blockNumber + 1
+  if (confirmations < required) return { final: false, reason: `${confirmations}/${required} confirmations` }
+  return {
+    final: true,
+    evidence: {
+      receiptBlockNumber: BigInt(receipt.blockNumber), receiptBlockHash: receipt.blockHash, finalityHeadBlock: BigInt(head),
+      finalityRule: `CONFIRMATIONS:${required}`, finalizedAt: new Date(),
+    },
+  }
 }
 
 // ─── raw transaction self-verification ───────────────────────────────────────────────────────────
@@ -174,6 +191,7 @@ export type LockAdvance =
   | { outcome: 'PENDING'; txHash: string; reason: string }
   | { outcome: 'REVERTED'; txHash: string }
   | { outcome: 'NONCE_CONSUMED_ELSEWHERE'; txHash: string; reason: string }
+  | { outcome: 'NONCE_CONSUMPTION_SUSPECTED'; txHash: string; reason: string }
 
 const activeKeyOf = (escrowId: string) => `${escrowId}:LOCK`
 
@@ -212,6 +230,8 @@ export async function lockWdkEscrow(escrowId: string, triggeredBy: string): Prom
       throw new EscrowError(`WDK_USDT_EVM LOCK ${result.txHash} for escrow ${escrowId} reverted on-chain (final): no funds were locked; a new lockFunds call signs a new LOCK`)
     case 'NONCE_CONSUMED_ELSEWHERE':
       throw new EscrowError(`WDK_USDT_EVM LOCK ${result.txHash} for escrow ${escrowId} can never be mined: ${result.reason}. Operator review required; nothing is retried automatically`)
+    case 'NONCE_CONSUMPTION_SUSPECTED':
+      throw new EscrowError(`WDK_USDT_EVM LOCK ${result.txHash} for escrow ${escrowId} is unresolved: ${result.reason}. The treasury lane is halted for operator review; the escrow stays CREATED and nothing is retried automatically`)
   }
 }
 
@@ -368,15 +388,15 @@ export async function advanceLockAttempt(attempt: WdkTransferAttempt, opts: { tr
   }
 
   if (receipt.kind === 'MINED') {
-    const finality = await isFinal(receipt.blockNumber)
+    const finality = await isFinal(receipt)
     if (!finality.final) return { outcome: 'PENDING', txHash, reason: `mined in block ${receipt.blockNumber} with status ${receipt.success ? 1 : 0}; not final: ${finality.reason}` }
-    if (receipt.success) return projectLock(attempt, opts.triggeredBy)
-    await prisma.wdkTransferAttempt.updateMany({ where: { id: attempt.id, status: { in: ['SIGNED', 'SUBMITTED'] } }, data: { status: 'REVERTED' } })
+    if (receipt.success) return projectLock(attempt, opts.triggeredBy, finality.evidence)
+    await prisma.wdkTransferAttempt.updateMany({ where: { id: attempt.id, status: { in: ['SIGNED', 'SUBMITTED'] } }, data: { status: 'REVERTED', ...finality.evidence } })
     return { outcome: 'REVERTED', txHash }
   }
   if (receipt.kind === 'NONE') {
-    const consumed = await nonceConsumedElsewhere(attempt)
-    if (consumed) return { outcome: 'NONCE_CONSUMED_ELSEWHERE', txHash, reason: consumed }
+    const suspected = await nonceConsumptionSuspected(attempt)
+    if (suspected) return { outcome: 'NONCE_CONSUMPTION_SUSPECTED', txHash, reason: suspected }
   }
   return { outcome: 'PENDING', txHash, reason: receipt.kind === 'NONE' ? 'no receipt yet' : receipt.reason }
 }
@@ -398,10 +418,14 @@ async function broadcast(attempt: WdkTransferAttempt): Promise<void> {
 }
 
 /**
- * NONCE_CONSUMED_ELSEWHERE only on final evidence: the treasury's nonce at the newest final block is past
- * this attempt's nonce while the attempt still has no receipt, checked again after that read.
+ * #235 R7G-F6B-P — a single RPC never decides NONCE_CONSUMED_ELSEWHERE. When this endpoint shows the treasury's
+ * nonce at its newest final block past this attempt's nonce while the attempt still has no receipt, that is
+ * only a suspicion (a stale, forked or faulty endpoint can show exactly this): the attempt is left as it is
+ * (its signed transaction stays authoritative and keeps being reconciled) and the lane is halted, so no new
+ * transaction is signed until an operator reviews it. The terminal state needs corroborated evidence, which no
+ * Day-0 configuration provides (the database refuses the transition).
  */
-async function nonceConsumedElsewhere(attempt: WdkTransferAttempt): Promise<string | null> {
+async function nonceConsumptionSuspected(attempt: WdkTransferAttempt): Promise<string | null> {
   const required = config.wdk.finalityConfirmations
   if (!required) return null
   const rpc = wdkSettlementProvider.rpc()
@@ -410,9 +434,11 @@ async function nonceConsumedElsewhere(attempt: WdkTransferAttempt): Promise<stri
   const nonceAtFinal = await rpc.nonce(attempt.fromAddress as string, finalBlock)
   if (nonceAtFinal <= Number(attempt.nonce)) return null
   if ((await queryReceipt(attempt.txHash as string)).kind !== 'NONE') return null
-  const reason = `nonce ${attempt.nonce} of ${attempt.fromAddress} is consumed at final block ${finalBlock} (account nonce ${nonceAtFinal}) by a transaction other than ${attempt.txHash}`
-  const marked = await prisma.wdkTransferAttempt.updateMany({ where: { id: attempt.id, status: { in: ['SIGNED', 'SUBMITTED'] } }, data: { status: 'NONCE_CONSUMED_ELSEWHERE' } })
-  if (marked.count === 1) log.error({ msg: 'WDK LOCK nonce consumed elsewhere - operator review required', attemptId: attempt.id, escrowId: attempt.escrowId, reason })
+  const reason = `suspected external nonce consumption (single RPC observation, corroboration required): nonce ${attempt.nonce} of ${attempt.fromAddress} appears consumed at block ${finalBlock} (account nonce ${nonceAtFinal}) while ${attempt.txHash} has no receipt`
+  const halted = await prisma.$executeRaw`
+    UPDATE wdk_nonce_lanes SET "haltedAt" = now(), "haltedReason" = ${reason}, "updatedAt" = now()
+    WHERE "chainId" = ${attempt.chainId} AND account = ${attempt.fromAddress} AND "haltedAt" IS NULL`
+  if (halted === 1) log.error({ msg: 'WDK treasury lane halted: suspected external nonce consumption - operator review required', attemptId: attempt.id, escrowId: attempt.escrowId, reason })
   return reason
 }
 
@@ -421,13 +447,15 @@ async function nonceConsumedElsewhere(attempt: WdkTransferAttempt): Promise<stri
  * the attempt becomes CONFIRMED, the escrow FUNDS_LOCKED with txLockId/lockedAt/expiresAt and its funding
  * address, and the transition is claimed (PASS 3 republishes it if the publish below never happens).
  */
-async function projectLock(attempt: WdkTransferAttempt, triggeredBy: string): Promise<LockAdvance> {
+async function projectLock(attempt: WdkTransferAttempt, triggeredBy: string, evidence?: FinalityEvidence): Promise<LockAdvance> {
   const txHash = attempt.txHash as string
   const result = await prisma.$transaction(async (tx) => {
     const escrow = await tx.escrow.findUniqueOrThrow({ where: { id: attempt.escrowId } })
     await lockTradeLifecycle(tx, escrow.tradeId)
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrow.id})::bigint)`
-    await tx.wdkTransferAttempt.updateMany({ where: { id: attempt.id, status: { in: ['SIGNED', 'SUBMITTED'] } }, data: { status: 'CONFIRMED' } })
+    // A CONFIRMED attempt already carries its finality evidence (database CHECK); otherwise the evidence that
+    // made this receipt final is written together with the terminal state.
+    if (evidence) await tx.wdkTransferAttempt.updateMany({ where: { id: attempt.id, status: { in: ['SIGNED', 'SUBMITTED'] } }, data: { status: 'CONFIRMED', ...evidence } })
     const confirmed = await tx.wdkTransferAttempt.findUniqueOrThrow({ where: { id: attempt.id } })
     if (confirmed.status !== 'CONFIRMED') throw new EscrowError(`LOCK attempt ${attempt.id} is ${confirmed.status}, not CONFIRMED: no projection`)
     const current = await tx.escrow.findUniqueOrThrow({ where: { id: attempt.escrowId } })
@@ -507,7 +535,7 @@ export async function reconcileWdkLocks(report: LockReconcileReport): Promise<vo
     try {
       const result = await advanceLockAttempt(attempt, { triggeredBy: 'system:wdk-lock-reconciliation', waitForReceipt: false })
       report.locksAdvanced.push({ escrowId: attempt.escrowId, attemptId: attempt.id, outcome: result.outcome })
-      if (result.outcome === 'NONCE_CONSUMED_ELSEWHERE') report.requiresManualReview.push({ escrowId: attempt.escrowId, reason: `WDK LOCK ${attempt.txHash}: ${result.reason}` })
+      if (result.outcome === 'NONCE_CONSUMED_ELSEWHERE' || result.outcome === 'NONCE_CONSUMPTION_SUSPECTED') report.requiresManualReview.push({ escrowId: attempt.escrowId, reason: `WDK LOCK ${attempt.txHash}: ${result.reason}` })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (err instanceof WdkSignedTransactionMismatch) report.requiresManualReview.push({ escrowId: attempt.escrowId, reason: `WDK LOCK attempt ${attempt.id}: ${message}` })

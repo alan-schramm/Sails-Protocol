@@ -217,7 +217,12 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     expect(final.ok).toBe(true)
     const e = await escrowOf(f)
     expect([e.status, e.txLockId, e.multisigAddr, !!e.lockedAt, !!e.expiresAt]).toEqual(['FUNDS_LOCKED', a.txHash, f.escrowAddress, true, true])
-    expect((await attempts(f)).map((x) => x.status)).toEqual(['CONFIRMED'])
+    const [confirmed] = await attempts(f)
+    expect(confirmed.status).toBe('CONFIRMED')
+    // #235 R7G-F6B-P (D9/D10): the evidence and rule that authorized FUNDS_LOCKED, immutable
+    const mined = chain.mined.get(a.txHash!)!
+    expect([confirmed.receiptBlockNumber, confirmed.receiptBlockHash, confirmed.finalityHeadBlock, confirmed.finalityRule, !!confirmed.finalizedAt])
+      .toEqual([BigInt(mined.blockNumber), mined.blockHash, BigInt(chain.head), 'CONFIRMATIONS:2', true])
     expect(await lockedEvents(f)).toBe(1)
     expect(chain.balance(f.escrowAddress)).toBe(5_000_000n)
     expect(chain.distinctBroadcastHashes()).toEqual(new Set([a.txHash]))
@@ -324,7 +329,10 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     await lock(A, f)
     chain.mine(2)
     const [a] = await attempts(f)
-    await prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'CONFIRMED' } })
+    // CONFIRMED with its finality evidence but no projection (a pre-F6B-P row, or a hand-written one: the
+    // database refuses CONFIRMED without evidence that satisfies its rule).
+    const m = chain.mined.get(a.txHash!)!
+    await prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'CONFIRMED', receiptBlockNumber: BigInt(m.blockNumber), receiptBlockHash: m.blockHash, finalityHeadBlock: BigInt(chain.head), finalityRule: 'CONFIRMATIONS:2', finalizedAt: new Date() } })
     const [r1, r2] = await Promise.all([reconcile(), reconcile(node())])
     const outcomes = [...r1.locksAdvanced, ...r2.locksAdvanced].filter((x: any) => x.escrowId === f.e.id).map((x: any) => x.outcome).sort()
     expect(outcomes.filter((o: string) => o === 'PROJECTED')).toHaveLength(1)
@@ -404,7 +412,7 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     await lock(node(), f3)
     expect((await attempts(f3)).map((a) => Number(a.nonce))).toEqual([2])
     expect(Number((await lane())!.nextNonce)).toBe(3)
-    await expect(prisma.$executeRaw`UPDATE wdk_nonce_lanes SET "nextNonce" = 0 WHERE "chainId" = 31337 AND account = ${TREASURY}`).rejects.toThrow(/never decreases/)
+    await expect(prisma.$executeRaw`UPDATE wdk_nonce_lanes SET "nextNonce" = 0 WHERE "chainId" = 31337 AND account = ${TREASURY}`).rejects.toThrow(/never decreases|only moves by one allocation/)
   })
 
   // ── receipt classification ─────────────────────────────────────────────────────────────────────────
@@ -500,7 +508,7 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     expect(report.requiresManualReview.some((m: any) => m.escrowId === `wdk-nonce-lane:31337:${TREASURY}`)).toBe(true)
   })
 
-  it('K/V5: a signed LOCK whose nonce is consumed by another transaction at a final block becomes NONCE_CONSUMED_ELSEWHERE — no retry, not cancellable', async () => {
+  it('K/V5/U10/U11 (#235 R7G-F6B-P): one RPC showing the nonce consumed by another transaction only halts the lane — the attempt is not made terminal, no retry, not cancellable', async () => {
     pg.requirePostgres('NCE')
     const f = await fx('nce')
     chain.hooks.beforeSend = () => { throw new Error('ECONNRESET') }
@@ -512,10 +520,18 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     expect((await attempts(f)).map((a) => a.status)).toEqual(['SIGNED'])
     chain.mine(1)
     report = await reconcile()
-    expect((await attempts(f)).map((a) => a.status)).toEqual(['NONCE_CONSUMED_ELSEWHERE'])
-    expect(report.requiresManualReview.some((m: any) => m.escrowId === f.e.id && /consumed at final block/.test(m.reason))).toBe(true)
-    expect((await lock(A, f) as any).err).toMatch(/NONCE_CONSUMED_ELSEWHERE/)
+    expect((await attempts(f)).map((a) => a.status)).toEqual(['SIGNED']) // never terminal on one RPC's view
+    expect(report.requiresManualReview.some((m: any) => m.escrowId === f.e.id && /suspected external nonce consumption \(single RPC observation/.test(m.reason))).toBe(true)
+    const l = (await lane())!
+    expect([!!l.haltedAt, /suspected external nonce consumption/.test(l.haltedReason ?? '')]).toEqual([true, true])
+    expect((await lock(A, f) as any).err).toMatch(/lane is halted for operator review/)
     expect((await cancel(f)).ok).toBe(false)
+    const g = await fx('nce-other')
+    expect((await lock(A, g) as any).err).toMatch(/halted/) // no new transaction identity while halted
+    expect((await attempts(g)).filter((a) => a.signedRawTx)).toHaveLength(0)
+    // U12/M14: the terminal state itself is refused without corroborated evidence (K7)
+    const [a] = await attempts(f)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'NONCE_CONSUMED_ELSEWHERE' } })).rejects.toThrow(/needs corroborated evidence/)
     expect(chain.distinctBroadcastHashes().size).toBe(1)
   })
 
@@ -597,5 +613,127 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     expect(report.requiresManualReview.some((m: any) => m.escrowId === f.e.id && /refusing to broadcast it/.test(m.reason))).toBe(true)
     expect(chain.sendCalls.slice(before)).toEqual([b.signedRawTx]) // g's own rebroadcast only; f's swapped bytes never sent
     expect((await lock(A, f) as any).err).toMatch(/refusing to broadcast it/)
+  })
+  // ── #235 R7G-F6B-P — finality boundary, reorgs, lane governance ─────────────────────────────────────
+
+  it('T1/T2/T3: below the threshold nothing is final; exactly at it and above it the same evidence rule applies', async () => {
+    pg.requirePostgres('threshold')
+    const [f1, f2] = [await fx('t2'), await fx('t3')]
+    await lock(A, f1)
+    chain.mine(1) // T1: 1/2
+    await reconcile()
+    expect((await escrowOf(f1)).status).toBe('CREATED')
+    chain.mine(1) // T2: exactly 2/2
+    await reconcile()
+    const [a1] = await attempts(f1)
+    expect([a1.status, Number(a1.finalityHeadBlock! - a1.receiptBlockNumber!) + 1]).toEqual(['CONFIRMED', 2])
+    await lock(A, f2)
+    chain.mine(3) // T3: 3/2
+    await reconcile()
+    const [a2] = await attempts(f2)
+    expect([a2.status, Number(a2.finalityHeadBlock! - a2.receiptBlockNumber!) + 1, a2.finalityRule]).toEqual(['CONFIRMED', 3, 'CONFIRMATIONS:2'])
+  })
+
+  it('E1/E2/E5/T6: a candidate receipt that disappears in a reorg is not projected; the same bytes are rebroadcast and become final on the new fork', async () => {
+    pg.requirePostgres('reorg disappear')
+    const f = await fx('reorg')
+    await lock(A, f)
+    const [a] = await attempts(f)
+    chain.mine(1)
+    await reconcile() // candidate 1/2
+    expect((await escrowOf(f)).status).toBe('CREATED')
+    chain.reorg(1)
+    chain.drop(a.txHash!) // the new fork does not carry it (E2/E5)
+    await reconcile() // receipt null -> same raw rebroadcast, nothing new signed
+    expect((await attempts(f)).map((x) => [x.status, x.signedRawTx])).toEqual([['SUBMITTED', a.signedRawTx]])
+    expect(chain.mempool.has(a.txHash!)).toBe(true)
+    chain.mine(2)
+    await reconcile()
+    expect((await escrowOf(f)).status).toBe('FUNDS_LOCKED')
+    expect(chain.distinctBroadcastHashes()).toEqual(new Set([a.txHash]))
+    expect(chain.balance(f.escrowAddress)).toBe(5_000_000n)
+  })
+
+  it('E3/E4/T7: the transaction moves to another block before finality — the evidence records the block it is final in', async () => {
+    pg.requirePostgres('reorg move')
+    const f = await fx('reorg-move')
+    await lock(A, f)
+    const [a] = await attempts(f)
+    chain.mine(1)
+    const firstHash = chain.mined.get(a.txHash!)!.blockHash
+    await reconcile()
+    chain.reorg(1) // the tx returns to the mempool and is mined again on the new fork
+    chain.mine(1)
+    const secondHash = chain.mined.get(a.txHash!)!.blockHash
+    expect(secondHash).not.toBe(firstHash)
+    chain.mine(1)
+    await reconcile()
+    const [c] = await attempts(f)
+    expect([c.status, c.receiptBlockHash]).toEqual(['CONFIRMED', secondHash])
+  })
+
+  it('T8: an unavailable receipt endpoint is unresolved — nothing final, nothing new signed', async () => {
+    pg.requirePostgres('rpc down')
+    const f = await fx('rpc-down')
+    await lock(A, f)
+    chain.mine(3)
+    chain.hooks.receipt = () => { throw new Error('ETIMEDOUT') }
+    const report = await reconcile()
+    expect(report.locksAdvanced.find((x: any) => x.escrowId === f.e.id)?.outcome).toBe('PENDING')
+    expect((await attempts(f)).map((x) => x.status)).toEqual(['SUBMITTED'])
+    expect((await escrowOf(f)).status).toBe('CREATED')
+  })
+
+  it('U1/I1-I3: with nonce n stuck, a later LOCK is still signed and broadcast as n+1, and cannot mine before n', async () => {
+    pg.requirePostgres('stuck n')
+    const [f1, f2] = [await fx('stuck-a'), await fx('stuck-b')]
+    chain.hooks.beforeSend = (raw) => { if (Transaction.from(raw).nonce === 0) throw new Error('fee too low to propagate (stuck)') }
+    await lock(A, f1)
+    chain.hooks.beforeSend = undefined
+    chain.hooks.beforeSend = (raw) => { if (Transaction.from(raw).nonce === 0) throw new Error('fee too low to propagate (stuck)') }
+    await lock(A, f2)
+    chain.mine(5)
+    expect((await attempts(f1)).map((x) => [x.status, Number(x.nonce)])).toEqual([['SIGNED', 0]])
+    expect((await attempts(f2)).map((x) => [x.status, Number(x.nonce)])).toEqual([['SUBMITTED', 1]])
+    expect(chain.mempool.size).toBe(1) // n+1 waits behind the missing n
+    expect((await cancel(f2)).ok).toBe(false) // both trades are committed while n is stuck (finding I4)
+    chain.hooks.beforeSend = undefined
+    await reconcile() // same raw for n is rebroadcast; both mine
+    chain.mine(2)
+    await reconcile()
+    expect([(await escrowOf(f1)).status, (await escrowOf(f2)).status]).toEqual(['FUNDS_LOCKED', 'FUNDS_LOCKED'])
+  })
+
+  it('U5/U6/U7/M8-M10: a halted lane refuses new transaction identities on every node, after a restart too', async () => {
+    pg.requirePostgres('halt nodes')
+    const [f1, f2] = [await fx('halt-a'), await fx('halt-b')]
+    await lock(A, f1)
+    chain.mine(2)
+    await lock(A, f1)
+    await prisma.wdkNonceLane.update({ where: { chainId_account: { chainId: 31337, account: TREASURY } }, data: { haltedAt: new Date(), haltedReason: 'operator pause (test)' } })
+    for (const n of [A, node(), node()]) {
+      expect((await lock(n, f2) as any).err).toMatch(/halted/)
+    }
+    expect((await attempts(f2)).filter((a) => a.signedRawTx)).toHaveLength(0)
+  })
+
+  it('U13/U14/M5-M7: hand-made economic truth is refused — nonce advance, terminal states without evidence', async () => {
+    pg.requirePostgres('operator refusals')
+    const f = await fx('op')
+    await lock(A, f)
+    const [a] = await attempts(f)
+    const laneKey = { chainId_account: { chainId: 31337, account: TREASURY } }
+    await expect(prisma.wdkNonceLane.update({ where: laneKey, data: { nextNonce: 5n } })).rejects.toThrow(/only moves by one allocation/)
+    await expect(prisma.wdkNonceLane.update({ where: laneKey, data: { nextNonce: 2n } })).rejects.toThrow(/released without a signed transaction/)
+    expect(Number((await lane())!.nextNonce)).toBe(1)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'CONFIRMED' } })).rejects.toThrow(/finality_evidence_check/)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'REVERTED' } })).rejects.toThrow(/finality_evidence_check/)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { status: 'CONFIRMED', receiptBlockNumber: 1n, receiptBlockHash: '0x' + 'ab'.repeat(32), finalityHeadBlock: 1n, finalityRule: 'CONFIRMATIONS:2', finalizedAt: new Date() } })).rejects.toThrow(/finality_evidence_check/) // evidence that does not satisfy its own rule
+    chain.mine(2)
+    await reconcile()
+    const [c] = await attempts(f)
+    expect(c.status).toBe('CONFIRMED')
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { finalityRule: 'CONFIRMATIONS:1' } })).rejects.toThrow(/finality evidence is immutable/)
+    await expect(prisma.wdkTransferAttempt.update({ where: { id: a.id }, data: { receiptBlockHash: '0x' + 'ef'.repeat(32) } })).rejects.toThrow(/finality evidence is immutable/)
   })
 })

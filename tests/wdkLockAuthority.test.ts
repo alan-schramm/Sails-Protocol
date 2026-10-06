@@ -59,12 +59,15 @@ describe('verifySignedLock() — E/U5/U6: every field is checked before any broa
   })
 })
 
-describe('classifyLockReceipt() — H/NF2: only 0x1 / 0x0 with a block number decide', () => {
+describe('classifyLockReceipt() — H/NF2: only 0x1 / 0x0 with a block number and block hash decide', () => {
   const h = '0x' + 'cd'.repeat(32)
+  const bh = '0x' + 'ab'.repeat(32)
   it.each([
     [null, 'NONE'],
-    [{ status: '0x1', blockNumber: '0x10', transactionHash: h }, 'MINED'],
-    [{ status: '0x0', blockNumber: '0x10' }, 'MINED'],
+    [{ status: '0x1', blockNumber: '0x10', blockHash: bh, transactionHash: h }, 'MINED'],
+    [{ status: '0x0', blockNumber: '0x10', blockHash: bh }, 'MINED'],
+    [{ status: '0x1', blockNumber: '0x10' }, 'UNRESOLVED'],
+    [{ status: '0x1', blockNumber: '0x10', blockHash: '0x1234' }, 'UNRESOLVED'],
     [{ status: null, blockNumber: '0x10' }, 'UNRESOLVED'],
     [{ blockNumber: '0x10' }, 'UNRESOLVED'],
     [{ status: '0x2', blockNumber: '0x10' }, 'UNRESOLVED'],
@@ -78,9 +81,9 @@ describe('classifyLockReceipt() — H/NF2: only 0x1 / 0x0 with a block number de
     expect(classifyLockReceipt(raw, h).kind).toBe(kind)
   })
 
-  it('reports success and revert distinctly, with the block number', () => {
-    expect(classifyLockReceipt({ status: '0x1', blockNumber: '0x10' }, h)).toEqual({ kind: 'MINED', success: true, blockNumber: 16 })
-    expect(classifyLockReceipt({ status: '0x0', blockNumber: '0x10' }, h)).toEqual({ kind: 'MINED', success: false, blockNumber: 16 })
+  it('reports success and revert distinctly, with the block number and (normalized) block hash', () => {
+    expect(classifyLockReceipt({ status: '0x1', blockNumber: '0x10', blockHash: bh.toUpperCase().replace('0X', '0x') }, h)).toEqual({ kind: 'MINED', success: true, blockNumber: 16, blockHash: bh })
+    expect(classifyLockReceipt({ status: '0x0', blockNumber: '0x10', blockHash: bh }, h)).toEqual({ kind: 'MINED', success: false, blockNumber: 16, blockHash: bh })
   })
 })
 
@@ -111,5 +114,13 @@ describe('wdkAttemptIsNonEconomic() — Q: what lets a trade be cancelled / refu
     ['SOME_FUTURE_STATE', 'SIGNED_RAW_V1', false],
   ])('%s / %s -> %s', (status, authority, safe) => {
     expect(wdkAttemptIsNonEconomic({ status, authority })).toBe(safe)
+  })
+})
+
+describe('#235 R7G-F6B-P — finality policy has no default (D1/D2: CTO_FINALITY_VALUE_REQUIRED)', () => {
+  it('WDK_FINALITY_CONFIRMATIONS unset means no finality rule at all — never a silently chosen depth', () => {
+    expect(process.env.WDK_FINALITY_CONFIRMATIONS ?? '').toBe('')
+    const { config } = require('../src/config')
+    expect(config.wdk.finalityConfirmations).toBeUndefined()
   })
 })
