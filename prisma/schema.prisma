@@ -854,6 +854,15 @@ model WdkTransferAttempt {
   finalityHeadBlock  BigInt?
   finalityRule       String?
   finalizedAt        DateTime?
+  // #235 R7G-F6B-P1 - WDK_IRREVERSIBLE_RPC_CORROBORATION_V1: the two sources that independently agreed on
+  // a terminal state (labels, never URLs), the corroborator's head, the final block at which a
+  // NONCE_CONSUMED_ELSEWHERE nonce was observed consumed, and the head when the transaction was signed
+  // (stuck-lane backpressure). Immutable once written.
+  primarySource          String?
+  corroboratingSource    String?
+  corroboratingHeadBlock BigInt?
+  nonceConsumedAtBlock   BigInt?
+  signedAtBlock          BigInt?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   // Exactly one row per logical operation may own submission authority.
@@ -878,13 +887,64 @@ model WdkNonceLane {
   chainId      Int
   account      String
   nextNonce    BigInt
-  haltedAt     DateTime?
-  haltedReason String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@id([chainId, account])
   @@map("wdk_nonce_lanes")
+}
+
+// #235 R7G-F6B-P1 - why a treasury lane signs nothing new. A lane is halted while any halt is active
+// (clearedAt NULL); several reasons can be active at once. OPERATOR_PAUSE is availability authority (the
+// operator may clear it); the others are economic and clear only through the governed mechanical resume
+// (wdk-lane-governance.ts). Rows are never deleted; a halt is cleared once, with an audit record in the same
+// transaction (database trigger).
+enum WdkLaneHaltReason {
+  OPERATOR_PAUSE
+  STUCK_LOWEST_NONCE
+  SUSPECTED_EXTERNAL_NONCE_CONSUMPTION
+  PROVEN_EXTERNAL_NONCE_CONSUMPTION
+}
+
+model WdkLaneHalt {
+  id        String            @id @default(uuid())
+  chainId   Int
+  account   String
+  reason    WdkLaneHaltReason
+  detail    String
+  raisedBy  String
+  raisedAt  DateTime          @default(now())
+  clearedAt DateTime?
+  clearedBy String?
+
+  @@index([chainId, account])
+  @@map("wdk_lane_halts")
+}
+
+enum WdkLaneAuditAction {
+  HALT
+  PAUSE
+  UNPAUSE
+  RESUME
+}
+
+// #235 R7G-F6B-P1 - append-only audit of every lane governance action (database trigger). dbTxId ties a
+// record to the transaction that acted on the lane; the lane / halt triggers require it.
+model WdkLaneAudit {
+  id                String              @id @default(uuid())
+  chainId           Int
+  account           String
+  action            WdkLaneAuditAction
+  reason            WdkLaneHaltReason?
+  actor             String
+  previousNextNonce BigInt?
+  newNextNonce      BigInt?
+  detail            String
+  dbTxId            BigInt              @default(dbgenerated("txid_current()"))
+  createdAt         DateTime            @default(now())
+
+  @@index([chainId, account, createdAt])
+  @@map("wdk_lane_audit")
 }
 
 // Issue #240 - durable pre/post-submission evidence for the LIGHTNING_HODL/SAFE_GUARD_EVM finalize

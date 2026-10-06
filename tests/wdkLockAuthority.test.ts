@@ -124,3 +124,79 @@ describe('#235 R7G-F6B-P — finality policy has no default (D1/D2: CTO_FINALITY
     expect(config.wdk.finalityConfirmations).toBeUndefined()
   })
 })
+
+describe('#235 R7G-F6B-P1 — corroboration and backpressure configuration (A1/A2/H1-H6/O1/O2)', () => {
+  const load = (env: Record<string, string>) => {
+    const saved = { ...process.env }
+    Object.assign(process.env, env)
+    try {
+      let mod!: { config: any; provider: any }
+      jest.isolateModules(() => {
+        mod = { config: require('../src/config').config, provider: require('../src/modules/open-settlement/wdk-settlement.provider').wdkSettlementProvider }
+      })
+      return mod
+    } finally {
+      process.env = saved
+    }
+  }
+
+  it('no corroborating RPC and no stuck threshold by default — never a silently chosen production value', () => {
+    const { config } = load({})
+    expect([config.wdk.corroboratingRpcUrl, config.wdk.laneStuckBlocks, config.wdk.rpcLabel, config.wdk.corroboratingRpcLabel]).toEqual(['', undefined, 'primary', 'corroborator'])
+    // H2: the default WDK_RPC_URL points at Sepolia, but no chain (hence no network policy) is ever implied
+    expect([config.wdk.chainId, config.wdk.finalityConfirmations]).toEqual([undefined, undefined])
+  })
+
+  it.each([
+    ['unset (A2)', { WDK_CHAIN_ID: '31337' }, /WDK_CORROBORATING_RPC_URL is not configured/],
+    ['the primary URL (A1)', { WDK_CHAIN_ID: '31337', WDK_RPC_URL: 'http://a.test:8545', WDK_CORROBORATING_RPC_URL: 'HTTP://A.TEST:8545' }, /is the primary WDK_RPC_URL/],
+    ['an unpinned chain', { WDK_RPC_URL: 'http://a.test:8545', WDK_CORROBORATING_RPC_URL: 'http://b.test:8545' }, /requires WDK_CHAIN_ID/],
+    ['the same source label', { WDK_CHAIN_ID: '31337', WDK_RPC_URL: 'http://a.test:8545', WDK_CORROBORATING_RPC_URL: 'http://b.test:8545', WDK_RPC_LABEL: 'x', WDK_CORROBORATING_RPC_LABEL: 'x' }, /two different sources/],
+  ])('a corroborating RPC that is %s is unavailable — no irreversible conclusion', (_label, env, pattern) => {
+    const { provider } = load(env as Record<string, string>)
+    expect(() => provider.corroboratorRpc()).toThrow(pattern)
+  })
+
+  it('a distinct corroborating RPC on a pinned chain is accepted; WDK_LANE_STUCK_BLOCKS must be a positive integer', () => {
+    const { provider, config } = load({ WDK_CHAIN_ID: '31337', WDK_RPC_URL: 'http://a.test:8545', WDK_CORROBORATING_RPC_URL: 'http://b.test:8545', WDK_LANE_STUCK_BLOCKS: '12' })
+    expect(provider.corroboratorRpc()).toBeDefined()
+    expect(config.wdk.laneStuckBlocks).toBe(12)
+    expect(() => load({ WDK_LANE_STUCK_BLOCKS: '0' })).toThrow()
+    expect(() => load({ WDK_LANE_STUCK_BLOCKS: '1.5' })).toThrow()
+  })
+})
+
+describe('#235 R7G-F6B-P1 — wdk:lane CLI arguments (N5-N9: no force, no setter, fail closed)', () => {
+  const { parseLaneArgs } = require('../scripts/wdk-lane')
+  const ACCOUNT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+  let exit: jest.SpyInstance
+  let errors: jest.SpyInstance
+  beforeEach(() => {
+    exit = jest.spyOn(process, 'exit').mockImplementation(((code: number) => { throw new Error(`exit ${code}`) }) as never)
+    errors = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+  afterEach(() => { exit.mockRestore(); errors.mockRestore() })
+  const refused = (argv: string[]) => {
+    expect(() => parseLaneArgs(argv)).toThrow('exit 1')
+    return String(errors.mock.calls[errors.mock.calls.length - 1]?.[0])
+  }
+
+  it('parses status and a confirmed resume', () => {
+    expect(parseLaneArgs(['status', '--chain-id', '31337', '--account', ACCOUNT])).toMatchObject({ command: 'status', chainId: 31337, account: ACCOUNT })
+    expect(parseLaneArgs(['resume', '--chain-id', '31337', '--account', ACCOUNT, '--operator', 'ops-1', '--confirm'])).toMatchObject({ command: 'resume', operator: 'ops-1' })
+  })
+
+  it.each([
+    [['resume', '--chain-id', '31337', '--account', ACCOUNT, '--operator', 'o', '--confirm', '--force'], /--force is not an option/],
+    [['resume', '--chain-id', '31337', '--account', ACCOUNT, '--operator', 'o', '--confirm', '--next-nonce', '9'], /--next-nonce is not an option/],
+    [['set-next-nonce', '--chain-id', '31337'], /command must be one of/],
+    [['mark-confirmed'], /command must be one of/],
+    [['resume', '--chain-id', '31337', '--account', ACCOUNT, '--operator', 'o'], /re-run with --confirm/],
+    [['pause', '--chain-id', '31337', '--account', ACCOUNT, '--confirm'], /--operator <label> is required/],
+    [['status', '--chain-id', '0x7a69', '--account', ACCOUNT], /--chain-id <positive integer>/],
+    [['status', '--chain-id', '31337'], /--account <0x address> is required/],
+    [['status', '--chain-id', '31337', '--account', ACCOUNT, '--chain-id', '1'], /given twice/],
+  ])('refuses %j', (argv, pattern) => {
+    expect(refused(argv as string[])).toMatch(pattern)
+  })
+})

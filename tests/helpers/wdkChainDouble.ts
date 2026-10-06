@@ -7,6 +7,10 @@
  * balances or reverts, receipts only for mined transactions, block-tagged nonce history. Everything else
  * (fee markets, eviction policy, reorgs) is not modelled — those are REQUIRES_LIVE_ECONOMIC_REHEARSAL; the
  * local-EVM evidence covers a real node.
+ *
+ * #235 R7G-F6B-P1 — corroboratorRpc() is a second observer of the same chain (the corroborating RPC), with
+ * its own faults: unavailable, another chain, lagging behind the head (it then knows nothing past its own
+ * head), or arbitrary receipt / nonce answers. It never accepts broadcasts.
  */
 import { Interface, Transaction, getAddress, id } from 'ethers'
 
@@ -36,7 +40,18 @@ export class WdkChainDouble {
     receipt?: (hash: string) => unknown | undefined
     estimateGas?: () => bigint
     pendingNonce?: (address: string) => number | undefined
+    /** The primary RPC lags this many blocks behind the head (it knows nothing past its own head). */
+    headLag?: number
   } = {}
+  /** Corroborating-RPC faults (#235 R7G-F6B-P1). */
+  corroborator: {
+    unavailable?: boolean
+    chainId?: bigint
+    headLag?: number
+    receipt?: (hash: string) => unknown | undefined
+    nonce?: (address: string, block: 'latest' | 'pending' | number) => number | undefined | Promise<number | undefined>
+  } = {}
+  corroboratorCalls = 0
 
   constructor(readonly token: string) {}
 
@@ -146,15 +161,52 @@ export class WdkChainDouble {
 
   /** The wdk-rpc.ts WdkRpc this double serves. */
   rpc() {
+    const lag = () => this.hooks.headLag ?? 0
+    const head = () => Math.max(0, this.head - lag())
     return {
       chainId: async () => this.chainIdValue,
-      blockNumber: async () => this.head,
+      blockNumber: async () => head(),
       nonce: async (address: string, block: 'latest' | 'pending' | number) =>
-        block === 'pending' ? (this.hooks.pendingNonce?.(address) ?? this.pendingNonce(address)) : this.latestNonce(address, block === 'latest' ? undefined : block),
+        block === 'pending' ? (this.hooks.pendingNonce?.(address) ?? this.pendingNonce(address))
+          : this.latestNonce(address, block === 'latest' ? (lag() ? head() : undefined) : Math.min(block, head())),
       estimateGas: async () => this.hooks.estimateGas?.() ?? 60_000n,
       feeData: async () => ({ maxFeePerGas: 3_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }),
       sendRawTransaction: async (raw: string) => this.sendRaw(raw),
-      receipt: async (hash: string) => this.receipt(hash),
+      receipt: async (hash: string) => {
+        const r = this.receipt(hash) as { blockNumber?: string } | null
+        return r && typeof r.blockNumber === 'string' && Number(BigInt(r.blockNumber)) > head() ? null : r
+      },
+    }
+  }
+
+  /** The corroborating RPC's view of this chain (evidence only: it refuses broadcasts). */
+  corroboratorRpc() {
+    const view = this.corroborator
+    const up = () => {
+      this.corroboratorCalls++
+      if (view.unavailable) throw new Error('ETIMEDOUT (corroborating RPC unavailable)')
+    }
+    const head = () => Math.max(0, this.head - (view.headLag ?? 0))
+    return {
+      chainId: async () => { up(); return view.chainId ?? this.chainIdValue },
+      blockNumber: async () => { up(); return head() },
+      nonce: async (address: string, block: 'latest' | 'pending' | number) => {
+        up()
+        const override = await view.nonce?.(address, block)
+        if (override !== undefined) return override
+        return this.latestNonce(address, block === 'latest' || block === 'pending' ? head() : Math.min(block, head()))
+      },
+      estimateGas: async () => { throw new Error('the corroborating RPC is evidence only (estimateGas)') },
+      feeData: async () => { throw new Error('the corroborating RPC is evidence only (feeData)') },
+      sendRawTransaction: async () => { throw new Error('the corroborating RPC must never broadcast') },
+      receipt: async (hash: string) => {
+        up()
+        const override = view.receipt?.(hash)
+        if (override !== undefined) return override
+        const m = this.mined.get(hash)
+        if (!m || m.blockNumber > head()) return null
+        return { transactionHash: hash, blockNumber: `0x${m.blockNumber.toString(16)}`, blockHash: m.blockHash, status: m.status ? '0x1' : '0x0' }
+      },
     }
   }
 

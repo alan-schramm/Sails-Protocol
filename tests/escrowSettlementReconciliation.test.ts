@@ -192,7 +192,7 @@ jest.mock('../src/common/database', () => ({
     signatureCollectionFinalizationAttempt: { findUnique: (...args: unknown[]) => mockFinalizationAttemptFindUnique(...args) },
     // #235 R7G-F6B - the LOCK pass: no signed or legacy LOCK attempts and no halted lane by default.
     wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([]) },
-    wdkNonceLane: { findMany: jest.fn().mockResolvedValue([]) },
+    wdkLaneHalt: { findMany: jest.fn().mockResolvedValue([]) }, // #235 R7G-F6B-P1: halts replaced wdk_nonce_lanes.haltedAt
   },
 }))
 
