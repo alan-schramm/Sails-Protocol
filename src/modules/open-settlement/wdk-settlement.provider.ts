@@ -197,6 +197,36 @@ export class WdkSettlementProvider implements SettlementProvider {
     return configured
   }
 
+  private corroboratorClient: WdkRpc | null = null
+
+  /**
+   * #235 R7G-F6B-P1 — the corroborating endpoint (WDK_IRREVERSIBLE_RPC_CORROBORATION_V1): evidence authority
+   * only, never used to broadcast. Missing, or the same URL as the primary, means no irreversible WDK
+   * conclusion is available.
+   */
+  corroboratorRpc(): WdkRpc {
+    if (this.corroboratorClient) return this.corroboratorClient
+    const url = config.wdk.corroboratingRpcUrl
+    if (!url) throw new EscrowError('WDK_CORROBORATING_RPC_URL is not configured: no irreversible WDK conclusion can be reached', 'UNAVAILABLE')
+    if (url.toLowerCase() === config.wdk.rpcUrl.trim().toLowerCase()) {
+      throw new EscrowError('WDK_CORROBORATING_RPC_URL is the primary WDK_RPC_URL: it cannot corroborate anything', 'UNAVAILABLE')
+    }
+    if (!config.wdk.chainId) throw new EscrowError('WDK_USDT_EVM requires WDK_CHAIN_ID: no WDK economic operation runs on an unpinned chain', 'UNAVAILABLE')
+    if (config.wdk.rpcLabel === config.wdk.corroboratingRpcLabel) throw new EscrowError('WDK_RPC_LABEL and WDK_CORROBORATING_RPC_LABEL must name two different sources', 'UNAVAILABLE')
+    this.corroboratorClient = createWdkRpc(url, config.wdk.chainId)
+    return this.corroboratorClient
+  }
+
+  /** The corroborating endpoint must also serve exactly the pinned chain. */
+  async verifyCorroboratorNetwork(): Promise<WdkRpc> {
+    const rpc = this.corroboratorRpc()
+    const reported = await rpc.chainId()
+    if (reported !== BigInt(config.wdk.chainId as number)) {
+      throw new EscrowError(`WDK corroborating RPC serves chain ${reported}, but WDK_CHAIN_ID is ${config.wdk.chainId} — no corroborated conclusion`, 'UNAVAILABLE')
+    }
+    return rpc
+  }
+
   async treasuryAddress(): Promise<string> {
     return (await this.treasuryAccount()).getAddress()
   }

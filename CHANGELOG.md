@@ -19,6 +19,27 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-F6B-P1 — no irreversible WDK conclusion rests on one RPC; treasury lanes halt and resume under
+  governance; a stuck lowest nonce stops new signing.** CONFIRMED (→ FUNDS_LOCKED), a final REVERTED and
+  NONCE_CONSUMED_ELSEWHERE now need a second, distinct observer (`WDK_CORROBORATING_RPC_URL`, evidence only,
+  never broadcasts) to agree — same transaction, status, block number and block hash, final under the same
+  rule at its own head; for NONCE_CONSUMED_ELSEWHERE, the nonce consumed at a block final for both and no
+  receipt on either. Both source labels and the corroborator's head are persisted with the terminal state and
+  are immutable; the database refuses a terminal state without them. Missing, lagging or unreachable
+  corroboration leaves the attempt unresolved; a contradiction (`RPC_DISAGREEMENT`) is surfaced for review.
+  Unset corroborator: nothing becomes terminal (fail closed). Lane halts are now structured
+  (`wdk_lane_halts`: OPERATOR_PAUSE, STUCK_LOWEST_NONCE, SUSPECTED / PROVEN_EXTERNAL_NONCE_CONSUMPTION),
+  never deleted, cleared only with an append-only audit record (`wdk_lane_audit`) in the same transaction.
+  An operator removes only an operator pause, and only while no economic halt is active; economic halts
+  clear only through a mechanical resume (both RPCs agree on the final treasury nonce, nothing pending,
+  every signed transaction of the lane terminal), which realigns the lane forward to that nonce atomically —
+  no force option, no nonce setter (`npm run wdk:lane -- status|pause|unpause|resume|reconcile`).
+  `WDK_LANE_STUCK_BLOCKS` (no default): once the lowest unmined signed transaction has waited that many
+  blocks the lane halts — the transaction is not failed, reverted or replaced and keeps being rebroadcast.
+  The production network and confirmation depth remain unfrozen (CTO). Migration
+  `20261010120000_wdk_rpc_corroboration_lane_governance` (existing halts carried over);
+  `npm run wdk:lock-preflight` reports halts and the corroborator / threshold configuration.
+
 - **#235 R7G-F6B-P — WDK LOCK finality is evidenced, a single RPC never decides an irreversible anomaly, and
   a nonce lane advances only by allocation.** A signed LOCK becomes CONFIRMED / REVERTED only together with
   the evidence that made its receipt final — receipt block number and hash, observed head, and the rule

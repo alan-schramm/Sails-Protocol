@@ -731,6 +731,18 @@ export const config = {
     // default and no production value frozen yet: unset means a LOCK receipt is never final, so no WDK
     // escrow is ever projected FUNDS_LOCKED (it stays CREATED with its signed LOCK unresolved).
     finalityConfirmations: optionalPositiveInt('WDK_FINALITY_CONFIRMATIONS'),
+    // #235 R7G-F6B-P1 - WDK_IRREVERSIBLE_RPC_CORROBORATION_V1: a second RPC endpoint whose independent
+    // agreement every irreversible WDK conclusion requires (final CONFIRMED / REVERTED,
+    // NONCE_CONSUMED_ELSEWHERE, a lane realignment). Unset (or equal to WDK_RPC_URL) means none of those
+    // conclusions can be reached. Distinct URLs do not prove independent infrastructure - an operational
+    // assumption. Labels identify each source in durable evidence and audit (never the URL: it may carry a key).
+    corroboratingRpcUrl: (process.env.WDK_CORROBORATING_RPC_URL ?? '').trim(),
+    rpcLabel: (process.env.WDK_RPC_LABEL ?? '').trim() || 'primary',
+    corroboratingRpcLabel: (process.env.WDK_CORROBORATING_RPC_LABEL ?? '').trim() || 'corroborator',
+    // #235 R7G-F6B-P1 - WDK_LOWEST_UNRESOLVED_NONCE_BACKPRESSURE_V1: blocks a treasury lane's lowest
+    // unresolved signed transaction may stay unresolved before the lane stops signing new ones (operator
+    // review; never a failure). No default: unset means no stuck classification.
+    laneStuckBlocks: optionalPositiveInt('WDK_LANE_STUCK_BLOCKS'),
   },
 
   // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3

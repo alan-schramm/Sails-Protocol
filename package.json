@@ -40,6 +40,7 @@
     "multisig:preflight": "ts-node scripts/multisig-script-authority-preflight.ts",
     "wdk:account-preflight": "ts-node scripts/wdk-escrow-account-preflight.ts",
     "wdk:lock-preflight": "ts-node scripts/wdk-lock-authority-preflight.ts",
+    "wdk:lane": "ts-node scripts/wdk-lane.ts",
     "db:local:start": "node scripts/local-postgres.js start",
     "db:local:stop": "node scripts/local-postgres.js stop",
     "redis:local:start": "node scripts/local-redis.js start",
