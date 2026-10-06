@@ -460,8 +460,13 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
   // supported (immutable Guard contract)" proves the real rejection.
 })
 
-describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the same call, no separate binding step)', () => {
+// #235 R7G-F6B — WDK outbound settlement has no transaction authority until F6C, so every WDK ruling is
+// refused before destination resolution, the escrow claim or any provider call. The destination-authority
+// properties above are unchanged for the rails that execute (MOCK below; MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM
+// above) and return to this block when WDK outbound authority exists.
+describe('WDK_USDT_EVM — direct-call rail: outbound refused until its transaction authority exists (#235 F6C)', () => {
   const service = new DisputeService(new TrustedArbitratorProvider([ARBITER_ID]))
+  const refused = /WDK outbound settlement has no transaction authority yet/
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -472,65 +477,38 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
-  })
-
-  it('RELEASE: an arbiter-supplied wrong destination cannot override the buyer\'s registered PayoutAddress — resolution and execution happen in the same call', async () => {
-    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
     mockPayoutAddressFindUnique.mockResolvedValue({ address: '0xBuyerRegistered', participantId: BUYER_ID, asset: 'USDT_ERC20' })
-    mockWdkReleaseFunds.mockResolvedValue({ txId: 'wdk-tx-1' })
-    const [sig, issuedAt] = signResolution('RELEASE')
-
-    await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', '0xAttackerAddress', undefined, undefined, sig, issuedAt)
-
-    expect(mockWdkReleaseFunds.mock.calls[0][1]).toBe('0xBuyerRegistered')
   })
 
-  it('RELEASE: missing beneficiary destination fails closed before the provider is ever invoked', async () => {
-    mockPayoutAddressFindUnique.mockResolvedValue(null)
-    const [sig, issuedAt] = signResolution('RELEASE')
-
-    await expect(
-      service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, sig, issuedAt)
-    ).rejects.toThrow(/No payout address provided.*none is registered/)
+  const expectNothingExecuted = () => {
     expect(mockWdkReleaseFunds).not.toHaveBeenCalled()
+    expect(mockWdkRefundFunds).not.toHaveBeenCalled()
+    expect(mockWdkSplitFunds).not.toHaveBeenCalled()
+    expect(mockPayoutAddressFindUnique).not.toHaveBeenCalled()
+    expect(mockEscrowUpdateMany.mock.calls.filter(([arg]: any[]) => ['COMPLETED', 'REFUNDED', 'SPLIT'].includes(arg?.data?.status))).toHaveLength(0)
+  }
+
+  it('RELEASE ruling: refused before destination resolution, the escrow claim or the provider (even with an arbiter-supplied destination)', async () => {
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
+    const [sig, issuedAt] = signResolution('RELEASE')
+    await expect(service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', '0xAttackerAddress', undefined, undefined, sig, issuedAt)).rejects.toThrow(refused)
+    expectNothingExecuted()
   })
 
-  it('REFUND: has no caller-facing destination concept at all — returns to the protocol\'s own treasury, PayoutAddress is never consulted', async () => {
+  it('REFUND ruling: refused before the provider', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'FUNDS_LOCKED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'REFUND' })
-    // wdk-settlement.provider.ts's own real refundFunds() takes no
-    // destination parameter — it derives the treasury address internally
-    // (this.treasuryAccount()). The mock here mirrors that exact
-    // single-parameter shape; a second, caller-supplied argument (as an
-    // old caller's refundToAddress would have been) has nowhere to go.
-    mockWdkRefundFunds.mockResolvedValue({ txId: 'wdk-refund-1' })
     const [sig, issuedAt] = signResolution('REFUND')
-
-    const updated = await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'REFUND', undefined, 'attacker-controlled-seller-address', undefined, sig, issuedAt)
-
-    expect(updated!.status).toBe('RESOLVED')
-    expect(mockWdkRefundFunds).toHaveBeenCalledWith(expect.objectContaining({ id: ESCROW_ID }))
-    expect(mockWdkRefundFunds.mock.calls[0]).toHaveLength(1) // no destination argument at all
-    expect(mockPayoutAddressFindUnique).not.toHaveBeenCalled()
+    await expect(service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'REFUND', undefined, 'attacker-controlled-seller-address', undefined, sig, issuedAt)).rejects.toThrow(refused)
+    expectNothingExecuted()
   })
 
-  it('SPLIT: buyer and seller destinations are resolved independently, each from their own registered PayoutAddress, never the caller-supplied values', async () => {
+  it('SPLIT ruling: refused before destination resolution and the provider', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'SPLIT' })
-    mockPayoutAddressFindUnique.mockImplementation(({ where }: { where: { participantId_asset: { participantId: string; asset: string } } }) =>
-      Promise.resolve(
-        where.participantId_asset.participantId === BUYER_ID
-          ? { address: '0xBuyerRegistered', participantId: BUYER_ID, asset: 'USDT_ERC20' }
-          : { address: '0xSellerRegistered', participantId: SELLER_ID, asset: 'USDT_ERC20' }
-      )
-    )
-    mockWdkSplitFunds.mockResolvedValue({ txIds: ['wdk-split-buyer', 'wdk-split-seller'] })
     const [sig, issuedAt] = signResolution('SPLIT', 6000)
-
-    await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'SPLIT', '0xAttackerBuyer', '0xAttackerSeller', 6000, sig, issuedAt)
-
-    expect(mockWdkSplitFunds.mock.calls[0][1]).toBe('0xBuyerRegistered')
-    expect(mockWdkSplitFunds.mock.calls[0][2]).toBe('0xSellerRegistered')
+    await expect(service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'SPLIT', '0xAttackerBuyer', '0xAttackerSeller', 6000, sig, issuedAt)).rejects.toThrow(refused)
+    expectNothingExecuted()
   })
 })
 

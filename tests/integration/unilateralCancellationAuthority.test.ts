@@ -71,6 +71,10 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
         await tx.$executeRaw`DELETE FROM escrow_participant_keys WHERE "escrowId" = ANY(${escrowIds})`
         await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys ENABLE TRIGGER escrow_participant_keys_script_authority_guard')
         await tx.$executeRawUnsafe('ALTER TABLE escrow_participant_keys ENABLE TRIGGER escrow_participant_keys_arbiter_immutability_guard')
+        // #235 R7G-F6B - signed LOCK attempts cannot be deleted; test-owned rows only, re-enabled in the same transaction.
+        await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts DISABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
+        await tx.$executeRaw`DELETE FROM wdk_transfer_attempts WHERE "escrowId" = ANY(${escrowIds})`
+        await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts ENABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
       })
       for (let pass = 0; pass < 4; pass++) {
         for (const { table_name, column_name } of refs) {
@@ -153,6 +157,15 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
   const attempt = (escrowId: string, status: string, operationType = 'LOCK') =>
     prisma.wdkTransferAttempt.create({ data: { escrowId, operationType: operationType as any, status: status as any, destination: '0x' + 'ab'.repeat(20), amount: '5' } })
 
+  /** A SIGNED_RAW_V1 LOCK attempt in `status`, written past the signed-identity trigger (state fixture). */
+  const signedAttempt = (escrowId: string, status: string) => prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts DISABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
+    await tx.$executeRawUnsafe(
+      `INSERT INTO wdk_transfer_attempts (id, "escrowId", "operationType", status, destination, amount, authority, "chainId", "fromAddress", "tokenContract", nonce, "signedRawTx", "txHash", "updatedAt")
+       VALUES (gen_random_uuid()::text, $1, 'LOCK', $2::"WdkTransferAttemptStatus", '0x${'ab'.repeat(20)}', 5, 'SIGNED_RAW_V1', 31337, $4, '0x${'ef'.repeat(20)}', 0, '0x02', $3, now())`,
+      escrowId, status, '0x' + randomBytes(32).toString('hex'), '0x' + randomBytes(20).toString('hex')) // own signer: (chain, signer, nonce) is unique
+    await tx.$executeRawUnsafe('ALTER TABLE wdk_transfer_attempts ENABLE TRIGGER wdk_transfer_attempts_signed_identity_guard')
+  })
   const cancel = (n: Node, f: Fx, by: 'buyer' | 'seller' = 'buyer') => n.tradeService.updateStatus(f.t.id, 'CANCELLED', f[by].id)
   const keyOf = (n: Node, e: { id: string }, f: Fx, role: 'buyer' | 'seller') =>
     n.escrowService.submitParticipantKey(e.id, f[role].id, role === 'buyer' ? BUYER_PUBKEY : SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -305,15 +318,22 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
   it.each([
     ['WDK2 PREPARED (transfer() never called before SUBMISSION_UNKNOWN is durable)', 'PREPARED', true],
     ['WDK2 FAILED_BEFORE_SUBMISSION', 'FAILED_BEFORE_SUBMISSION', true],
-    ['WDK2 REVERTED (on-chain revert delivers nothing)', 'REVERTED', true],
+    // #235 R7G-F6B - a legacy transfer() REVERTED was written for any receipt status !== 1 (NF2): not proof.
+    ['WDK2 legacy REVERTED (old status !== 1 rule) no longer proves nothing moved', 'REVERTED', false],
     ['WDK3 SUBMISSION_UNKNOWN', 'SUBMISSION_UNKNOWN', false],
     ['WDK4 SUBMITTED', 'SUBMITTED', false],
     ['WDK5/WDK6 CONFIRMED while the escrow reads CREATED (lock reverted after the transfer)', 'CONFIRMED', false],
+    // #235 R7G-F6B - signed-raw LOCK attempts: a committed signed transaction is a bearer authorization.
+    ['F6B SIGNED (signed and persisted, never seen on-chain)', 'signed:SIGNED', false],
+    ['F6B SUBMITTED', 'signed:SUBMITTED', false],
+    ['F6B REVERTED (final receipt status 0)', 'signed:REVERTED', true],
+    ['F6B NONCE_CONSUMED_ELSEWHERE (operator review)', 'signed:NONCE_CONSUMED_ELSEWHERE', false],
   ])('%s', async (_label, state, allowed) => {
     pg.requirePostgres(String(_label))
     const f = await trade('wdk-a', 'USDT_ERC20', '5')
     const e = await fixtureEscrow(f, 'WDK_USDT_EVM', 'CREATED')
-    await attempt(e.id, state as string)
+    if (String(state).startsWith('signed:')) await signedAttempt(e.id, String(state).slice('signed:'.length))
+    else await attempt(e.id, state as string)
     if (allowed) {
       await cancel(node(), f) // C10: any node reads the same durable attempt truth
       expect((await tradeOf(f.t.id)).status).toBe('CANCELLED')

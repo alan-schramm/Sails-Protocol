@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import { reconcileWdkLocks, type LockReconcileReport } from './wdk-lock-authority'
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
@@ -98,6 +99,8 @@ export interface ReconciliationReport {
   projectionsRecovered: Array<{ escrowId: string; transitionId: string; action: 'REPUBLISHED' | 'REDELIVERED' }>
   // PASS 2: settlements found fully converged this run and marked verified — PASS 2 never claims them again.
   completionVerified: string[]
+  // #235 R7G-F6B - LOCK pass: signed WDK LOCK transactions advanced from durable state (never re-signed).
+  locksAdvanced: LockReconcileReport['locksAdvanced']
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -1109,7 +1112,7 @@ async function redriveClaimedTransitions(claimed: ClaimedTransition[], report: R
 export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -1138,6 +1141,9 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
       report.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
     }
   }
+
+  // #235 R7G-F6B - before PASS 3, so a LOCK projected here can be republished by it on a later run.
+  await reconcileWdkLocks(report)
 
   await reconcileIncompleteProjections(report, options.projectionGraceMs ?? PROJECTION_RECOVERY_GRACE_MS)
 

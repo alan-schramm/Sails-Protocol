@@ -105,18 +105,21 @@ beforeEach(() => {
   )
 })
 
-describe('lockFunds() — durable operation truth', () => {
+// #235 R7G-F6B — WDK LOCK is no longer a transfer() (wdk-lock-authority.ts signs, persists, then broadcasts).
+// The ensureAttempt()/executeTransfer() mechanism these tests prove still governs WDK outbound transfers
+// (dormant behind the F6C gate in escrow.service), so they run through releaseFunds() now.
+describe('executeTransfer() — durable operation truth (via releaseFunds)', () => {
   it('unknown outcome (provider throws with no hash) blocks blind retry — provider is never invoked a second time', async () => {
     mockAttemptFindFirst.mockResolvedValueOnce(null) // no prior attempt
     mockTransfer.mockRejectedValueOnce(new Error('simulated: response lost after submission'))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: response lost after submission')
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow('simulated: response lost after submission')
     expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUBMISSION_UNKNOWN' } }))
 
     // Retry: the durable row is now SUBMISSION_UNKNOWN.
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000' }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'SUBMISSION_UNKNOWN', destination: '0xBuyerDest', amount: '5.00000000' }))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/outcome is UNKNOWN/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/outcome is UNKNOWN/)
     // Dispositive: transfer() was invoked exactly once, ever.
     expect(mockTransfer).toHaveBeenCalledTimes(1)
   })
@@ -126,17 +129,17 @@ describe('lockFunds() — durable operation truth', () => {
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 0 })
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/reverted on-chain/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/reverted on-chain/)
     expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
 
     // A definitively reverted transfer proves no funds moved — a fresh
     // retry for the same logical operation is genuinely safe, unlike the
     // SUBMISSION_UNKNOWN case above.
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'REVERTED', destination: '0xEscrowAddr', amount: '5.00000000', txHash: '0xSIMULATED_TX' }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'REVERTED', destination: '0xBuyerDest', amount: '5.00000000', txHash: '0xSIMULATED_TX' }))
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX_2', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
 
-    const retried = await provider.lockFunds(escrow)
+    const retried = await provider.releaseFunds(escrow, '0xBuyerDest')
     expect(retried.txId).toBe('0xSIMULATED_TX_2')
     expect(mockTransfer).toHaveBeenCalledTimes(2)
   })
@@ -146,7 +149,7 @@ describe('lockFunds() — durable operation truth', () => {
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
 
-    const result = await provider.lockFunds(escrow)
+    const result = await provider.releaseFunds(escrow, '0xBuyerDest')
     expect(result.txId).toBe('0xSIMULATED_TX')
     expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
   })
@@ -156,26 +159,26 @@ describe('lockFunds() — durable operation truth', () => {
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValue(null) // never mined within the (small, test-bounded) poll window
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/not yet confirmed/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/not yet confirmed/)
     // Still SUBMITTED — no update call ever moved it to CONFIRMED or REVERTED.
     expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
     expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
   })
 
   it('a completed (CONFIRMED) operation is idempotently protected — resumed without ever calling transfer() again', async () => {
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'CONFIRMED', destination: '0xEscrowAddr', amount: '5.00000000', txHash: '0xALREADY_CONFIRMED' }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'CONFIRMED', destination: '0xBuyerDest', amount: '5.00000000', txHash: '0xALREADY_CONFIRMED' }))
 
-    const result = await provider.lockFunds(escrow)
+    const result = await provider.releaseFunds(escrow, '0xBuyerDest')
     expect(result.txId).toBe('0xALREADY_CONFIRMED')
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 
   it('a stale PREPARED row (process crashed before the pre-submission commit was ever written) is durably reused, not duplicated — crash/restart survives on persisted state alone', async () => {
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-stale', status: 'PREPARED', destination: '0xEscrowAddr', amount: '5.00000000' }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-stale', status: 'PREPARED', destination: '0xBuyerDest', amount: '5.00000000' }))
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
 
-    await provider.lockFunds(escrow)
+    await provider.releaseFunds(escrow, '0xBuyerDest')
 
     // No new attempt row was created — the existing PREPARED row (the
     // only durable evidence of the pre-crash intent) was reused. Nothing
@@ -196,9 +199,9 @@ describe('lockFunds() — durable operation truth', () => {
     // actually been broadcast — Sails cannot tell, which is the whole
     // point). The retry after that simulated crash/restart must never
     // reach transfer() at all.
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-crashed', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000' }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-crashed', status: 'SUBMISSION_UNKNOWN', destination: '0xBuyerDest', amount: '5.00000000' }))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/outcome is UNKNOWN/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/outcome is UNKNOWN/)
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 
@@ -213,7 +216,7 @@ describe('lockFunds() — durable operation truth', () => {
       .mockResolvedValueOnce({ count: 1 }) // PREPARED -> SUBMISSION_UNKNOWN
       .mockRejectedValueOnce(new Error('simulated: DB write failure recording SUBMITTED'))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: DB write failure recording SUBMITTED')
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow('simulated: DB write failure recording SUBMITTED')
     // transfer() genuinely ran and returned a real hash — but it was
     // never durably recorded. The row's last SUCCESSFUL write is still
     // the pre-commit's SUBMISSION_UNKNOWN.
@@ -222,9 +225,9 @@ describe('lockFunds() — durable operation truth', () => {
     // Retry: the row is found exactly where the failed write left it —
     // SUBMISSION_UNKNOWN, with no txHash ever durably recorded, even
     // though transfer() itself genuinely succeeded once already.
-    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-new', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000', txHash: null }))
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-new', status: 'SUBMISSION_UNKNOWN', destination: '0xBuyerDest', amount: '5.00000000', txHash: null }))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/outcome is UNKNOWN/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/outcome is UNKNOWN/)
     // Dispositive: transfer() was invoked exactly once, ever, across both
     // calls — the DB write failure did not cause a second real transfer.
     expect(mockTransfer).toHaveBeenCalledTimes(1)
@@ -237,13 +240,13 @@ describe('SUBMITTED reconciliation — idempotent execution truth', () => {
     mockAttemptFindFirst.mockResolvedValueOnce(row({
       id: 'attempt-submitted',
       status: 'SUBMITTED',
-      destination: '0xEscrowAddr',
+      destination: '0xBuyerDest',
       amount: '5.00000000',
       txHash: '0xPERSISTED_TX',
     }))
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
 
-    const result = await provider.lockFunds(escrow)
+    const result = await provider.releaseFunds(escrow, '0xBuyerDest')
 
     expect(result.txId).toBe('0xPERSISTED_TX')
     expect(mockTransfer).not.toHaveBeenCalled()
@@ -257,7 +260,7 @@ describe('SUBMITTED reconciliation — idempotent execution truth', () => {
     mockAttemptFindFirst.mockResolvedValueOnce(row({
       id: 'attempt-submitted',
       status: 'SUBMITTED',
-      destination: '0xEscrowAddr',
+      destination: '0xBuyerDest',
       amount: '5.00000000',
       txHash: '0xPERSISTED_TX',
     }))
@@ -266,13 +269,33 @@ describe('SUBMITTED reconciliation — idempotent execution truth', () => {
     mockAttemptFindUnique.mockResolvedValueOnce(row({
       id: 'attempt-submitted',
       status: 'CONFIRMED',
-      destination: '0xEscrowAddr',
+      destination: '0xBuyerDest',
       amount: '5.00000000',
       txHash: '0xPERSISTED_TX',
     }))
 
-    await expect(provider.lockFunds(escrow)).rejects.toThrow(/transition ownership lost/)
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/transition ownership lost/)
     expect(mockTransfer).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('#235 R7G-F6B — NF2: only receipt status 1 / 0 decide', () => {
+  it.each([[null], [undefined], [2]])('a SUBMITTED attempt whose receipt status is %p stays unresolved — no REVERTED, no new generation, no transfer()', async (status) => {
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-submitted', status: 'SUBMITTED', destination: '0xBuyerDest', amount: '5.00000000', txHash: '0xPERSISTED_TX' }))
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status })
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/no recognizable status/)
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(mockAttemptCreate).not.toHaveBeenCalled()
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+  })
+
+  it('a fresh broadcast whose receipt has no recognizable status is reported pending, never reverted', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(null)
+    mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
+    mockGetTransactionReceipt.mockResolvedValue({ status: null })
+    await expect(provider.releaseFunds(escrow, '0xBuyerDest')).rejects.toThrow(/not yet confirmed/)
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
   })
 })
 

@@ -87,9 +87,8 @@ describe('every WDK operation derives the persisted path (WDK_ESCROW_ACCOUNT_STA
   it('lock, release, refund, split and reconciliation all use exactly wdkAccountPath — two escrows of colliding trades get two accounts', async () => {
     const a = allocated(4)
     const b = allocated(9)
-    await wdkSettlementProvider.lockFunds(a)
-    await wdkSettlementProvider.lockFunds(b)
-    expect(mockTransfer.mock.calls.map((c) => c[1].recipient)).toEqual(["addr:1'/0/4", "addr:1'/0/9"])
+    // #235 R7G-F6B - the LOCK recipient (signed by wdk-lock-authority.ts) is escrowAddress()
+    expect([await wdkSettlementProvider.escrowAddress(a), await wdkSettlementProvider.escrowAddress(b)]).toEqual(["addr:1'/0/4", "addr:1'/0/9"])
 
     derivedPaths.length = 0
     await wdkSettlementProvider.releaseFunds(a, '0xbuyer')
@@ -97,14 +96,15 @@ describe('every WDK operation derives the persisted path (WDK_ESCROW_ACCOUNT_STA
     await wdkSettlementProvider.splitFunds(a, '0xbuyer', '0xseller', 5000)
     expect(derivedPaths.filter((p) => !p.startsWith("0'/0/0"))).toEqual(["1'/0/4", "1'/0/4", "1'/0/4"])
     // the source of every outbound transfer is the persisted account
-    expect(mockTransfer.mock.calls.slice(2).map((c) => c[0])).toEqual(["1'/0/4", "1'/0/4", "1'/0/4", "1'/0/4"])
+    expect(mockTransfer.mock.calls.map((c) => c[0])).toEqual(["1'/0/4", "1'/0/4", "1'/0/4", "1'/0/4"])
   })
 
   it('M14/M20: replacing the historical trade-hash derivation changes nothing — it is not consulted', async () => {
     const legacyPath = `0'/0/${escrowIndexFor(COLLIDING[0])}`
     const spy = jest.spyOn(provider, 'escrowIndexFor').mockReturnValue(123)
     try {
-      await wdkSettlementProvider.lockFunds(allocated(4))
+      await wdkSettlementProvider.escrowAddress(allocated(4))
+      await wdkSettlementProvider.refundFunds(allocated(4))
       expect(spy).not.toHaveBeenCalled()
     } finally {
       spy.mockRestore()
@@ -120,9 +120,16 @@ describe('every WDK operation derives the persisted path (WDK_ESCROW_ACCOUNT_STA
   })
 
   it('an escrow without a persisted identity is refused before any wallet derivation or transfer', async () => {
-    await expect(wdkSettlementProvider.lockFunds({ id: 'bare', tradeId: COLLIDING[0], lockedAmount: '5' })).rejects.toThrow(/no valid persisted account identity/)
+    await expect(wdkSettlementProvider.escrowAddress({ id: 'bare' })).rejects.toThrow(/no valid persisted account identity/)
     await expect(wdkSettlementProvider.releaseFunds({ id: 'bare', tradeId: COLLIDING[0], lockedAmount: '5' }, '0xbuyer')).rejects.toThrow(/no valid persisted account identity/)
     expect(derivedPaths.filter((p) => p !== "0'/0/0")).toEqual([])
+    expect(mockTransfer).not.toHaveBeenCalled()
+  })
+})
+
+describe('#235 R7G-F6B — the provider no longer locks through transfer()', () => {
+  it('lockFunds() refuses: a WDK LOCK is signed and persisted by the LOCK authority only', async () => {
+    await expect(wdkSettlementProvider.lockFunds(allocated(4))).rejects.toThrow(/executed only by the signed-transaction LOCK authority/)
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 })
@@ -136,7 +143,7 @@ describe('address assertion — a persisted economic address must be what the pa
   it('mismatch: fails closed before transfer(), neither side corrected', async () => {
     const e = allocated(4, { multisigAddr: "addr:1'/0/5" })
     await expect(wdkSettlementProvider.releaseFunds(e, '0xbuyer')).rejects.toThrow(/derives addr:1'\/0\/4, not its persisted address addr:1'\/0\/5/)
-    await expect(wdkSettlementProvider.lockFunds(e)).rejects.toThrow(/not its persisted address/)
+    await expect(wdkSettlementProvider.escrowAddress(e)).rejects.toThrow(/not its persisted address/)
     expect(mockTransfer).not.toHaveBeenCalled()
     expect(e.multisigAddr).toBe("addr:1'/0/5")
     expect(e.wdkAccountPath).toBe("1'/0/4")

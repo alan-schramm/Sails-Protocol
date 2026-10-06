@@ -772,6 +772,13 @@ enum WdkTransferOperationType {
 // own disclosed residual explains why a finer distinction isn't made).
 // CONFIRMED/REVERTED are only ever reached from SUBMITTED, via a real
 // receipt query (wdk-execution-truth.ts).
+//
+// #235 R7G-F6B - signed-raw LOCK attempts (authority SIGNED_RAW_V1) use: PREPARED (intent recorded, nothing
+// signed) -> FAILED_BEFORE_SUBMISSION (a mechanically pre-broadcast failure; nothing signed) | SIGNED (the
+// exact signed transaction and its nonce are durable; it may already have been broadcast, by any node) ->
+// SUBMITTED (an RPC returned its hash) -> CONFIRMED / REVERTED (receipt status 1 / 0 with the configured
+// finality depth) | NONCE_CONSUMED_ELSEWHERE (its nonce is final on-chain with a different transaction;
+// operator review). SUBMISSION_UNKNOWN is never written for them.
 enum WdkTransferAttemptStatus {
   PREPARED
   SUBMITTED
@@ -779,6 +786,16 @@ enum WdkTransferAttemptStatus {
   CONFIRMED
   REVERTED
   FAILED_BEFORE_SUBMISSION
+  SIGNED
+  NONCE_CONSUMED_ELSEWHERE
+}
+
+// #235 R7G-F6B - how an attempt's economic transaction is identified. LEGACY_TRANSFER_V0: WDK transfer()
+// (nonce chosen by the RPC, hash known only after broadcast; every row written before this migration).
+// SIGNED_RAW_V1: Sails allocated the nonce and persisted the exact signed transaction before broadcasting it.
+enum WdkAttemptAuthority {
+  LEGACY_TRANSFER_V0
+  SIGNED_RAW_V1
 }
 
 // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — durable
@@ -820,6 +837,16 @@ model WdkTransferAttempt {
   amount        Decimal                  @db.Decimal(24, 8)
   chainId       Int?
   txHash        String?
+  // #235 R7G-F6B - WDK_SIGNED_TRANSACTION_IDENTITY_V1 (SIGNED_RAW_V1 rows): the signing account, the token
+  // contract, the nonce allocated from WdkNonceLane and the exact signed transaction, all written once in
+  // the transaction that allocates the nonce, before any broadcast. A database trigger makes them (and
+  // escrowId/operationType/destination/amount/chainId/txHash/authority) immutable once signed; partial
+  // unique indexes on txHash and (chainId, fromAddress, nonce) cover SIGNED_RAW_V1 rows. See the migration.
+  authority     WdkAttemptAuthority      @default(LEGACY_TRANSFER_V0)
+  fromAddress   String?
+  tokenContract String?
+  nonce         BigInt?
+  signedRawTx   String?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   // Exactly one row per logical operation may own submission authority.
@@ -834,6 +861,23 @@ model WdkTransferAttempt {
   // createdAt.
   @@index([escrowId, operationType, createdAt])
   @@map("wdk_transfer_attempts")
+}
+
+// #235 R7G-F6B - TREASURY_NONCE_AUTHORITY_V1: the next nonce Sails may sign with for one (chain, account).
+// Allocated under this row's lock, in the same transaction that persists the signed transaction using it;
+// never decreases (trigger). Initialized once from the chain; any later evidence that the account's chain
+// nonce went past what Sails allocated halts the lane (haltedAt/haltedReason) until an operator reviews it.
+model WdkNonceLane {
+  chainId      Int
+  account      String
+  nextNonce    BigInt
+  haltedAt     DateTime?
+  haltedReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@id([chainId, account])
+  @@map("wdk_nonce_lanes")
 }
 
 // Issue #240 - durable pre/post-submission evidence for the LIGHTNING_HODL/SAFE_GUARD_EVM finalize

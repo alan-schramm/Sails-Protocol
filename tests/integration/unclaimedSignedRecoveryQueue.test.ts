@@ -38,8 +38,8 @@ function deferred(): Deferred {
   return { promise, resolve }
 }
 
-type Report = { recovered: any[]; completionEffectsRecovered: any[]; requiresManualReview: Array<{ escrowId: string; reason: string }>; failed: Array<{ escrowId: string; error: string }>; resumedUnclaimed: Array<{ escrowId: string; txId: string; outcome: string }>; alreadyClaimedConcurrently: string[]; projectionsRecovered: any[]; completionVerified: string[] }
-const newReport = (): Report => ({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [] })
+type Report = { recovered: any[]; completionEffectsRecovered: any[]; requiresManualReview: Array<{ escrowId: string; reason: string }>; failed: Array<{ escrowId: string; error: string }>; resumedUnclaimed: Array<{ escrowId: string; txId: string; outcome: string }>; alreadyClaimedConcurrently: string[]; projectionsRecovered: any[]; completionVerified: string[]; locksAdvanced: any[] }
+const newReport = (): Report => ({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [] })
 
 type Answer = 'exists' | 'fail' | 'hang' | 'unknown'
 

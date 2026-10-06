@@ -13,17 +13,12 @@
  * escrow locks, so the evidence cannot change while it is evaluated.
  */
 import type { Prisma } from '@prisma/client'
+import { wdkAttemptIsNonEconomic } from './wdk-attempt-economics'
 
-/**
- * WdkTransferAttempt states that prove the attempt's transfer() was never
- * submitted or delivered nothing (wdk-execution-truth.ts): PREPARED is only
- * ever followed by transfer() after markSubmissionAttempted() has durably
- * written SUBMISSION_UNKNOWN; FAILED_BEFORE_SUBMISSION and REVERTED are the
- * states ensureAttempt() itself treats as safe to retry from. Every other state
- * (SUBMISSION_UNKNOWN, SUBMITTED, CONFIRMED, or any future value) means funds
- * may have moved.
- */
-const WDK_NON_ECONOMIC_ATTEMPT_STATES: ReadonlySet<string> = new Set(['PREPARED', 'FAILED_BEFORE_SUBMISSION', 'REVERTED'])
+// #235 R7G-F6B — which WdkTransferAttempt states prove no funds can exist is decided by
+// wdkAttemptIsNonEconomic() (wdk-attempt-economics.ts): nothing signed (PREPARED, FAILED_BEFORE_SUBMISSION),
+// or a signed transaction final with status 0. A committed signed transaction that has not been mined is a
+// bearer authorization and blocks; a legacy REVERTED (the old status !== 1 rule) no longer proves anything.
 
 /** Returns why the trade can no longer be revoked unilaterally, or null while it can. */
 export async function unilateralRevocationBlocker(
@@ -40,8 +35,8 @@ export async function unilateralRevocationBlocker(
       // then on it can be funded without the server observing it.
       return escrow.multisigAddr ? 'its escrow has a funding address, which may already hold funds' : null
     case 'WDK_USDT_EVM': {
-      const attempts = await tx.wdkTransferAttempt.findMany({ where: { escrowId: escrow.id }, select: { status: true } })
-      const economic = attempts.find((a) => !WDK_NON_ECONOMIC_ATTEMPT_STATES.has(a.status))
+      const attempts = await tx.wdkTransferAttempt.findMany({ where: { escrowId: escrow.id }, select: { status: true, authority: true } })
+      const economic = attempts.find((a) => !wdkAttemptIsNonEconomic(a))
       return economic ? `its escrow has a ${economic.status} transfer attempt, so funds may have moved` : null
     }
     default:

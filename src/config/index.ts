@@ -43,6 +43,12 @@ function requiredPositiveInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Same strict parsing, but with no fallback: an unset or empty variable (the .env.example convention) is
+// `undefined` (not configured), never a silently chosen value.
+function optionalPositiveInt(name: string): number | undefined {
+  return (process.env[name] ?? '').trim() === '' ? undefined : requiredPositiveInt(name, 1)
+}
+
 // Node clamps any timer delay above 2^31-1 ms (about 24.8 days) to 1 ms with
 // only a warning, so a too-large scheduler interval would become a hot loop.
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -718,6 +724,13 @@ export const config = {
     // for the explicit residual this leaves for future hardening.
     receiptPollAttempts: Number(process.env.WDK_RECEIPT_POLL_ATTEMPTS ?? 10),
     receiptPollIntervalMs: Number(process.env.WDK_RECEIPT_POLL_INTERVAL_MS ?? 3000),
+    // #235 R7G-F6B - WDK_CHAIN_ID_PINNING_V1: the chain every WDK transaction is signed for. No default:
+    // unset means WDK economic operations are refused, and the RPC must report exactly this chain.
+    chainId: optionalPositiveInt('WDK_CHAIN_ID'),
+    // #235 R7G-F6B - blocks (receipt block included) a LOCK receipt must have before it is final. No
+    // default and no production value frozen yet: unset means a LOCK receipt is never final, so no WDK
+    // escrow is ever projected FUNDS_LOCKED (it stays CREATED with its signed LOCK unresolved).
+    finalityConfirmations: optionalPositiveInt('WDK_FINALITY_CONFIRMATIONS'),
   },
 
   // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3
