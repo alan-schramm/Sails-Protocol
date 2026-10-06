@@ -72,7 +72,7 @@ jest.mock('../src/common/database', () => ({
 import { WdkSettlementProvider } from '../src/modules/open-settlement/wdk-settlement.provider'
 
 const provider = new WdkSettlementProvider()
-const escrow = { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '5' }
+const escrow = { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '5', wdkAccountScheme: 'ALLOCATED_V1', wdkAccountPath: "1'/0/7" }
 
 // A minimal, growable in-memory row shape mirroring what the real
 // PrismaWdkTransferAttemptRepository would return — `amount` is a plain
