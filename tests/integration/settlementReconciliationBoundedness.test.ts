@@ -533,28 +533,141 @@ describe('Settlement reconciliation PASS 1/2 — bounded runs, durable fair prog
       for (const id of stuck.slice(0, 5)) expect(await verified(id)).toBe(false)
     })
 
-    it('G/H — progress survives a restart, and two instances take disjoint batches of the same backlog', async () => {
+    // Corrected 2026-10-07 (#235 R7G-F6B CI determinism): this test asserted that two instances running at
+    // once always take DISJOINT batches. The claim does not promise that and never did (escrow-repository.ts
+    // claimRecoveryQueue(): SKIP LOCKED "only saves duplicate work"; dispute-dispatch-recovery.ts and
+    // eventProjectionClaims.test.ts say the same): under READ COMMITTED, an instance whose claim statement
+    // took its snapshot before another instance's claim committed, and reaches those rows after it did,
+    // finds them unlocked, re-checks the queue predicate on the newest version (still true) and claims them
+    // again. CI hit exactly that (run 37519165057 attempt 1, and 37387049657 attempt 1 at 1b8ac51: 50 of 100).
+    // The product invariant is: bounded runs, progress across restarts, every queued escrow reached, and a
+    // completion that happens exactly once however many instances visit it. This test FORCES the overlap and
+    // proves that invariant on it, instead of depending on whether the scheduler produced the overlap.
+    //
+    // How the overlap is forced: instance C's claim runs the PASS 2 claim statement of escrow-repository.ts
+    // verbatim (checked against the source below) plus one constant sort key that calls a barrier function.
+    // The sort key is evaluated for every queued row while the statement scans - after its snapshot, before
+    // it locks anything - so C is parked there on an advisory lock while instance B claims and commits.
+    it('G/H — progress survives a restart; two instances can be handed the same PASS 2 work (forced READ COMMITTED overlap), and the completion still happens exactly once', async () => {
       requirePostgres('PASS 2 restart and two instances')
+      const CLAIM = `WITH picked AS (
+            SELECT e.id FROM escrows e
+            WHERE e.status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND e."txReleaseId" IS NOT NULL AND e."completionVerifiedAt" IS NULL
+            ORDER BY e."settlementRecoveryAttemptedAt" ASC NULLS FIRST, e."updatedAt" DESC, e.id
+            LIMIT ${'${limit}'}
+            FOR UPDATE OF e SKIP LOCKED
+          )
+          UPDATE escrows e SET "settlementRecoveryAttemptedAt" = ${'${stampedAt}'}
+          FROM picked WHERE e.id = picked.id
+          RETURNING e.id`
+      const squash = (sql: string) => sql.replace(/\s+/g, ' ').trim()
+      const source = require('fs').readFileSync(require('path').join(__dirname, '../../src/modules/open-settlement/escrow-repository.ts'), 'utf8')
+      expect(squash(source)).toContain(squash(CLAIM)) // the statement C runs is the product's, not a look-alike
+      const BARRIER = 7_235_001 // advisory key owned by this test
+      const parkedClaim = squash(CLAIM)
+        .replace('e."updatedAt" DESC, e.id LIMIT', 'e."updatedAt" DESC, e.id, test_srb_claim_barrier() LIMIT')
+        .replace('${limit}', '$1').replace('${stampedAt}', '$2')
+      expect(parkedClaim).toContain('test_srb_claim_barrier()')
+
       const a = startNode()
       await observeLeftovers(a)
-      const backlog: string[] = []
-      for (let i = 0; i < BATCH * 3; i++) backlog.push(await completionStuck())
+      // Queue order is never-attempted first, most recently settled first. Created oldest first: tail,
+      // recoverable, head (A's batch).
+      const tail: string[] = []
+      for (let i = 0; i < BATCH; i++) tail.push(await completionStuck())
+      const recoverable = await completionMissing()
+      const head: string[] = []
+      for (let i = 0; i < BATCH; i++) head.push(await completionStuck())
+      const backlog = [...tail, recoverable.escrowId, ...head]
 
+      // ── restart: A's run claims one bounded batch, then A is gone ──
       const sinceA = Date.now()
       await a.reconcile()
       const byA = await claimedSince(backlog, sinceA)
+      expect(byA.sort()).toEqual([...head].sort())
       await stop(a)
 
+      // ── two fresh instances, overlap forced ──
       const b = startNode()
       const c = startNode()
-      const since = Date.now()
-      await Promise.all([b.reconcile(), c.reconcile()])
-      const byBC = await claimedSince(backlog, since)
+      await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION test_srb_claim_barrier() RETURNS int AS $$
+        BEGIN PERFORM pg_advisory_xact_lock_shared(${BARRIER}); RETURN 0; END; $$ LANGUAGE plpgsql VOLATILE`)
+      const holding = deferred()
+      const releaseBarrier = deferred()
+      const barrier = prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BARRIER})`
+        holding.resolve()
+        await releaseBarrier.promise
+      }, { timeout: 300_000 })
+      try {
+        await holding.promise
+        const go = deferred()
+        const [byB, byC]: [string[], string[]] = [[], []]
+        const [bClaimed, cClaimed] = [deferred(), deferred()]
+        // B: the product claim, untouched. Captured as it returns, then held.
+        const originalB = b.repo.claimCompletionVerificationBatch.bind(b.repo)
+        jest.spyOn(b.repo, 'claimCompletionVerificationBatch').mockImplementationOnce(async (...args: unknown[]) => {
+          const rows = await originalB(...args)
+          byB.push(...rows.map((r: { id: string }) => r.id))
+          bClaimed.resolve()
+          await go.promise
+          return rows
+        })
+        // C: the same statement, parked by the barrier; then the same row load as the product claim.
+        jest.spyOn(c.repo, 'claimCompletionVerificationBatch').mockImplementationOnce(async (limit: unknown) => {
+          const claimed = await prisma.$queryRawUnsafe<Array<{ id: string }>>(parkedClaim, limit, new Date())
+          const rows = claimed.length === 0 ? [] : await prisma.escrow.findMany({ where: { id: { in: claimed.map((row) => row.id) } } })
+          byC.push(...rows.map((r: { id: string }) => r.id))
+          cClaimed.resolve()
+          await go.promise
+          return rows
+        })
 
-      expect(byA).toHaveLength(BATCH)
-      expect(byBC).toHaveLength(BATCH * 2) // disjoint: two full batches, none of them repeated
-      expect(byBC.filter((id) => byA.includes(id))).toEqual([])
-      expect(new Set([...byA, ...byBC])).toEqual(new Set(backlog))
+        const runC = c.reconcile()
+        let settledC = false
+        void runC.then(() => { settledC = true }, () => { settledC = true })
+        const parked = async () => (await prisma.$queryRaw<Array<{ n: number }>>`
+          SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND objid = ${BARRIER} AND NOT granted`)[0].n === 1
+        while (!(await parked())) {
+          if (settledC) throw new Error('instance C finished without reaching the claim barrier')
+          await new Promise((r) => setImmediate(r))
+        }
+        // C's snapshot is taken and it holds no row lock: B claims the head of the queue and commits.
+        const runB = b.reconcile()
+        await reachedOrSettled(bClaimed.promise, runB, 'instance B claiming')
+        // C resumes with its older snapshot and locks B's rows, unlocked by now.
+        releaseBarrier.resolve()
+        await barrier
+        await reachedOrSettled(cClaimed.promise, runC, 'instance C claiming')
+
+        // Bounded, and NOT disjoint: both were handed the same batch, deliberately.
+        expect(byB).toHaveLength(BATCH)
+        expect(byC).toHaveLength(BATCH)
+        expect([...byC].sort()).toEqual([...byB].sort())
+        expect(byB).toContain(recoverable.escrowId)
+        expect([...byB, ...byC].filter((id) => byA.includes(id))).toEqual([]) // nothing of A's batch is redone before the rest of the queue
+
+        // Both instances now work through the same batch at the same time.
+        go.resolve()
+        const [reportB, reportC] = await Promise.all([runB, runC])
+        expect([...reportB.failed, ...reportC.failed].filter((f: any) => backlog.includes(f.escrowId))).toEqual([])
+        // Exactly once, from durable facts (a report may list an escrow both instances visited).
+        expect(await completionEvents(recoverable.escrowId)).toBe(1)
+        expect(await durableCompletionEvents(recoverable.tradeId)).toBe(1)
+        expect(await verified(recoverable.escrowId)).toBe(true)
+        expect((await escrowOf(recoverable.escrowId)).status).toBe('COMPLETED')
+        for (const id of byB.filter((id) => id !== recoverable.escrowId).slice(0, 5)) expect(await verified(id)).toBe(false) // never-converging rows stay queued
+      } finally {
+        releaseBarrier.resolve()
+        await barrier.catch(() => undefined)
+        await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS test_srb_claim_barrier()')
+      }
+
+      // Eventual progress: whatever the overlap cost this round, every queued escrow is reached.
+      const reached = async () => (await claimedSince(backlog, sinceA)).length === backlog.length
+      await runUntil(b, reached, await lapBound(), 'every queued escrow claimed after the overlap')
+      expect(await completionEvents(recoverable.escrowId)).toBe(1)
+      expect(await durableCompletionEvents(recoverable.tradeId)).toBe(1)
     })
 
     it('I — a stale worker that claimed a settlement with missing effects resumes after another instance completed and verified it: one completion event, never two', async () => {

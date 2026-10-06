@@ -191,6 +191,11 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     expect(mockState.sendTransactionCalls).toBe(0)
     A.config.wdk.laneStuckBlocks = undefined // #235 R7G-F6B-P1: the stuck threshold is set per test only
     await withTriggersOff(async (tx) => { await tx.$executeRaw`DELETE FROM wdk_transfer_attempts WHERE "escrowId" = ANY(${testEscrows})` })
+    // Release this test's extra nodes. Each holds a whole application graph, and a finished test file's
+    // context stays reachable for the rest of the jest process (global.__prisma's adapter -> a captured stack),
+    // so graphs kept until afterAll stayed retained across the whole PostgreSQL lane (~330 MB, measured: #235
+    // R7G-F6B CI run 37519165057 attempt 2 ran out of heap). They share A's Prisma client: only Redis is theirs.
+    for (const n of extra.splice(0)) await n.redis?.quit().catch(() => undefined)
   })
 
   async function fx(label: string, amount = '5') {
