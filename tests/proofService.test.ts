@@ -462,6 +462,33 @@ describe('Issue #300 — inline OpenProof resource bounds', () => {
     expect(() => assertInlineEvidenceResourceBounds({ x: exact.x + 'a' })).toThrow(/256 KiB/)
   })
 
+  it('counts the 256 KiB policy in UTF-8 bytes for multibyte Unicode', () => {
+    const overhead = Buffer.byteLength(JSON.stringify({ x: '' }), 'utf8')
+    const glyph = 'é'
+    const glyphBytes = Buffer.byteLength(glyph, 'utf8')
+    const count = Math.floor((INLINE_EVIDENCE_MAX_UTF8_BYTES - overhead) / glyphBytes)
+    const within = { x: glyph.repeat(count) }
+    expect(Buffer.byteLength(JSON.stringify(within), 'utf8')).toBeLessThanOrEqual(INLINE_EVIDENCE_MAX_UTF8_BYTES)
+    expect(() => assertInlineEvidenceResourceBounds(within)).not.toThrow()
+    expect(() => assertInlineEvidenceResourceBounds({ x: within.x + glyph })).toThrow(/256 KiB/)
+  })
+
+  it('rejects adversarial depth structurally before JSON serialization', () => {
+    const originalStringify = JSON.stringify
+    const stringifySpy = jest.spyOn(JSON, 'stringify')
+    const tooDeep: unknown[] = []
+    let cursor = tooDeep
+    for (let i = 1; i < INLINE_EVIDENCE_MAX_DEPTH + 1; i += 1) {
+      const next: unknown[] = []
+      cursor.push(next)
+      cursor = next
+    }
+    expect(() => assertInlineEvidenceResourceBounds(tooDeep)).toThrow(/depth-32/)
+    expect(stringifySpy).not.toHaveBeenCalled()
+    stringifySpy.mockImplementation(originalStringify)
+    stringifySpy.mockRestore()
+  })
+
   it('accepts depth 32 and rejects depth 33', () => {
     const nested = (depth: number) => {
       let value: unknown = 'leaf'
