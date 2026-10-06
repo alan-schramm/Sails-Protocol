@@ -137,6 +137,8 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
     // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
     eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // #235 R7G-B1 - lockFunds() re-reads the trade's status under the trade-lifecycle lock before its claim.
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
   })
 )
 

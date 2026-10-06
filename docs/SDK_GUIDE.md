@@ -263,7 +263,7 @@ interface SailsClient {
     trade(offerId: string, amount: string): Promise<Trade>   // requires an active session — note the required amount, a real deviation from an earlier two-arg draft of this signature
     getTrade(tradeId: string): Promise<Trade>
     getTradeByIntent(intentId: string): Promise<Trade>
-    updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
+    updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session; #235 R7G-B1: CANCELLED is refused (400) once funds may exist for the trade — an escrow past CREATED, a MULTISIG escrow with a deposit address, or a WDK escrow with a possibly-submitted transfer — use refund/dispute/settlement instead
     chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
     reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<TradeReconciliation>   // requires an active session — RFC-011 client-side reconciliation: current trade/escrow status + messages missed since the given timestamp

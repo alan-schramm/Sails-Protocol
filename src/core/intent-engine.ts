@@ -25,6 +25,7 @@
  * with the real `intentEngine` export's own call sites unchanged.
  */
 import { createHash } from 'crypto'
+import type { Prisma } from '@prisma/client'
 import { config } from '../config'
 import { ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
 import { eventBus } from '../common/events/event-bus'
@@ -75,6 +76,19 @@ export interface IntentEngine {
     eventPayload: SailsEventMap[K],
     note?: string
   ): Promise<Intent>
+  // #235 R7G-B1 - transition()'s durable half inside a caller's transaction,
+  // so the Intent changes only if the caller's own write commits: validation
+  // (an expired Intent is refused, never marked here), the CAS claim and the
+  // audit-trail entry go through `tx`. Returns the event publication, to run
+  // only after that transaction has committed.
+  transitionInTransaction<K extends SailsEventName>(
+    tx: Prisma.TransactionClient,
+    intentId: string,
+    toStatus: IntentStatus,
+    triggeredBy: string,
+    eventName: K,
+    eventPayload: SailsEventMap[K],
+  ): Promise<() => Promise<void>>
 }
 
 const handlers = new Map<IntentType, IntentHandler>()
@@ -173,7 +187,34 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     return updated as unknown as Intent
   }
 
+  async function transitionInTransaction<K extends SailsEventName>(
+    tx: Prisma.TransactionClient,
+    intentId: string,
+    toStatus: IntentStatus,
+    triggeredBy: string,
+    eventName: K,
+    eventPayload: SailsEventMap[K],
+  ): Promise<() => Promise<void>> {
+    const record = await tx.intent.findUnique({ where: { id: intentId } })
+    if (!record) throw new NotFoundError('Intent', intentId)
+    const currentStatus = record.status as IntentStatus
+    if (isExpired({ status: currentStatus, expiresAt: record.expiresAt }) && toStatus !== 'EXPIRED') {
+      throw new ValidationError(`Intent ${intentId} expired before transitioning to ${toStatus}`)
+    }
+    assertValidTransition(currentStatus, toStatus)
+    const claimed = await tx.intent.updateMany({ where: { id: intentId, status: currentStatus }, data: { status: toStatus } })
+    if (claimed.count === 0) {
+      throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
+    }
+    const last = await tx.intentEvent.findFirst({ where: { intentId }, orderBy: { createdAt: 'desc' } })
+    const prevHash = last?.entryHash ?? 'genesis'
+    const entryHash = createHash('sha256').update(`${currentStatus}|${toStatus}|${triggeredBy}|${prevHash}`).digest('hex')
+    await tx.intentEvent.create({ data: { intentId, fromStatus: currentStatus, toStatus, triggeredBy, prevHash, entryHash } })
+    return async () => { await eventBus.emit(eventName, eventPayload, intentId) }
+  }
+
   return {
+    transitionInTransaction,
     registerHandler(handler) {
       for (const type of handler.intentTypes) {
         handlers.set(type, handler as IntentHandler)

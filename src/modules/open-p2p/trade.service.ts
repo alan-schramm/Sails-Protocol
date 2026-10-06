@@ -314,12 +314,33 @@ export class TradeService {
     // Issue #294 - CAS on the status just validated, serialized under the escrow lock, and refused
     // once the Escrow already governs the economic outcome. Escrow stays authoritative; a manual
     // request can never race an Escrow-derived projection into a contradictory Trade state.
-    const transition = await this.repo.transitionManually(tradeId, trade.status as TradeStatus, status, status === 'CANCELLED' ? new Date() : undefined)
+    //
+    // RFC-018 gap found by a CTO-role review after the initial rollout
+    // ("garantir que os testes cubram cenários de falha... trade
+    // cancelado"): a Trade cancelled before escrow ever locks left its
+    // Intent stuck at NEGOTIATING forever — nothing transitioned it.
+    // #235 R7G-B1 (FAILED_CANCELLATION_NO_DURABLE_EFFECT_V1) - the Intent is
+    // cancelled in the same transaction as the Trade, so an Intent that cannot
+    // be cancelled (e.g. COMMITTED) refuses the whole cancellation and nothing
+    // is persisted or announced. Events are published only after the commit.
+    let publishIntentEvent: (() => Promise<void>) | undefined
+    const transition = await this.repo.transitionManually(
+      tradeId, trade.status as TradeStatus, status, status === 'CANCELLED' ? new Date() : undefined,
+      status === 'CANCELLED' && trade.intentId
+        ? async (tx) => {
+            publishIntentEvent = await intentEngine.transitionInTransaction(
+              tx, trade.intentId!, 'CANCELLED', triggeredBy, 'intent.cancelled', { intentId: trade.intentId!, cancelledBy: triggeredBy },
+            )
+          }
+        : undefined,
+    )
     if (!transition.ok) {
       throw new ValidationError(
         transition.reason === 'ESCROW_GOVERNED'
           ? `Trade ${tradeId} can no longer be changed manually: its escrow is ${transition.escrowStatus} and governs the outcome`
-          : `Trade ${tradeId} changed concurrently (it is no longer ${trade.status}) - reload and retry`
+          : transition.reason === 'ECONOMIC_COMMITMENT'
+            ? `Trade ${tradeId} can no longer be cancelled unilaterally: ${transition.detail} — it ends through refund, dispute or settlement`
+            : `Trade ${tradeId} changed concurrently (it is no longer ${trade.status}) - reload and retry`
       )
     }
     const updated = transition.trade
@@ -330,20 +351,7 @@ export class TradeService {
       to: status,
       triggeredBy,
     }, tradeId)
-
-    // RFC-018 gap found by a CTO-role review after the initial rollout
-    // ("garantir que os testes cubram cenários de falha... trade
-    // cancelado"): a Trade cancelled before escrow ever locks left its
-    // Intent stuck at NEGOTIATING forever — nothing transitioned it.
-    // CANCELLED is a valid direct transition from every pre-COMMITTED
-    // state (core/state-machine.ts), so this is safe regardless of
-    // which one the Intent is actually in.
-    if (status === 'CANCELLED' && trade.intentId) {
-      await intentEngine.transition(
-        trade.intentId, 'CANCELLED', triggeredBy, 'intent.cancelled',
-        { intentId: trade.intentId, cancelledBy: triggeredBy }
-      )
-    }
+    if (publishIntentEvent) await publishIntentEvent()
 
     return updated
   }
