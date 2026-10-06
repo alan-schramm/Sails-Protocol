@@ -53,6 +53,14 @@ enum EscrowType {
   MOCK
 }
 
+// #235 R7G-F6A-1 - authority of a WDK_USDT_EVM escrow's account (wdkAccountPath).
+// LEGACY_TRADE_HASH_V0: 0'/0/<sha256(tradeId) % (2^31-1)>, persisted once by the migration for
+// escrows that existed before it. ALLOCATED_V1: 1'/0/<n>, n from wdk_escrow_account_index_seq.
+enum WdkAccountScheme {
+  LEGACY_TRADE_HASH_V0
+  ALLOCATED_V1
+}
+
 enum EscrowStatus {
   CREATED
   FUNDS_LOCKED
@@ -413,6 +421,11 @@ model Escrow {
   asset                                 AssetType
   network                               String?
   multisigAddr                          String?
+  // #235 R7G-F6A-1 - WDK_ESCROW_ACCOUNT_IDENTITY_V1: the WDK derivation path (relative to
+  // m/44'/60') of this escrow's account. Set by the database on INSERT for WDK_USDT_EVM (never by a
+  // caller), unique, immutable; NULL for every other type. Trigger + CHECK: see the migration.
+  wdkAccountScheme                      WdkAccountScheme?
+  wdkAccountPath                        String?           @unique
   redeemScript                          String?
   txLockId                              String?
   // Missão 10 (2026-08-19), additive — Bitcoin identifies a UTXO by

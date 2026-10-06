@@ -19,6 +19,22 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-F6A-1 — every WDK escrow has its own account, allocated and frozen by the database.** A
+  WDK_USDT_EVM escrow's account was derived on every use as `m/44'/60'/0'/0/<sha256(tradeId) % (2^31-1)>`.
+  Distinct trades map to the same index (a real pair was found after ~50k trade ids; on a local EVM the
+  second trade's account spent the first trade's locked USDT), and that namespace also holds the treasury
+  (index 0) and the auto-settle buyer accounts. Now each escrow carries `wdkAccountScheme` +
+  `wdkAccountPath`: new escrows get `1'/0/<n>` from a database sequence on INSERT (unique, never reused,
+  never wraps — creation fails when the non-hardened range is exhausted); escrows that already existed keep
+  exactly their historical account, persisted once as `LEGACY_TRADE_HASH_V0`. The identity is set by the
+  database only and is immutable together with the escrow it belongs to (trigger + CHECK + unique index).
+  Lock, release, refund, split and reconciliation derive the account from that path only, and fail closed
+  when it is missing or when a persisted escrow address is not what it derives. Migration
+  `20261007120000_wdk_escrow_account_identity` refuses to install if two existing WDK escrows share an
+  account or one uses the treasury's; run `npm run wdk:account-preflight` (read-only) against production
+  first. Buyer accounts (`buyerIndexFor`, auto-settle only) still use the hashed namespace and are reported
+  by the preflight, not changed.
+
 - **#235 R7G-B2A — a MULTISIG escrow's script authority is frozen and every signature is verified.** The
   buyer/seller keys could be replaced at any time after they had derived the deposit address — even after
   funding — while lock, refund, release and recovery re-derived the script from those mutable rows: a swap

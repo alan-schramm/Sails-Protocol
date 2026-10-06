@@ -86,12 +86,10 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
   return `${negative ? '-' : ''}${whole}.${fractionDigits}`
 }
 
-// Deterministic per-trade escrow account index — a BIP-44 non-hardened
-// index must fit in 31 bits (0..2^31-1). sha256(tradeId) gives a stable,
-// evenly-distributed source; same tradeId always re-derives the same
-// escrow account, which is what lets releaseFunds()/refundFunds() find
-// the account lockFunds() funded without persisting the derivation path
-// anywhere.
+// LEGACY derivation only (#235 R7G-F6A-1). sha256(tradeId) % (2^31-1) is not unique (distinct
+// trades collide, and it shares 0'/0/<i> with the treasury and buyer accounts), so it is no longer
+// an authority: an escrow's account is its persisted Escrow.wdkAccountPath (wdkEscrowAccountPath()
+// below). Kept for the read-only preflight and for tests that prove legacy rows keep this value.
 export function escrowIndexFor(tradeId: string): number {
   const hash = createHash('sha256').update(tradeId).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
@@ -109,6 +107,37 @@ export function escrowIndexFor(tradeId: string): number {
 export function buyerIndexFor(buyerId: string): number {
   const hash = createHash('sha256').update(`buyer:${buyerId}`).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
+}
+
+/** The escrow fields that identify its WDK account. */
+export type WdkEscrowAccountIdentity = {
+  id: string
+  wdkAccountScheme?: string | null
+  wdkAccountPath?: string | null
+  multisigAddr?: string | null
+}
+export type WdkEscrowInput = WdkEscrowAccountIdentity & { tradeId: string; lockedAmount: string }
+
+const ACCOUNT_PATH_BY_SCHEME: Record<string, RegExp> = {
+  LEGACY_TRADE_HASH_V0: /^0'\/0\/[1-9][0-9]{0,9}$/,
+  ALLOCATED_V1: /^1'\/0\/(0|[1-9][0-9]{0,9})$/,
+}
+const MAX_NON_HARDENED_INDEX = 0x7fffffff
+
+/**
+ * #235 R7G-F6A-1 - WDK_ESCROW_ACCOUNT_STABILITY_V1. The escrow's account is the derivation path the
+ * database persisted for it (allocated on INSERT, or the legacy path the migration recorded), never
+ * a value recomputed from the trade. Anything else fails closed. Same checks as the database CHECK.
+ */
+export function wdkEscrowAccountPath(escrow: WdkEscrowAccountIdentity): string {
+  const path = escrow.wdkAccountPath
+  const pattern = escrow.wdkAccountScheme ? ACCOUNT_PATH_BY_SCHEME[escrow.wdkAccountScheme] : undefined
+  if (!path || !pattern || !pattern.test(path) || Number(path.split('/')[2]) > MAX_NON_HARDENED_INDEX) {
+    throw new EscrowError(
+      `WDK_USDT_EVM escrow ${escrow.id} has no valid persisted account identity (scheme=${escrow.wdkAccountScheme ?? 'none'}, path=${path ?? 'none'}) — refusing to derive its account`
+    )
+  }
+  return path
 }
 
 export class WdkSettlementProvider implements SettlementProvider {
@@ -145,9 +174,19 @@ export class WdkSettlementProvider implements SettlementProvider {
     return this.getWallet().getAccount(0)
   }
 
-  private async escrowAccount(tradeId: string): Promise<WalletAccountEvm> {
-    const index = escrowIndexFor(tradeId)
-    return this.getWallet().getAccountByPath(`0'/0/${index}`)
+  // The persisted path is the authority; a persisted economic address (set by a completed lock) must
+  // be what that path derives, otherwise nothing is done with this account.
+  private async escrowAccount(escrow: WdkEscrowAccountIdentity): Promise<WalletAccountEvm> {
+    const account = await this.getWallet().getAccountByPath(wdkEscrowAccountPath(escrow))
+    if (escrow.multisigAddr) {
+      const derived = await account.getAddress()
+      if (derived.toLowerCase() !== escrow.multisigAddr.toLowerCase()) {
+        throw new EscrowError(
+          `WDK_USDT_EVM escrow ${escrow.id}: its account path derives ${derived}, not its persisted address ${escrow.multisigAddr} — refusing to use either`
+        )
+      }
+    }
+    return account
   }
 
   // Demo/inspection helper, not part of the SettlementProvider interface
@@ -173,7 +212,7 @@ export class WdkSettlementProvider implements SettlementProvider {
   // persistSettlementResult() path (Issue #291) - WdkTransferAttempt itself never becomes protocol
   // authority.
   async reconcileTerminalTransfer(
-    escrow: { id: string; tradeId: string; lockedAmount: string },
+    escrow: WdkEscrowInput,
     operationType: 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
     expectedDestination: string,
     // Issue #250 - RELEASE/REFUND always transfer the FULL escrow.lockedAmount, so callers always pass
@@ -220,7 +259,7 @@ export class WdkSettlementProvider implements SettlementProvider {
         // A genuine RPC/transport failure here throws and propagates to the caller as a technical
         // failure - never silently downgraded to REVERTED/PENDING (Case B: never infer failure
         // merely from a query failure).
-        const account = await this.escrowAccount(escrow.tradeId)
+        const account = await this.escrowAccount(escrow)
         const receipt = await account.getTransactionReceipt(latest.txHash)
         if (!receipt) {
           return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} is not yet confirmed on-chain — remains pending, no resubmission.` }
@@ -256,9 +295,9 @@ export class WdkSettlementProvider implements SettlementProvider {
     }
   }
 
-  async lockFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string; address: string }> {
+  async lockFunds(escrow: WdkEscrowInput): Promise<{ txId: string; address: string }> {
     const treasury = await this.treasuryAccount()
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
+    const escrowAcct = await this.escrowAccount(escrow)
     const escrowAddress = await escrowAcct.getAddress()
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
@@ -358,18 +397,18 @@ export class WdkSettlementProvider implements SettlementProvider {
   // call (via escrow.service.ts's direct-call path) still runs, using the
   // generic, non-Bitcoin-specific fixture-only small-trade rule — never
   // this rail's own (nonexistent) dust/collection-address logic.
-  async releaseFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, toAddress: string): Promise<{ txId: string }> {
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
+  async releaseFunds(escrow: WdkEscrowInput, toAddress: string): Promise<{ txId: string }> {
+    const escrowAcct = await this.escrowAccount(escrow)
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
     const txId = await this.executeTransfer(escrow.id, 'RELEASE', escrowAcct, toAddress, escrow.lockedAmount, amount)
     return { txId }
   }
 
-  async refundFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string }> {
+  async refundFunds(escrow: WdkEscrowInput): Promise<{ txId: string }> {
     const treasury = await this.treasuryAccount()
     const treasuryAddress = await treasury.getAddress()
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
+    const escrowAcct = await this.escrowAccount(escrow)
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
     const txId = await this.executeTransfer(escrow.id, 'REFUND', escrowAcct, treasuryAddress, escrow.lockedAmount, amount)
@@ -401,8 +440,8 @@ export class WdkSettlementProvider implements SettlementProvider {
   // ensureAttempt() call safely starts a fresh seller attempt (a
   // definitively reverted transfer proves no funds moved), the buyer leg
   // is never touched again.
-  async splitFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
+  async splitFunds(escrow: WdkEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
+    const escrowAcct = await this.escrowAccount(escrow)
     const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
     const buyerAmount = (total * BigInt(buyerBps)) / 10000n
     const sellerAmount = total - buyerAmount

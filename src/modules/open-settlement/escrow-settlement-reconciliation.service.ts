@@ -620,7 +620,7 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
   }
 
   const result = await wdkSettlementProvider.reconcileTerminalTransfer(
-    { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
+    wdkEscrowInput(escrow),
     operationType,
     expectedDestination,
     escrow.lockedAmount.toString() // RELEASE/REFUND always transfer the full locked amount
@@ -703,8 +703,8 @@ async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<
   // on why buyerBps is not durably recoverable here) - classify both legs first, then apply the one
   // amount invariant that IS independently true regardless of bps, below.
   const [buyerResult, sellerResult] = await Promise.all([
-    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_BUYER', buyerDestination),
-    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_SELLER', sellerDestination),
+    wdkSettlementProvider.reconcileTerminalTransfer(wdkEscrowInput(escrow), 'SPLIT_BUYER', buyerDestination),
+    wdkSettlementProvider.reconcileTerminalTransfer(wdkEscrowInput(escrow), 'SPLIT_SELLER', sellerDestination),
   ])
 
   if (buyerResult.outcome !== 'CONFIRMED' || sellerResult.outcome !== 'CONFIRMED') {
@@ -1142,4 +1142,12 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
   await reconcileIncompleteProjections(report, options.projectionGraceMs ?? PROJECTION_RECOVERY_GRACE_MS)
 
   return report
+}
+
+// #235 R7G-F6A-1 - the WDK provider resolves the escrow's account from its persisted identity.
+function wdkEscrowInput(escrow: { id: string; tradeId: string; lockedAmount: { toString(): string }; wdkAccountScheme: string | null; wdkAccountPath: string | null; multisigAddr: string | null }) {
+  return {
+    id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(),
+    wdkAccountScheme: escrow.wdkAccountScheme, wdkAccountPath: escrow.wdkAccountPath, multisigAddr: escrow.multisigAddr,
+  }
 }
