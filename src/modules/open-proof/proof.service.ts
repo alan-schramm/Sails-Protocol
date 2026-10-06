@@ -178,19 +178,9 @@ export const INLINE_EVIDENCE_MAX_DEPTH = 32
 export const INLINE_EVIDENCE_MAX_NODES = 10_000
 
 export function assertInlineEvidenceResourceBounds(value: unknown): void {
-  let serialized: string
-  try {
-    serialized = JSON.stringify(value)
-  } catch {
-    throw new ValidationError('Inline proof evidence must be valid JSON')
-  }
-  if (serialized === undefined) {
-    throw new ValidationError('Inline proof evidence must be valid JSON')
-  }
-  if (Buffer.byteLength(serialized, 'utf8') > INLINE_EVIDENCE_MAX_UTF8_BYTES) {
-    throw new ValidationError('Inline proof evidence exceeds the 256 KiB UTF-8 limit; use EvidenceProvider for larger evidence')
-  }
-
+  // Structural admission MUST happen before JSON.stringify(): stringify itself
+  // recursively descends attacker-controlled objects and therefore cannot be
+  // the mechanism that decides whether depth is safe.
   let nodes = 0
   const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }]
   while (stack.length > 0) {
@@ -207,6 +197,19 @@ export function assertInlineEvidenceResourceBounds(value: unknown): void {
       ? current.value
       : Object.values(current.value as Record<string, unknown>)
     for (const child of children) stack.push({ value: child, depth: current.depth + 1 })
+  }
+
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new ValidationError('Inline proof evidence must be valid JSON')
+  }
+  if (serialized === undefined) {
+    throw new ValidationError('Inline proof evidence must be valid JSON')
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > INLINE_EVIDENCE_MAX_UTF8_BYTES) {
+    throw new ValidationError('Inline proof evidence exceeds the 256 KiB UTF-8 limit; use EvidenceProvider for larger evidence')
   }
 }
 
