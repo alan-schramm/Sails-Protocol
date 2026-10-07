@@ -9,7 +9,6 @@ import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { paymentAccountService } from '../../modules/open-settlement/payment-account.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
-import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
 import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
 import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal, qvacDetectionFailuresTotal } from '../metrics'
@@ -641,12 +640,13 @@ export function registerEventHandlers(): void {
   // negotiation/dispute-window design (Escrow.timelockHours). Deliberately
   // not awaited into the emit() call site in trade.service.ts — a
   // settlement failure here must not make Trade creation itself fail.
+  // #235 R7G NF-B1: no destination is derived here - the legacy buyerIndexFor() sub-account was a
+  // server-held, collision-prone account - and executeSettlement() itself refuses every value-moving rail.
   eventBus.on('openp2p.trade.created', async (payload) => {
     if (!config.features.autoSettleOnMatch) return
 
     try {
-      const buyerAddress = await wdkSettlementProvider.getAccountAddress(buyerIndexFor(payload.buyerId))
-      await executeSettlement({ tradeId: payload.tradeId, buyerReceivingAddress: buyerAddress })
+      await executeSettlement({ tradeId: payload.tradeId })
     } catch (err) {
       log.error({ msg: 'autoSettleOnMatch failed', tradeId: payload.tradeId, err: err instanceof Error ? err.message : err })
     }

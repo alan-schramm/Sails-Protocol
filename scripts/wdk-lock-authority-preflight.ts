@@ -21,6 +21,10 @@
  *                             (reconciliation converges it; listed so it is not forgotten);
  *   OUTBOUND_REVIEW           a signed outbound leg or gas funding that reverted or whose nonce was consumed by
  *                             another transaction, on an escrow without a settlement result (manual review);
+ *   LEGACY_OUTBOUND_UNREGISTERED_DESTINATION   #235 R7G NF-B1: a legacy transfer() RELEASE / SPLIT_BUYER that may
+ *                             have moved funds to an address that is not the buyer's registered USDT payout (the
+ *                             legacy buyerIndexFor() sub-account is one, held by the Sails seed) - manual review,
+ *                             nothing is moved, merged or reassigned;
  *   DUPLICATE_TX_HASH         one transaction hash on more than one attempt;
  *   CHAIN_NOT_PINNED          WDK escrows exist but WDK_CHAIN_ID is not set;
  *   TERMINAL_WITHOUT_EVIDENCE a signed LOCK CONFIRMED / REVERTED without finality evidence (#235 R7G-F6B-P:
@@ -71,6 +75,13 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
       FROM wdk_transfer_attempts a JOIN escrows e ON e.id = a."escrowId"
       WHERE a.authority::text = 'SIGNED_RAW_V1' AND a."operationType"::text <> 'LOCK'
         AND (a.status::text IN ('SIGNED', 'SUBMITTED') OR (a.status::text IN ('REVERTED', 'NONCE_CONSUMED_ELSEWHERE') AND e."txReleaseId" IS NULL))`) : []
+    const legacyUnregistered = await q<{ id: string; escrowId: string; operationType: string; status: string; destination: string; registeredPayout: string | null }>(`
+      SELECT a.id, a."escrowId", a."operationType"::text AS "operationType", a.status::text AS status, a.destination, p.address AS "registeredPayout"
+      FROM wdk_transfer_attempts a JOIN escrows e ON e.id = a."escrowId" JOIN trades t ON t.id = e."tradeId"
+      LEFT JOIN payout_addresses p ON p."participantId" = t."buyerId" AND p.asset::text = 'USDT_ERC20'
+      WHERE a.authority::text = 'LEGACY_TRANSFER_V0' AND a."operationType"::text IN ('RELEASE', 'SPLIT_BUYER')
+        AND a.status::text IN ('SUBMISSION_UNKNOWN', 'SUBMITTED', 'CONFIRMED')
+        AND (p.address IS NULL OR lower(p.address) <> lower(a.destination))`)
     const terminalWithoutEvidence = await q<{ id: string; escrowId: string; status: string; txHash: string }>(`
       SELECT id, "escrowId", status::text AS status, "txHash" FROM wdk_transfer_attempts
       WHERE authority::text = 'SIGNED_RAW_V1' AND status::text IN ('CONFIRMED', 'REVERTED')
@@ -88,6 +99,7 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
     const primaryUrl = (env.WDK_RPC_URL ?? '').trim().toLowerCase()
     const corroboratingUrl = (env.WDK_CORROBORATING_RPC_URL ?? '').trim().toLowerCase()
     if (corroboratingUrl && corroboratingUrl === primaryUrl) blocking.push({ kind: 'CORROBORATOR_IS_PRIMARY', detail: 'WDK_CORROBORATING_RPC_URL equals WDK_RPC_URL' })
+    for (const l of legacyUnregistered) blocking.push({ kind: 'LEGACY_OUTBOUND_UNREGISTERED_DESTINATION', detail: l })
     for (const o of outbound) blocking.push({ kind: o.status === 'SIGNED' || o.status === 'SUBMITTED' ? 'OUTBOUND_UNRESOLVED' : 'OUTBOUND_REVIEW', detail: o })
     return {
       wdkEscrows,
