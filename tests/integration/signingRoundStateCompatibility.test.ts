@@ -47,6 +47,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
   const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('r7gf8c-buyer').digest(), { network: NETWORK })
   const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('r7gf8c-seller').digest(), { network: NETWORK })
   const createdEscrowIds: string[] = []
+  const isolatedGraphs: Array<{ prisma: PrismaClient; redis: { quit(): Promise<unknown> } }> = []
   let realFetch: typeof fetch
 
   /** Controlled chain model: one funding outpoint; the first accepted spend wins; Sails' broadcasts recorded. */
@@ -125,6 +126,11 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
       if (restarted) {
         await restarted.prisma.$disconnect()
         await restarted.redis.quit().catch(() => {})
+      }
+      // the extra instances some tests start (isolatedReconciler()), closed exactly like `restarted`
+      for (const graph of isolatedGraphs) {
+        await graph.prisma.$disconnect()
+        await graph.redis.quit().catch(() => {})
       }
       await closeTestRedis()
     }
@@ -228,6 +234,19 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
   const settle = <T>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: Error) => ({ ok: false as const, e: e.message }))
 
 
+  /** Another instance's settlement reconciler: its own module graph, Prisma client and Redis connection, closed in afterAll. */
+  function isolatedReconciler(): typeof reconcilePendingSettlements {
+    let graph!: { reconcile: typeof reconcilePendingSettlements; prisma: PrismaClient; redis: { quit(): Promise<unknown> } }
+    jest.isolateModules(() => {
+      graph = {
+        reconcile: require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements,
+        prisma: require('../../src/common/database').prisma,
+        redis: require('../../src/common/redis').redis,
+      }
+    })
+    isolatedGraphs.push(graph)
+    return graph.reconcile
+  }
   /** The chain model holds one funding outpoint: a new fixture in the same test starts from a fresh one. */
   const freshChain = () => { chain.spentBy = null; chain.known.clear() }
   /** Funded MULTISIG escrow in FUNDS_LOCKED with both payout addresses registered. */
@@ -415,8 +434,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     const [first, second] = round.requiredSigners
     await escrowService.submitTransactionSignature(f.escrowId, first, signPsbt(round.unsignedPsbtBase64, keyOf(f, first)))
     chain.sailsBroadcasts = []
-    let other!: typeof reconcilePendingSettlements
-    jest.isolateModules(() => { other = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements })
+    const other = isolatedReconciler()
     await Promise.all([
       settle(escrowService.submitTransactionSignature(f.escrowId, second, signPsbt(round.unsignedPsbtBase64, keyOf(f, second)))),
       settle(restarted!.reconcile()),
@@ -430,8 +448,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
   it('H: two C8 instances race one unclaimed fully signed round: exactly one claims and broadcasts', async () => {
     pg.requirePostgres('H')
     const f = await signedUnclaimedRefund('h')
-    let other!: typeof reconcilePendingSettlements
-    jest.isolateModules(() => { other = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements })
+    const other = isolatedReconciler()
     const [a, b] = await Promise.all([restarted!.reconcile(), other()])
     const took = [a, b].map((r) => ({ resumed: r.resumedUnclaimed.filter((x) => x.escrowId === f.escrowId).length, concurrent: r.alreadyClaimedConcurrently.filter((x) => x === f.escrowId).length }))
     expect(took.reduce((n, t) => n + t.resumed, 0)).toBe(1)
@@ -446,8 +463,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await hold.reached
     expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
     // a fresh process: PASS 1 (terminal, no txReleaseId) asks the chain and broadcasts the one transaction once
-    let fresh!: typeof reconcilePendingSettlements
-    jest.isolateModules(() => { fresh = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements })
+    const fresh = isolatedReconciler()
     const report = await fresh()
     expect(report.recovered.filter((r) => r.escrowId === f.escrowId).map((r) => r.outcome)).toEqual(['NEWLY_BROADCAST'])
     hold.release()
