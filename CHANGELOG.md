@@ -19,6 +19,23 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G NF-B1 — no settlement path uses the legacy buyer sub-account; AUTO_SETTLE_ON_MATCH never moves real
+  value.**
+  - The legacy buyer account (`buyerIndexFor()`, `0'/0/<sha256('buyer:' + id) % (2^31-1)>` under the Sails seed)
+    collides between distinct buyers (a pair turns up in about 18k random ids) and is held by the server, not the
+    buyer. Since F6C no release could pay it (caller-supplied WDK destinations are refused), but the auto-settle
+    handler still derived it.
+  - `executeSettlement()` (the auto-settle handler and the demo) now refuses every rail except MOCK, before any
+    escrow, LOCK, claim or event. It acts for both parties: it locks as the seller, records "payment sent" as the
+    buyer (which also ends the seller's FUNDS_LOCKED expiry path), and releases on an emulated PIX confirmation.
+    The handler derives no destination; on MOCK the release resolves the buyer's registered payout.
+  - Every WDK release pays the buyer's registered payout address, frozen once the obligation is recorded
+    (PREPARED). Later payout changes, crashes, fresh nodes and concurrent recoverers never redirect it, and the
+    database refuses a rewritten destination.
+  - `npm run wdk:lock-preflight` reports `LEGACY_OUTBOUND_UNREGISTERED_DESTINATION`: a legacy `transfer()`
+    release that may have paid an address other than the buyer's registered payout (manual review; nothing is
+    moved).
+
 - **#235 R7G-F6C — WDK release, refund and split are signed transactions of the escrow's own account, with
   gas funded once per leg, and an ambiguous outcome never reverts the escrow or creates a transaction B (DF1).**
   - The provider's `transfer()` path is gone: it let the RPC choose the nonce, learned the hash only after the

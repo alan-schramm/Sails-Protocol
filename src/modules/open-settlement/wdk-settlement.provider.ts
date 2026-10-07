@@ -91,15 +91,11 @@ export function escrowIndexFor(tradeId: string): number {
   return hash.readUInt32BE(0) % 0x7fffffff
 }
 
-// Same derivation shape as escrowIndexFor, distinct salt (`buyer:` prefix)
-// so a buyer's receiving-address index and a trade's escrow-account index
-// never collide even for coincidentally-equal input strings. Stands in for
-// real per-user EVM address onboarding, which doesn't exist yet in this
-// reference implementation (this provider's own header comment) — a
-// deterministic per-buyer top-level account at least means different
-// buyers get different, stable addresses, not the same hardcoded demo
-// address every time settlement-orchestrator.ts's auto-settle handler
-// (common/events/handlers.ts) releases funds.
+// LEGACY derivation only (#235 R7G NF-B1). sha256('buyer:' + buyerId) % (2^31-1) collides between distinct
+// buyers (a pair is found in ~18k random ids) and shares 0'/0/<i> with the treasury and legacy escrow
+// accounts; the account is held by the Sails seed, not the buyer. No settlement path derives it any more:
+// every WDK release pays the buyer's registered payout address (wdk-outbound-authority.ts). Kept for the
+// read-only preflight (scripts/wdk-escrow-account-preflight.ts) and the tests that prove the collision.
 export function buyerIndexFor(buyerId: string): number {
   const hash = createHash('sha256').update(`buyer:${buyerId}`).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
@@ -259,11 +255,9 @@ export class WdkSettlementProvider implements SettlementProvider {
     return account
   }
 
-  // Demo/inspection helper, not part of the SettlementProvider interface
-  // — src/demo/pix-to-usdt-flow.ts uses this to get a real address to
-  // release funds to, standing in for a buyer's own independently
-  // controlled wallet (this reference implementation doesn't onboard
-  // per-user EVM keys yet — see that script's own doc comment).
+  // Inspection helper, not part of the SettlementProvider interface: the address of account 0'/0/<index>
+  // (the reconciler reads the treasury, index 0). #235 R7G NF-B1: never a settlement destination - a
+  // Sails-seed account is not a buyer's wallet.
   async getAccountAddress(index: number): Promise<string> {
     const account = await this.getWallet().getAccount(index)
     return account.getAddress()
