@@ -112,6 +112,9 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     eventProjectionClaim: {
       createMany: (...args: unknown[]) => mockEventProjectionClaimCreateMany(...args),
     },
+    // #235 R7G F8C - a failed ruling's revert reads the escrow's terminal transition record (none here: the
+    // displaced status is restored; the terminal case is proven on real PostgreSQL in signingRoundStateCompatibility)
+    escrowEvent: { findFirst: async () => null },
   })
 )
 
