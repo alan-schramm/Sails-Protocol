@@ -15,6 +15,11 @@ jest.mock('../src/modules/open-settlement/escrow-settlement-reconciliation.servi
 jest.mock('../src/modules/open-settlement/dispute-dispatch-recovery', () => ({
   reconcileMissingDispatch: (...args: unknown[]) => mockReconcileMissingDispatch(...args),
 }))
+// #235 R7G F8A — the tick's third step (residual recoveries); its economics are proven in
+// tests/integration/multisigResidualRecovery.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-residual-recovery', () => ({
+  reconcileResidualRecoveries: jest.fn().mockResolvedValue({ confirmed: [], submitted: [], pending: [], review: [], failed: [] }),
+}))
 
 import { startSettlementRecoverySchedule, runSettlementRecoveryTick } from '../src/modules/open-settlement/settlement-recovery-schedule'
 

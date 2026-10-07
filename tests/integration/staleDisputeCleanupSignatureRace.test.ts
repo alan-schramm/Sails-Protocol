@@ -99,7 +99,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const trade = await prisma.trade.create({
       data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
     })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED', multisigAddr: fundingSurface().address! } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED', multisigAddr: fundingSurface().address!, txLockId: randomBytes(32).toString('hex'), txLockVout: 0 } }) // #235 R7G F8A: a funded escrow
     await prisma.escrowParticipantKey.createMany({ data: [
       { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: Buffer.from(buyerKey.publicKey).toString('hex') },
       { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: Buffer.from(sellerKey.publicKey).toString('hex') },

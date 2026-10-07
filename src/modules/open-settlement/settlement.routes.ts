@@ -27,6 +27,7 @@ import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
 import { evidenceDescriptorInputSchema } from './evidence-descriptor-schema'
+import { cancelResidualRecovery, getResidualRecovery, observeResidualValue, proposeResidualRecovery, submitResidualRecoverySignature } from './multisig-residual-recovery'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -230,6 +231,14 @@ const payoutAddressParamsSchema = z.object({
 /** Path-param schema used by every escrow/dispute/arbitration route below. */
 const idParam = z.object({ id: z.string().min(1) })
 
+// #235 R7G F8A — residual value on a MULTISIG script: the outpoint and the destination the participants choose.
+const proposeResidualRecoverySchema = z.object({
+  txid: z.string().regex(/^[0-9a-f]{64}$/),
+  vout: z.number().int().min(0),
+  destination: z.string().min(1),
+})
+const residualRecoverySignatureSchema = z.object({ signedPsbtBase64: z.string().min(1) })
+
 /** Pulls the authenticated participantId off the request, set by
  *  requireAuth's preHandler. Cast to string per the same pattern every other
  *  route in src/ uses (typed as `unknown` on the request object itself). */
@@ -405,6 +414,51 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const body = submitTransactionSignatureSchema.parse(request.body)
     const result = await escrowService.submitTransactionSignature(id, participantId(request), body.signedPsbtBase64)
     return reply.code(200).send(success(result))
+  })
+
+  // #235 R7G F8A — MULTISIG_RESIDUAL_VALUE_RECOVERY_V1: value on an escrow's original script outside its canonical
+  // funding outpoint is recovered only by its buyer AND seller together (multisig-residual-recovery.ts). Every route
+  // is participant-only; none returns a signed PSBT.
+  app.get('/v1/settlement/escrow/:id/residual-value', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await observeResidualValue(id, participantId(request))))
+  })
+
+  app.post('/v1/settlement/escrow/:id/residual-recoveries', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: proposeResidualRecoverySchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const body = proposeResidualRecoverySchema.parse(request.body)
+    return reply.code(201).send(success(await proposeResidualRecovery(id, participantId(request), body)))
+  })
+
+  app.get('/v1/settlement/residual-recoveries/:id', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await getResidualRecovery(id, participantId(request))))
+  })
+
+  app.post('/v1/settlement/residual-recoveries/:id/signature', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: residualRecoverySignatureSchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const body = residualRecoverySignatureSchema.parse(request.body)
+    return reply.code(200).send(success(await submitResidualRecoverySignature(id, participantId(request), body.signedPsbtBase64)))
+  })
+
+  app.post('/v1/settlement/residual-recoveries/:id/cancel', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await cancelResidualRecovery(id, participantId(request))))
   })
 
   // Missão 07.6 release-readiness audit — found unauthenticated, same

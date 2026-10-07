@@ -148,6 +148,7 @@ describe('Issue #245 - fee BROADCAST evidence / FeeObligation crash consistency 
     const escrow = await prisma.escrow.create({
       data: {
         tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'PAYMENT_PENDING',
+        txLockId: createHash('sha256').update(randomUUID()).digest('hex'), txLockVout: 0, // #235 R7G F8A: past FUNDS_LOCKED it carries its funding outpoint
         feePolicyVersionId: policy.id, snapshotProtocolFeeRate: '0.004', snapshotPayerModel: 'SELLER_PAYS', snapshotEconomicBasis: 'SELLER_DELIVERED_VALUE',
         snapshotFeeCollectionAddress: COLLECTION_ADDRESS, snapshotFeeCollectionWaivedPreFunding: false,
       },

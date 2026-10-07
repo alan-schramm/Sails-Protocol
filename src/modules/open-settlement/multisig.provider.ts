@@ -920,10 +920,82 @@ export class MultisigProvider implements SettlementProvider {
     const address = this.assertFundingSurface(escrow, p2wsh.address)
     const utxos = await this.fetchUtxos(address)
 
-    const utxo = this.isPolicyAware(escrow)
-      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
-      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
+    const utxo = utxos.find((u) => this.isCanonicalFundingValue(escrow, u.value) && u.status.confirmed)
     return utxo ? { address, utxo } : null
+  }
+
+  /**
+   * The canonical funding rule's value predicate (lockFunds()): a policy-aware escrow needs exactly T + Fmax in one
+   * outpoint, a legacy one at least T. #235 R7G F8A reads the same predicate to keep a canonical candidate out of
+   * residual recovery — one rule, never two.
+   */
+  isCanonicalFundingValue(escrow: MultisigEscrowInput, valueSats: number): boolean {
+    return this.isPolicyAware(escrow) ? valueSats === this.requiredFundingSats(escrow) : valueSats >= this.expectedSats(escrow.lockedAmount)
+  }
+
+  /**
+   * #235 R7G F8A — every output the explorer reports at this escrow's persisted funding address, classified against
+   * its canonical funding authority. Observation is evidence, never ownership:
+   *   CANONICAL            the escrow's recorded funding outpoint (normal settlement owns it);
+   *   CANONICAL_CANDIDATE  no funding recorded yet and this value satisfies the funding rule (lockFunds() may still
+   *                        legitimately claim it — never residual);
+   *   UNCONFIRMED          below the MULTISIG confirmation policy depth (mempool-only, reorged, or too shallow);
+   *   RESIDUAL             confirmed value on the script that is not, and can no longer become, canonical funding.
+   */
+  async observeScriptOutputs(escrow: MultisigEscrowInput): Promise<Array<{
+    txid: string; vout: number; valueSats: number; confirmations: number; blockHeight: number | null
+    classification: 'CANONICAL' | 'CANONICAL_CANDIDATE' | 'UNCONFIRMED' | 'RESIDUAL'
+  }>> {
+    const { p2wsh } = this.buildScript(this.partiesFor(escrow))
+    const address = this.assertFundingSurface(escrow, p2wsh.address)
+    const required = config.multisig.requiredConfirmations
+    const out = []
+    for (const u of await this.fetchUtxos(address)) {
+      const canonical = !!escrow.txLockId && u.txid === escrow.txLockId && (escrow.txLockVout === null || escrow.txLockVout === undefined || u.vout === escrow.txLockVout)
+      const { depth, blockHeight } = u.status.confirmed ? await this.confirmationDepth(u.txid) : { depth: 0, blockHeight: null }
+      const classification = canonical ? 'CANONICAL' as const
+        : depth < required ? 'UNCONFIRMED' as const
+        : !escrow.txLockId && this.isCanonicalFundingValue(escrow, u.value) ? 'CANONICAL_CANDIDATE' as const
+        : 'RESIDUAL' as const
+      out.push({ txid: u.txid, vout: u.vout, valueSats: u.value, confirmations: depth, blockHeight, classification })
+    }
+    return out
+  }
+
+  /**
+   * #235 R7G F8A — the unsigned recovery spend of ONE residual outpoint under the escrow's ORIGINAL persisted script:
+   * one input, one output to the participant-chosen destination, the fee from the same estimate and ceiling every
+   * other MULTISIG spend uses. Nothing is signed here; the server never signs a residual recovery.
+   */
+  async buildResidualRecoveryPsbt(escrow: MultisigEscrowInput, outpoint: { txid: string; vout: number; valueSats: number }, destination: string): Promise<{ psbtBase64: string; feeSats: bigint }> {
+    const { p2ms, p2wsh, network } = this.buildScript(this.partiesFor(escrow))
+    this.assertFundingSurface(escrow, p2wsh.address)
+    const feeRateSatsPerVByte = await this.fetchFeeRateSatsPerVByte()
+    const feeSats = this.estimateFeeSats(feeRateSatsPerVByte, 1)
+    const feeCeiling = maxExecutionCostSats(1, BigInt(outpoint.valueSats))
+    if (feeSats > feeCeiling) {
+      throw new EscrowError(`MULTISIG provider: estimated fee ${feeSats} sats exceeds the deterministic ceiling ${feeCeiling} sats for a residual recovery — refusing an implausible fee`)
+    }
+    const value = BigInt(outpoint.valueSats) - feeSats
+    if (value <= 0n) throw new EscrowError(`Residual outpoint ${outpoint.txid}:${outpoint.vout} (${outpoint.valueSats} sats) cannot cover the estimated ${feeSats} sat fee`)
+    validateOutput(destination, value, network)
+    const psbt = new bitcoin.Psbt({ network })
+    psbt.addInput({ hash: outpoint.txid, index: outpoint.vout, witnessUtxo: { script: p2wsh.output!, value: BigInt(outpoint.valueSats) }, witnessScript: p2ms.output! })
+    psbt.addOutput({ address: destination, value })
+    return { psbtBase64: psbt.toBase64(), feeSats }
+  }
+
+  /** #235 R7G F8A — the one transaction two validated participant signatures produce (no broadcast). */
+  finalizeResidualRecovery(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): { txid: string; rawTxHex: string } {
+    const tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    return { txid: tx.getId(), rawTxHex: tx.toHex() }
+  }
+
+  /** #235 R7G F8A — broadcasts exactly these bytes; the persisted txid is the locally derived one, never the explorer's. */
+  async broadcastResidualRecovery(rawTxHex: string): Promise<void> {
+    const local = bitcoin.Transaction.fromHex(rawTxHex).getId()
+    const reported = await this.broadcast(rawTxHex)
+    if (reported !== local) log.error({ msg: 'MULTISIG provider: broadcast response txid disagrees with the locally-derived txid of a residual recovery — keeping the local one', local, reported })
   }
 
   private noFundingCandidateError(escrow: MultisigEscrowInput, address: string): EscrowError {

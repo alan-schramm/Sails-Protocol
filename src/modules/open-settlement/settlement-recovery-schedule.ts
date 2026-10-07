@@ -29,6 +29,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import { startGuardedInterval } from '../../common/guarded-interval'
 import { reconcilePendingSettlements } from './escrow-settlement-reconciliation.service'
 import { reconcileMissingDispatch } from './dispute-dispatch-recovery'
+import { reconcileResidualRecoveries } from './multisig-residual-recovery'
 
 export interface SettlementRecoverySchedule {
   /**
@@ -61,6 +62,16 @@ export async function runSettlementRecoveryTick(log: FastifyBaseLogger): Promise
     }
   } catch (err) {
     log.error({ msg: 'C4 dispatch recovery failed', module: 'dispute-dispatch-recovery', err: err instanceof Error ? err.message : err })
+  }
+
+  // #235 R7G F8A — signed residual recoveries converge with their one persisted transaction (never rebuilt).
+  try {
+    const report = await reconcileResidualRecoveries()
+    if (report.review.length || report.failed.length) {
+      log.warn({ msg: 'Residual recovery reconciliation completed with findings', module: 'multisig-residual-recovery', review: report.review, failed: report.failed })
+    }
+  } catch (err) {
+    log.error({ msg: 'Residual recovery reconciliation failed', module: 'multisig-residual-recovery', err: err instanceof Error ? err.message : err })
   }
 }
 
