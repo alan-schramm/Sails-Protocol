@@ -371,6 +371,20 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
 }
 
 /**
+ * #235 R7G F8B - SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1. On a signature-collection rail (MULTISIG,
+ * LIGHTNING_HODL, SAFE_GUARD_EVM) the disposition authority is the persisted signing round
+ * (EscrowPendingTransaction), never cooperativeDisposition / arbitratedDisposition. Their providers refuse a
+ * direct release/refund/split anyway, but only after claimEscrowTransition() had frozen the caller's intent -
+ * a false, durable disposition the reverted status left behind. Refused here, before any claim or write.
+ */
+function assertDirectlyExecutable(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split'): void {
+  if (!(escrow.type in SIGNATURE_COLLECTION_PROVIDERS)) return
+  throw new EscrowError(
+    `Escrow ${escrow.id} (${escrow.type}) settles only through signature collection: use POST /v1/settlement/escrow/${escrow.id}/initiate-${operation}, then submit-transaction-signature. Nothing was recorded.`
+  )
+}
+
+/**
  * Expired FUNDS_LOCKED escrows one timelock sweep pass claims (claimExpiryCandidates()). The pass takes
  * one claim and is never re-run inside the same tick, so this bounds every pass:
  * - a Core candidate (MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM) costs one trade read, one transaction
@@ -826,6 +840,7 @@ export class EscrowService {
   // appeal()-reinterpretable) Dispute state. Absent for every cooperative, non-disputed release.
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'release')
     assertEscrowTransition(escrow.status, 'COMPLETED')
     assertWdkOutboundCaller(escrow, 'release', [toAddress])
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
@@ -1011,6 +1026,7 @@ export class EscrowService {
   // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.
   async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'refund')
     assertEscrowTransition(escrow.status, 'REFUNDED')
     // #235 R7G-F6B — DF2: a refund of a never-locked escrow must not become a second economic operation
     // while a LOCK transaction may hold or move its funds. Checked before the outbound gate below so it
@@ -1087,6 +1103,7 @@ export class EscrowService {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'split')
     assertEscrowTransition(escrow.status, 'SPLIT')
     assertWdkOutboundCaller(escrow, 'split', [buyerAddress, sellerAddress])
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')

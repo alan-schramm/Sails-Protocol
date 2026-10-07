@@ -242,9 +242,9 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     expect(await outcome(tradeService.updateStatus(f.t.id, 'CANCELLED', f.buyer.id))).toMatch(/funding address, which may already hold funds/)
     expect(await outcome(tradeService.updateStatus(f.t.id, 'CANCELLED', f.seller.id))).toMatch(/funding address, which may already hold funds/)
     expect(await outcome(escrowService.initiateRefund(f.e.id, f.seller.id))).toMatch(/no recorded funding txid/)
-    // the direct refund used to claim REFUNDED (freezing cooperativeDisposition) before the provider refused it; the
-    // F8 status guard now refuses that claim itself, so nothing is written
-    expect(await outcome(escrowService.refundFunds(f.e.id, f.seller.id))).toMatch(/cannot be REFUNDED without its canonical funding outpoint/)
+    // the direct refund used to claim REFUNDED (freezing cooperativeDisposition) before the provider refused it; F8B
+    // refuses it before any claim (the F8 status guard would refuse that claim too), so nothing is written
+    expect(await outcome(escrowService.refundFunds(f.e.id, f.seller.id))).toMatch(/settles only through signature collection/)
     expect((await escrowRow(f.e.id)).cooperativeDisposition).toBeNull()
     outage = true
     expect(await outcome(escrowService.lockFunds(f.e.id, f.seller.id))).not.toBe('OK')

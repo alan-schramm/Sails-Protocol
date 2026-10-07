@@ -659,7 +659,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
     })
 
-    it('rejects a SAFE_GUARD_EVM escrow — that provider has no direct splitFunds() (signature-collection type, use initiateSplit instead)', async () => {
+    it('rejects a SAFE_GUARD_EVM escrow — a signature-collection rail, refused before any claim (use initiateSplit instead)', async () => {
       // getProvider() short-circuits to MOCK whenever config.features.mockEscrow
       // is true (this file's own header comment) — must disable it here to
       // actually reach the real safeGuardEvmProvider instance and its
@@ -667,8 +667,9 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockEscrowFeatureFlag = false
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'SAFE_GUARD_EVM', status: 'DISPUTED' })
       mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      // #235 R7G F8B — the rail check now refuses first; before it, the missing provider splitFunds() refused (also pre-claim)
       await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')).rejects.toThrow(
-        /does not support a SPLIT settlement action/
+        /settles only through signature collection: use POST .*initiate-split/
       )
     })
   })
