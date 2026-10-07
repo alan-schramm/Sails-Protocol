@@ -4,7 +4,7 @@ import { hasLegacyOutbound, hasSignedOutbound, recordClaimedWdkOutbound, runWdkO
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, revertEscrowStatus, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
 import { eventBus } from '../../common/events/event-bus'
 import { claimTransitionRecoveryBatch, markProjectedTransitions, type ClaimedTransition } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
@@ -380,15 +380,33 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
       // recoverable even if authority changed after the original broadcast
       // (UNKNOWN != FAILED). A genuinely new economic side effect, however,
       // must pass the same ADR-005 + ADR-004 commit gates as the live path.
-      const result = await multisigProvider.reconcilePendingSettlement(
-        input,
-        pending.unsignedPsbtBase64,
-        signedList as string[],
-        async () => {
-          await authorizeDisputedPendingExecution(pending)
-          await authorizePendingExecution(pending)
+      // #235 R7G F8C - and the same CURRENT-STATE authority: the transition is claimed against the escrow's
+      // current status before the first broadcast, exactly as the live finalize does, so a round the escrow
+      // has moved away from (e.g. a REFUND round under PAYMENT_PENDING) is refused before any economic effect.
+      // A crash after this claim leaves the live path's own window (terminal, no txReleaseId), which PASS 1
+      // closes from chain truth; a failed broadcast reverts the claim, as the live finalize does.
+      let claimedBeforeBroadcast = false
+      let result!: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
+      try {
+        result = await multisigProvider.reconcilePendingSettlement(
+          input,
+          pending.unsignedPsbtBase64,
+          signedList as string[],
+          async () => {
+            await authorizeDisputedPendingExecution(pending)
+            await authorizePendingExecution(pending)
+            await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
+            claimedBeforeBroadcast = true
+          }
+        )
+      } catch (err) {
+        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status)
+        if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
+          report.alreadyClaimedConcurrently.push(escrow.id)
+          continue
         }
-      )
+        throw err
+      }
       if (result.outcome === 'ANOMALY') {
         // FULLY_SIGNED_NOT_FINALIZED, surfaced explicitly rather than
         // left invisible — see this file's own C8 header comment. Fails
@@ -399,7 +417,8 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
       }
 
       try {
-        await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
+        // NEWLY_BROADCAST already claimed before its broadcast (above); ALREADY_BROADCAST converges to chain truth here.
+        if (!claimedBeforeBroadcast) await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
       } catch (err) {
         // Only the SPECIFIC "lost the atomic claim" error (claimedCount
         // === 0 — see claimEscrowTransition()'s own message) is treated
@@ -413,6 +432,14 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
         // never silently reclassified as "someone else handled it."
         if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
           report.alreadyClaimedConcurrently.push(escrow.id)
+          continue
+        }
+        // #235 R7G F8C - the round's transaction is already on the network (an ambiguous earlier broadcast) but
+        // the escrow has since moved to a state its transition is not valid from: never claimed, never forced -
+        // the chain and the escrow disagree until a state that authorizes the transition exists (a dispute).
+        if (err instanceof EscrowError && /^Invalid escrow transition/.test(err.message)) {
+          log.error({ msg: 'C8: round transaction already on the network, but the escrow state no longer authorizes its transition', escrowId: escrow.id, status: escrow.status, targetStatus, txId: result.txId })
+          report.requiresManualReview.push({ escrowId: escrow.id, reason: `C8: ${pending.kind} transaction ${result.txId} is already on the network, but escrow status '${escrow.status}' does not authorize ${targetStatus} — no transition claimed` })
           continue
         }
         throw err

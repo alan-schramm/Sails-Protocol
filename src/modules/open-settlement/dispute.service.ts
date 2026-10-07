@@ -68,6 +68,26 @@ export const APPEAL_FEE_MULTIPLIER = 2
 
 export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
 
+// The dispute statuses an escrow's terminal transition record turns MOOT (escrow-transition-claim.ts).
+const MOOTABLE_DISPUTE_STATUSES: ReadonlySet<string> = new Set(['OPENED', 'EVIDENCE_SUBMITTED', 'ARBITRATED', 'AUTO_PROPOSED'])
+
+/**
+ * #235 R7G F8C (#239D) - what a failed ruling dispatch restores the dispute to. Taken under the escrow's lock,
+ * the lock its terminal transition record (and that record's MOOT of the escrow's open disputes) is written
+ * under: if that record already exists, the escrow's disposition became final without this ruling, so a
+ * dispute that would be restored to an open status becomes MOOT, bound to that record - exactly what the
+ * record does when no ruling is in flight. APPEALED is restored as it is, as the record itself leaves it.
+ * Otherwise the displaced status is restored, and the record, when it lands, applies MOOT itself.
+ */
+async function rulingRevertTarget(tx: Prisma.TransactionClient, escrowId: string, displacedStatus: DisputeStatus) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+  if (!MOOTABLE_DISPUTE_STATUSES.has(displacedStatus)) return { status: displacedStatus }
+  const terminal = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] } }, select: { id: true } })
+  return terminal
+    ? { status: 'MOOT' as DisputeStatus, mootedAt: new Date(), mootedByTransitionId: terminal.id }
+    : { status: displacedStatus }
+}
+
 export class DisputeService {
   constructor(
     private readonly arbitrationProvider: ArbitrationProvider,
@@ -584,7 +604,8 @@ export class DisputeService {
             ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
           },
           data: {
-            status: displacedStatus, // what the claim above actually displaced, read under its row lock
+            // what the claim above actually displaced, read under its row lock - or MOOT (#235 R7G F8C)
+            ...(await rulingRevertTarget(tx, dispute.escrowId, displacedStatus)),
             ruling: null,
             resolvedAt: null,
             // Missão 13 Fase 2 — a reverted ruling never leaves a verified
@@ -742,7 +763,7 @@ export class DisputeService {
             appealRound: dispute.appealRound,
             authoritySignature,
           },
-          data: { status: commitResult.displacedStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+          data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
       })
       await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)

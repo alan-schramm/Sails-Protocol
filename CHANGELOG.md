@@ -19,6 +19,33 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G F8C — a signing round executes only under current-state authority, claimed before any broadcast;
+  a failed ruling never reopens a dispute beside a final escrow (SIGNING_ROUND_STATE_COMPATIBILITY, candidate).**
+  - **NF-F8B-1 (economic ordering):**
+    - What happened: under a cooperative REFUND round created at FUNDS_LOCKED, the buyer could still mark payment,
+      moving the escrow to PAYMENT_PENDING. Once both parties signed, the live finalize refused the round, because
+      PAYMENT_PENDING → REFUNDED is invalid.
+    - But C8 (reconciliation PASS 0) broadcast the refund **before** its claim checked the transition. The result
+      was an on-chain refund while the escrow stayed PAYMENT_PENDING.
+    - The fix: PASS 0 now claims the transition against the escrow's current status inside its existing pre-broadcast
+      gate, exactly as the live finalize does (claim → broadcast; a failed broadcast reverts). A crash after that
+      claim leaves the live path's existing window, which PASS 1 closes from chain truth.
+    - The round itself stays frozen. A ruling never replaces a bilaterally signed round (#239D). It executes only
+      once a state that authorizes its transition exists, e.g. after a dispute.
+    - A transaction already on the network whose transition the escrow no longer authorizes (an ambiguous earlier
+      broadcast) is reported for manual review and never claimed.
+  - **#239D (dispute/escrow consistency):**
+    - What happened: a ruling commits RESOLVED, C8 completes the escrow (MOOT skips RESOLVED disputes), and then the
+      ruling's dispatch fails. The revert restored OPENED beside a COMPLETED escrow.
+    - The fix: the revert now runs under the escrow's lock. If the escrow's terminal transition record already
+      exists, the dispute becomes MOOT, bound to that record — the existing #239D rule. APPEALED stays as it is.
+    - A narrow DB guard (`disputes_terminal_escrow_not_open_guard`) refuses inserting a dispute into, or moving one
+      into, an open status once its escrow has a terminal transition record. Historical rows are not rewritten.
+  - **Legacy:** `npm run signing-round:preflight` (read-only) reports, as SAFE / REVIEW_REQUIRED / UNVERIFIABLE:
+    - terminal escrows with an open dispute;
+    - rounds whose transition the current status does not allow;
+    - terminal escrows holding a round of another kind.
+    It never repairs anything.
 - **#235 R7G F8B — a refused direct release / refund / split on a signature-collection rail leaves no
   disposition provenance (SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1).**
   - **Defect:** on MULTISIG / LIGHTNING_HODL / SAFE_GUARD_EVM, `releaseFunds()` / `refundFunds()` claimed the
