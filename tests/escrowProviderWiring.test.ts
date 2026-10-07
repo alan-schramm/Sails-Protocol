@@ -572,7 +572,7 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // this direct-call splitFunds() method (that's MOCK/WDK_USDT_EVM only)
   // — lock/release/refund below is the complete, correct set of direct-
   // dispatch economic methods MULTISIG actually uses.
-  it('a real, deployment-eligible provider (MULTISIG) retains its exact current production behavior — lock/release/refund all still dispatch normally', async () => {
+  it('a real, deployment-eligible provider (MULTISIG) retains its exact current production behavior — lock dispatches normally; direct release/refund are refused by the rail, not by the MOCK gate', async () => {
     isProductionFlag = true
     const { multisigProvider } = jest.requireMock('../src/modules/open-settlement/multisig.provider') as any
 
@@ -591,31 +591,23 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
     expect(locked.txLockId).toBe('real-lock-txid')
     expect(multisigProvider.lockFunds).toHaveBeenCalled()
 
-    // releaseFunds
-    jest.clearAllMocks()
-    mockEscrowFeatureFlag = false
-    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-2', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    multisigProvider.releaseFunds.mockResolvedValueOnce({ txId: 'real-release-txid' })
-    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-2', txReleaseId: 'real-release-txid' })
-
-    const released = await escrowService.releaseFunds('escrow-ms-2', 'tb1qbuyer', 'seller-1')
-    expect(released.txReleaseId).toBe('real-release-txid')
-    expect(multisigProvider.releaseFunds).toHaveBeenCalled()
-
-    // refundFunds
-    jest.clearAllMocks()
-    mockEscrowFeatureFlag = false
-    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-3', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    multisigProvider.refundFunds.mockResolvedValueOnce({ txId: 'real-refund-txid' })
-    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-3', txReleaseId: 'real-refund-txid' })
-
-    const refunded = await escrowService.refundFunds('escrow-ms-3', 'seller-1')
-    expect(refunded.txReleaseId).toBe('real-refund-txid')
-    expect(multisigProvider.refundFunds).toHaveBeenCalled()
+    // releaseFunds / refundFunds — #235 R7G F8B (SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1): MULTISIG settles only
+    // through its signing round. The direct calls are refused by the rail itself (never by the production MOCK gate this
+    // test is about), before any claim or provider call. The real provider always threw "not directly callable" here;
+    // this test previously mocked it into succeeding.
+    for (const [call, id, status] of [
+      [() => escrowService.releaseFunds('escrow-ms-2', 'tb1qbuyer', 'seller-1'), 'escrow-ms-2', 'PAYMENT_PENDING'],
+      [() => escrowService.refundFunds('escrow-ms-3', 'seller-1'), 'escrow-ms-3', 'FUNDS_LOCKED'],
+    ] as const) {
+      jest.clearAllMocks()
+      mockEscrowFeatureFlag = false
+      mockEscrowFindUnique.mockResolvedValue({ id, tradeId: 'trade-ms', type: 'MULTISIG', status })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      await expect(call()).rejects.toThrow(/settles only through signature collection.*Nothing was recorded/)
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+      expect(multisigProvider.releaseFunds).not.toHaveBeenCalled()
+      expect(multisigProvider.refundFunds).not.toHaveBeenCalled()
+    }
   })
 
   it('the protocol/schema still represents MOCK as a valid escrow type — this mission never removed it from the wire enum', () => {

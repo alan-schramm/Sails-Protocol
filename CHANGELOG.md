@@ -19,6 +19,24 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G F8B — a refused direct release / refund / split on a signature-collection rail leaves no
+  disposition provenance (SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1).**
+  - **Defect:** on MULTISIG / LIGHTNING_HODL / SAFE_GUARD_EVM, `releaseFunds()` / `refundFunds()` claimed the
+    transition, freezing `cooperativeDisposition` (or, from DISPUTED, `arbitratedDisposition`), before the
+    provider refused the direct call. The status was reverted but the frozen intent stayed: a false, immutable
+    disposition. A refused REFUND attempt on a still-locked escrow left a durable "REFUNDED" intent beside the
+    signing round that later COMPLETED it. Reconciliation's downstream-effects recovery falls back to that slot's
+    actor when the round row is gone, so the false slot could also misattribute who triggered the outcome.
+  - **Not affected:** `splitFunds()` already refused these rails before the claim (no provider `splitFunds`).
+  - **Service:** the three direct calls refuse a signature-collection escrow right after authorization, before any
+    claim or write, and name the `initiate-*` route to use. Dispute rulings, the timelock sweep and the
+    orchestrator already route these rails to signature collection and are unchanged.
+  - **Database:** a narrow guard (`escrows_signature_collection_no_direct_disposition_guard`) refuses creating or
+    changing any direct-execution intent slot on a signature-collection row. Direct-execution rails (WDK, MOCK) and
+    their slots are untouched. A pre-F8B row that already carries a value keeps settling and is never rewritten.
+  - **Legacy rows:** `npm run disposition:preflight` (read-only) reports signature-collection escrows carrying
+    such a slot, and terminal escrows whose slot contradicts the outcome. Every hit is REVIEW_REQUIRED; nothing
+    is repaired.
 - **#235 R7G F8A — residual value on a MULTISIG script is recovered only by both original participants
   (MULTISIG_RESIDUAL_VALUE_RECOVERY_V1); no MULTISIG economic state without its funding outpoint.**
   - **What counts as residual:** value on an escrow's original 2-of-3 script that is not, and can no longer
