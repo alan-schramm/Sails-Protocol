@@ -254,8 +254,12 @@ describe('Settlement reconciliation PASS 1/2 — bounded runs, durable fair prog
     expect(indexes[1].indexdef).toMatch(/WHERE .*"txReleaseId" IS NULL/)
     expect(indexes[0].indexdef).toMatch(/WHERE .*"txReleaseId" IS NOT NULL.*"completionVerifiedAt" IS NULL/)
 
-    // With sequential scans priced out, a plan that still scans the table would mean the query's
-    // predicate does not imply the index's — i.e. the index could never serve it at any size.
+    // With the alternatives priced out (sequential scan, sort, bitmap scan), a plan that does not read
+    // the queue's own index in order would mean the query's predicate does not imply the index's, or
+    // the index does not yield the queue's order — i.e. it could never serve the query at any size.
+    // Pricing out only the sequential scan left the choice to the planner's cost estimate on whatever
+    // rows earlier suites left behind (#235 R7G-F6C CI triage: on PostgreSQL 16 an unchanged schema
+    // got a status-index scan + Sort for most realistic table compositions), which is not this property.
     for (const [sql, index] of [
       [`SELECT e.id FROM escrows e WHERE e.status IN ('COMPLETED', 'REFUNDED', 'SPLIT') AND e."txReleaseId" IS NULL
         ORDER BY e."settlementRecoveryAttemptedAt" ASC NULLS FIRST, e."updatedAt" DESC, e.id LIMIT 50`, 'escrows_settlement_result_recovery_queue_idx'],
@@ -264,6 +268,8 @@ describe('Settlement reconciliation PASS 1/2 — bounded runs, durable fair prog
     ] as const) {
       const plan = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off')
+        await tx.$executeRawUnsafe('SET LOCAL enable_sort = off')
+        await tx.$executeRawUnsafe('SET LOCAL enable_bitmapscan = off')
         return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': unknown }>>(`EXPLAIN (FORMAT JSON) ${sql}`)
       })
       const text = JSON.stringify(plan)
