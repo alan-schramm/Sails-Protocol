@@ -94,7 +94,7 @@ export function classifyLockReceipt(raw: unknown, txHash: string): LockReceipt {
 }
 
 /** A receipt query that cannot fail into a conclusion: an RPC error is UNRESOLVED, never NONE or a revert. */
-async function queryReceipt(txHash: string, rpc: WdkRpc = wdkSettlementProvider.rpc()): Promise<LockReceipt> {
+export async function queryReceipt(txHash: string, rpc: WdkRpc = wdkSettlementProvider.rpc()): Promise<LockReceipt> {
   try {
     return classifyLockReceipt(await rpc.receipt(txHash), txHash)
   } catch (err) {
@@ -117,7 +117,7 @@ export type FinalityEvidence = { receiptBlockNumber: bigint; receiptBlockHash: s
 export type Corroboration = { primarySource: string; corroboratingSource: string; corroboratingHeadBlock: bigint }
 
 /** Finality under WDK_FINALITY_CONFIRMATIONS, as the primary RPC sees it; unset means nothing is ever final. */
-async function isFinal(receipt: { blockNumber: number; blockHash: string }): Promise<{ final: true; evidence: FinalityEvidence } | { final: false; reason: string }> {
+export async function isFinal(receipt: { blockNumber: number; blockHash: string }): Promise<{ final: true; evidence: FinalityEvidence } | { final: false; reason: string }> {
   const required = config.wdk.finalityConfirmations
   if (!required) return { final: false, reason: 'no WDK finality policy is configured (WDK_FINALITY_CONFIRMATIONS)' }
   const head = await wdkSettlementProvider.rpc().blockNumber()
@@ -164,7 +164,7 @@ type Corroborated = { agreed: true; corroboration: Corroboration } | { agreed: f
  * block hash, final under the same rule at its own head. Missing, stale or unreachable: not yet. Contradicting:
  * a disagreement.
  */
-async function corroborateReceipt(txHash: string, primary: { success: boolean; blockNumber: number; blockHash: string }, required: number): Promise<Corroborated> {
+export async function corroborateReceipt(txHash: string, primary: { success: boolean; blockNumber: number; blockHash: string }, required: number): Promise<Corroborated> {
   const view = await corroboratorView()
   if (!view.ok) return { agreed: false, disagreement: view.disagreement, reason: view.reason }
   const label = config.wdk.corroboratingRpcLabel
@@ -352,7 +352,7 @@ async function markFailedBeforeSubmission(attempt: WdkTransferAttempt, reason: s
   log.warn({ msg: 'WDK LOCK failed before any transaction was signed', attemptId: attempt.id, escrowId: attempt.escrowId, reason, marked: marked.count })
 }
 
-class LaneHalted extends EscrowError {}
+export class LaneHalted extends EscrowError {}
 
 /**
  * Allocates the nonce and persists the signed transaction (TREASURY_NONCE_AUTHORITY_V1 +
@@ -434,7 +434,7 @@ async function signAttempt(escrowId: string, attempt: WdkTransferAttempt): Promi
 }
 
 /** Creates the lane once (from the chain's nonce, never lower than it) and locks it for this transaction. */
-async function lockNonceLane(tx: Prisma.TransactionClient, chainId: number, account: string, chainNonce: number) {
+export async function lockNonceLane(tx: Prisma.TransactionClient, chainId: number, account: string, chainNonce: number) {
   await tx.$executeRaw`
     INSERT INTO wdk_nonce_lanes ("chainId", account, "nextNonce", "updatedAt") VALUES (${chainId}, ${account}, ${chainNonce}, now())
     ON CONFLICT ("chainId", account) DO NOTHING`
@@ -450,7 +450,7 @@ async function lockNonceLane(tx: Prisma.TransactionClient, chainId: number, acco
  * Operational attention only: the transaction stays SIGNED/SUBMITTED and keeps being rebroadcast and
  * reconciled. Unset threshold: no stuck classification. Returns the auditable observation, or null.
  */
-async function stuckLowestNonce(db: Prisma.TransactionClient | typeof prisma, lane: LaneKey, head: number, chainLatestNonce: number): Promise<string | null> {
+export async function stuckLowestNonce(db: Prisma.TransactionClient | typeof prisma, lane: LaneKey, head: number, chainLatestNonce: number): Promise<string | null> {
   const threshold = config.wdk.laneStuckBlocks
   if (!threshold) return null
   const lowest = await db.wdkTransferAttempt.findFirst({
@@ -517,7 +517,7 @@ export async function advanceLockAttempt(attempt: WdkTransferAttempt, opts: { tr
 }
 
 /** Broadcasts the persisted bytes (already verified by the caller). Any RPC failure leaves the attempt as it is. */
-async function broadcast(attempt: WdkTransferAttempt): Promise<void> {
+export async function broadcast(attempt: WdkTransferAttempt): Promise<void> {
   try {
     const result = await wdkSettlementProvider.rpc().sendRawTransaction(attempt.signedRawTx as string)
     if (typeof result === 'string' && result.toLowerCase() === (attempt.txHash as string).toLowerCase()) {
@@ -542,7 +542,7 @@ async function broadcast(attempt: WdkTransferAttempt): Promise<void> {
  * observations and the lane halts with PROVEN_EXTERNAL_NONCE_CONSUMPTION (realignment needs the governed
  * resume). Anything less — corroborator missing, stale, unavailable, or of another view — stays a suspicion.
  */
-async function observeNonceConsumption(attempt: WdkTransferAttempt): Promise<LockAdvance | null> {
+export async function observeNonceConsumption(attempt: WdkTransferAttempt): Promise<LockAdvance | null> {
   const required = config.wdk.finalityConfirmations
   if (!required) return null
   const from = attempt.fromAddress as string

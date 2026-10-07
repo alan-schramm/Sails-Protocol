@@ -460,13 +460,13 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
   // supported (immutable Guard contract)" proves the real rejection.
 })
 
-// #235 R7G-F6B — WDK outbound settlement has no transaction authority until F6C, so every WDK ruling is
-// refused before destination resolution, the escrow claim or any provider call. The destination-authority
-// properties above are unchanged for the rails that execute (MOCK below; MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM
-// above) and return to this block when WDK outbound authority exists.
-describe('WDK_USDT_EVM — direct-call rail: outbound refused until its transaction authority exists (#235 F6C)', () => {
+// #235 R7G-F6C — WDK outbound settlement runs only through the signed outbound authority, and only under an
+// explicit network and gas policy (no defaults). Without one every WDK ruling is refused before destination
+// resolution, the escrow claim or any provider call. With one, WDK destinations come only from the registered
+// payout addresses / treasury (an arbiter-supplied destination is refused — tests/integration/wdkOutboundAuthority).
+describe('WDK_USDT_EVM — direct-call rail: outbound refused without an explicit network and gas policy (#235 F6C)', () => {
   const service = new DisputeService(new TrustedArbitratorProvider([ARBITER_ID]))
-  const refused = /WDK outbound settlement has no transaction authority yet/
+  const refused = /WDK_USDT_EVM outbound settlement for escrow \S+ is unavailable: no .* configured \(network policy\)\. Nothing was executed\./
 
   beforeEach(() => {
     jest.clearAllMocks()

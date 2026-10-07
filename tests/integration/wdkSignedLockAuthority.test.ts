@@ -481,7 +481,7 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
     await reconcile()
     expect((await attempts(f)).map((a) => a.status)).toEqual(['REVERTED'])
     expect((await escrowOf(f)).status).toBe('CREATED')
-    expect((await settle(A.escrowService.refundFunds(f.e.id, f.seller.id)) as any).err).toMatch(/no transaction authority yet/) // DF2 satisfied; outbound gate
+    expect((await settle(A.escrowService.refundFunds(f.e.id, f.seller.id)) as any).err).toMatch(/WDK_USDT_EVM outbound settlement for escrow \S+ is unavailable: no .* configured \(network policy\)\. Nothing was executed\./) // DF2 satisfied; #235 F6C: no outbound gas policy in this suite (refund-from-CREATED itself: wdkOutboundAuthority K4)
     chain.fund(TREASURY, 10n ** 12n)
     await lock(A, f)
     const all = await attempts(f)
@@ -575,8 +575,8 @@ describe('#235 R7G-F6B — WDK signed LOCK authority (real PostgreSQL)', () => {
   it('N/P: WDK release/refund/split are refused before any claim or provider call; DF2 refuses refund-from-CREATED while a LOCK may hold funds', async () => {
     pg.requirePostgres('gates')
     const f = await fx('gate')
-    const refused = /WDK outbound settlement has no transaction authority yet/
-    expect((await settle(A.escrowService.refundFunds(f.e.id, f.seller.id)) as any).err).toMatch(refused) // no LOCK: the outbound gate
+    const refused = /WDK_USDT_EVM outbound settlement for escrow \S+ is unavailable: no .* configured \(network policy\)\. Nothing was executed\./ // #235 F6C: no outbound gas policy in this suite
+    expect((await settle(A.escrowService.refundFunds(f.e.id, f.seller.id)) as any).err).toMatch(refused) // no LOCK: the outbound policy gate (refund-from-CREATED itself: wdkOutboundAuthority K4)
     await lock(A, f)
     expect((await settle(A.escrowService.refundFunds(f.e.id, f.seller.id)) as any).err).toMatch(/may hold or move funds/) // DF2
     chain.mine(2)

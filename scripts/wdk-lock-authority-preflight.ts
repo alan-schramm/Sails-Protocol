@@ -17,6 +17,10 @@
  *   HALTED_NONCE_LANE         a treasury nonce lane with an active halt (#235 R7G-F6B-P1: any reason —
  *                             operator pause, stuck lowest nonce, suspected or proven foreign nonce use);
  *   CORROBORATOR_IS_PRIMARY   WDK_CORROBORATING_RPC_URL is the primary WDK_RPC_URL;
+ *   OUTBOUND_UNRESOLVED       #235 R7G-F6C: a signed release / refund / split leg or gas funding not final yet
+ *                             (reconciliation converges it; listed so it is not forgotten);
+ *   OUTBOUND_REVIEW           a signed outbound leg or gas funding that reverted or whose nonce was consumed by
+ *                             another transaction, on an escrow without a settlement result (manual review);
  *   DUPLICATE_TX_HASH         one transaction hash on more than one attempt;
  *   CHAIN_NOT_PINNED          WDK escrows exist but WDK_CHAIN_ID is not set;
  *   TERMINAL_WITHOUT_EVIDENCE a signed LOCK CONFIRMED / REVERTED without finality evidence (#235 R7G-F6B-P:
@@ -61,6 +65,12 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
       WHERE "operationType" <> 'LOCK' AND status::text IN ('SUBMISSION_UNKNOWN', 'SUBMITTED') GROUP BY 1`)
     const [{ n: wdkEscrows }] = await q<{ n: number }>(`SELECT count(*)::int AS n FROM escrows WHERE type = 'WDK_USDT_EVM'`)
     const hasEvidence = (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'wdk_transfer_attempts' AND column_name = 'receiptBlockNumber'`)).rowCount === 1
+    const hasFundingColumn = (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'wdk_transfer_attempts' AND column_name = 'fundsAttemptId'`)).rowCount === 1
+    const outbound = hasFundingColumn ? await q<{ id: string; escrowId: string; operationType: string; status: string; txHash: string; escrowStatus: string; txReleaseId: string | null }>(`
+      SELECT a.id, a."escrowId", a."operationType"::text AS "operationType", a.status::text AS status, a."txHash", e.status::text AS "escrowStatus", e."txReleaseId"
+      FROM wdk_transfer_attempts a JOIN escrows e ON e.id = a."escrowId"
+      WHERE a.authority::text = 'SIGNED_RAW_V1' AND a."operationType"::text <> 'LOCK'
+        AND (a.status::text IN ('SIGNED', 'SUBMITTED') OR (a.status::text IN ('REVERTED', 'NONCE_CONSUMED_ELSEWHERE') AND e."txReleaseId" IS NULL))`) : []
     const terminalWithoutEvidence = await q<{ id: string; escrowId: string; status: string; txHash: string }>(`
       SELECT id, "escrowId", status::text AS status, "txHash" FROM wdk_transfer_attempts
       WHERE authority::text = 'SIGNED_RAW_V1' AND status::text IN ('CONFIRMED', 'REVERTED')
@@ -78,13 +88,18 @@ export async function runWdkLockPreflight(connectionString: string, env: NodeJS.
     const primaryUrl = (env.WDK_RPC_URL ?? '').trim().toLowerCase()
     const corroboratingUrl = (env.WDK_CORROBORATING_RPC_URL ?? '').trim().toLowerCase()
     if (corroboratingUrl && corroboratingUrl === primaryUrl) blocking.push({ kind: 'CORROBORATOR_IS_PRIMARY', detail: 'WDK_CORROBORATING_RPC_URL equals WDK_RPC_URL' })
+    for (const o of outbound) blocking.push({ kind: o.status === 'SIGNED' || o.status === 'SUBMITTED' ? 'OUTBOUND_UNRESOLVED' : 'OUTBOUND_REVIEW', detail: o })
     return {
       wdkEscrows,
       config: {
         WDK_CHAIN_ID: chainIdSet ? env.WDK_CHAIN_ID : null,
         WDK_FINALITY_CONFIRMATIONS: (env.WDK_FINALITY_CONFIRMATIONS ?? '').trim() || null,
         WDK_LANE_STUCK_BLOCKS: (env.WDK_LANE_STUCK_BLOCKS ?? '').trim() || null,
+        WDK_OUTBOUND_MAX_GAS_LIMIT: (env.WDK_OUTBOUND_MAX_GAS_LIMIT ?? '').trim() || null,
+        WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI: (env.WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI ?? '').trim() || null,
       },
+      // #235 R7G-F6C: without both gas caps (and the finality / corroboration policy) WDK outbound is refused.
+      outboundGasPolicyConfigured: (env.WDK_OUTBOUND_MAX_GAS_LIMIT ?? '').trim() !== '' && (env.WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI ?? '').trim() !== '',
       finalityPolicyConfigured: (env.WDK_FINALITY_CONFIRMATIONS ?? '').trim() !== '',
       // #235 R7G-F6B-P1: without a distinct corroborating RPC no LOCK ever becomes terminal (fail closed).
       corroborationConfigured: corroboratingUrl !== '' && corroboratingUrl !== primaryUrl,

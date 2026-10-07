@@ -19,6 +19,43 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G-F6C — WDK release, refund and split are signed transactions of the escrow's own account, with
+  gas funded once per leg, and an ambiguous outcome never reverts the escrow or creates a transaction B (DF1).**
+  - The provider's `transfer()` path is gone: it let the RPC choose the nonce, learned the hash only after the
+    broadcast, and reverted the escrow claim on any error.
+  - **The obligation** (frozen before anything is signed, from durable authority only):
+    - RELEASE pays the full locked amount to the buyer's registered payout address;
+    - REFUND pays it back to the treasury that funded the LOCK;
+    - SPLIT pays floor(amount × buyerBps / 10000) to the buyer and the exact remainder to the seller, in order —
+      the seller leg is signed only after the buyer leg is final.
+  - **Caller-supplied destinations are refused for this rail** (the auto-settle buyer sub-account: NF-B1). A
+    CREATED escrow is never refunded on-chain.
+  - **Each leg:**
+    - signed by the escrow account from that account's governed nonce lane;
+    - persisted before any broadcast;
+    - final only on corroborated evidence (both RPCs), the same rules as the F6B LOCK.
+  - **Gas:** one GAS_FUNDING treasury transaction per signed leg, worth exactly the leg's maximum gas cost minus
+    the account's balance. It is itself signed, persisted and corroborated, and must be final before the leg is
+    broadcast.
+  - **Gas policy** (no defaults; WDK outbound is refused until set): `WDK_OUTBOUND_MAX_GAS_LIMIT` and
+    `WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI` cap what a leg may be signed with.
+  - **When a call fails:**
+    - nothing signed yet: the escrow claim is reverted;
+    - anything signed: the claim stays and reconciliation (PASS 1, or `npm run wdk:lane -- reconcile --escrow`)
+      continues the same transactions;
+    - a final revert or a nonce consumed elsewhere stops the obligation for manual review — nothing is re-signed;
+    - the process dies after the claim, before the obligation is recorded: reconciliation records it once from
+      the same durable authority (registered payout addresses, treasury, frozen buyerBps) and drives it.
+  - **Database guarantees:**
+    - one economic outbound family per escrow (no RELEASE beside a REFUND);
+    - no signed obligation beside a legacy `transfer()` attempt that may have moved funds;
+    - recorded legs are frozen;
+    - one immutable funding per leg.
+  - **Lane gaps:** a nonce lane initialized past a foreign pending transaction that later disappears stays fail
+    closed and is shown as `laneGap` by `wdk:lane status` (UNFILLABLE_LANE_GAP_V1).
+  - Migration `20261011120000_wdk_outbound_signed_authority`. `npm run wdk:lock-preflight` reports unresolved
+    outbound legs and fundings.
+
 - **#235 R7G-F6B-P1 — no irreversible WDK conclusion rests on one RPC; treasury lanes halt and resume under
   governance; a stuck lowest nonce stops new signing.** CONFIRMED (→ FUNDS_LOCKED), a final REVERTED and
   NONCE_CONSUMED_ELSEWHERE now need a second, distinct observer (`WDK_CORROBORATING_RPC_URL`, evidence only,

@@ -426,8 +426,11 @@ describe('Issue #251 - WDK_USDT_EVM RELEASE/REFUND restart convergence (real Pos
 
     const report = await reconcilePendingSettlements({ projectionGraceMs: 0 })
     expect(report.recovered).toEqual([])
-    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /No WdkTransferAttempt exists/.test(m.reason))).toBe(true)
+    // #235 R7G-F6C: a claim with no attempt at all is the R1 crash window; its obligation is recorded only from
+    // proven funding under a configured outbound policy - neither exists here, so nothing is recorded or moved.
+    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /has no live outbound obligation and none can be recorded/.test(m.reason))).toBe(true)
     expect(mockTransfer).not.toHaveBeenCalled()
+    expect(await prisma.wdkTransferAttempt.count({ where: { escrowId: c.escrowId } })).toBe(0)
   })
 
   // ── T10 - restart reality (independent module graph, not the same instance invoked twice) ────────

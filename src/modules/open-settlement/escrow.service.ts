@@ -1,5 +1,6 @@
 import { prisma } from '../../common/database'
 import { lockWdkEscrow, assertWdkFundingProven, wdkLockMayHoldFunds } from './wdk-lock-authority'
+import { assertWdkOutboundPolicy, planWdkOutbound, settleWdkOutbound, wdkOutboundFailure } from './wdk-outbound-authority'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
@@ -826,7 +827,7 @@ export class EscrowService {
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
-    assertWdkOutboundAvailable(escrow, 'release')
+    assertWdkOutboundCaller(escrow, 'release', [toAddress])
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
     // RFC-014: the real capability check. Lives here, not in
@@ -881,19 +882,28 @@ export class EscrowService {
     // lockFunds() above now is: atomically claim COMPLETED via a
     // conditional `updateMany` *before* ever calling the provider, so a
     // concurrent loser is rejected before touching real funds, not after.
+    // #235 R7G-F6C - a WDK release is planned from durable authority (proven funding, the buyer's registered
+    // payout address, the full locked amount) before the claim, and executed by the signed outbound authority.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM' ? await planWdkOutbound(escrow, 'RELEASE', { buyer: resolvedToAddress }) : null
     await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED', { triggeredBy })
 
     // Issue #291 - two distinct error boundaries. Only a failing PROVIDER call
     // reverts the claim; once it has returned, external execution may already
     // have happened and a later local failure must never pretend it did not.
+    // #235 R7G-F6C (DF1) - a WDK outbound failure reverts the claim only when nothing was signed.
     let result: { txId: string }
     try {
-      const provider = getSettlementProvider(escrow.type)
-      result = await provider.releaseFunds(
-        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
-        resolvedToAddress
-      )
+      if (wdkLegs) {
+        result = { txId: (await settleWdkOutbound(escrowId, wdkLegs)).join(',') }
+      } else {
+        const provider = getSettlementProvider(escrow.type)
+        result = await provider.releaseFunds(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
+          resolvedToAddress
+        )
+      }
     } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'COMPLETED', escrow.status, err)
       await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
       throw err
     }
@@ -1008,7 +1018,10 @@ export class EscrowService {
     if (escrow.type === 'WDK_USDT_EVM' && escrow.status === 'CREATED' && await wdkLockMayHoldFunds(escrowId)) {
       throw new EscrowError(`Escrow ${escrowId} is CREATED but has a WDK LOCK transaction that may hold or move funds — refusing a refund until that LOCK is resolved`)
     }
-    assertWdkOutboundAvailable(escrow, 'refund')
+    assertWdkOutboundCaller(escrow, 'refund', [])
+    if (escrow.type === 'WDK_USDT_EVM' && escrow.status === 'CREATED') {
+      throw new EscrowError(`Escrow ${escrowId} is CREATED: its WDK funding was never proven, so there is nothing to refund on-chain — refusing a WDK refund`)
+    }
 
     // Missão 06.9 (RFC-014 wiring completion) — same check releaseFunds()
     // above already had; refund moves the exact same class of real,
@@ -1016,17 +1029,24 @@ export class EscrowService {
     // capability check at all, a real gap, not a deliberate exemption.
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.refunded')
 
+    // #235 R7G-F6C - a WDK refund returns the full locked amount to the treasury that funded the LOCK.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM' ? await planWdkOutbound(escrow, 'REFUND', {}) : null
     // Same fix as releaseFunds() above, same reason: claim REFUNDED
     // atomically before ever calling the real, side-effecting provider.
     await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED', { triggeredBy })
 
     let result: { txId: string }
     try {
-      const provider = getSettlementProvider(escrow.type)
-      result = await provider.refundFunds(
-        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy })
-      )
+      if (wdkLegs) {
+        result = { txId: (await settleWdkOutbound(escrowId, wdkLegs)).join(',') }
+      } else {
+        const provider = getSettlementProvider(escrow.type)
+        result = await provider.refundFunds(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy })
+        )
+      }
     } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'REFUNDED', escrow.status, err)
       await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
       throw err
     }
@@ -1068,7 +1088,7 @@ export class EscrowService {
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'SPLIT')
-    assertWdkOutboundAvailable(escrow, 'split')
+    assertWdkOutboundCaller(escrow, 'split', [buyerAddress, sellerAddress])
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')
     const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
     const resolvedSellerAddress = await resolvePayoutAddress(sellerAddress, trade.sellerId, escrow.asset)
@@ -1083,17 +1103,25 @@ export class EscrowService {
     // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps) before any provider side
     // effect; a failed provider call below reverts only the status, so a retry - by whoever is then the
     // assigned arbiter (checked above) - must present this identical allocation.
+    // #235 R7G-F6C - a WDK split is two legs frozen here: floor(amount x buyerBps / 10000) to the buyer, the
+    // exact remainder to the seller, each to its registered payout address.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM'
+      ? await planWdkOutbound(escrow, 'SPLIT', { buyer: resolvedBuyerAddress, seller: resolvedSellerAddress }, buyerBps)
+      : null
     await claimEscrowTransition(escrowId, escrow.status, 'SPLIT', { triggeredBy, splitBuyerBps: buyerBps })
 
     let result: { txIds: string[] }
     try {
-      result = await provider.splitFunds(
-        providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
-        resolvedBuyerAddress,
-        resolvedSellerAddress,
-        buyerBps
-      )
+      result = wdkLegs
+        ? { txIds: await settleWdkOutbound(escrowId, wdkLegs) }
+        : await provider.splitFunds!(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
+          resolvedBuyerAddress,
+          resolvedSellerAddress,
+          buyerBps
+        )
     } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'SPLIT', escrow.status, err)
       await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
       throw err
     }
@@ -1411,14 +1439,17 @@ function exactDecimalString(value: unknown): string {
 }
 
 /**
- * #235 R7G-F6B — WDK outbound (release / refund / split, cooperative, arbitrated, swept or auto-settled) is
- * unavailable until its outbound transaction authority exists (F6C): refused before any claim or provider
- * call, distinctly from an economic failure.
+ * #235 R7G-F6C — before any claim: WDK outbound needs its network policy (chain, finality, corroborating RPC,
+ * gas caps), and its recipients come only from durable authority (registered payout addresses, the treasury).
+ * A caller-supplied destination - the auto-settle buyer sub-account (NF-B1) or any explicit override - is
+ * refused for this rail rather than frozen into an irreversible obligation.
  */
-function assertWdkOutboundAvailable(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split'): void {
-  if (escrow.type === 'WDK_USDT_EVM') {
+function assertWdkOutboundCaller(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split', explicitDestinations: Array<string | undefined>): void {
+  if (escrow.type !== 'WDK_USDT_EVM') return
+  assertWdkOutboundPolicy(escrow.id)
+  if (explicitDestinations.some((d) => d !== undefined)) {
     throw new EscrowError(
-      `WDK_USDT_EVM ${operation} for escrow ${escrow.id} is unavailable: WDK outbound settlement has no transaction authority yet (#235 F6C). Nothing was executed.`,
+      `WDK_USDT_EVM ${operation} for escrow ${escrow.id} pays only registered payout addresses: a caller-supplied destination is refused (buyer payout custody, NF-B1). Nothing was executed.`,
       'UNAVAILABLE'
     )
   }
