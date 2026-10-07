@@ -19,6 +19,24 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G F8G — canonical / residual input separation, mechanically proven; legacy locks without a vout
+  surfaced by the residual preflight.**
+  - **NF-F8G-1 (evidence):** a canonical MULTISIG settlement spends exactly the persisted canonical outpoint and
+    never another output at the same script. This was true in code but no test protected it: a mutation that also
+    spent every other UTXO at the address passed CI.
+    - New real-PostgreSQL / real-PSBT tests cover cooperative release and refund, and the arbiter's signed release,
+      refund and split, each on an escrow whose script also holds a confirmed residual output.
+    - Each test asserts that the round's PSBT and the broadcast transaction have exactly one input, the canonical
+      outpoint, and that the residual output stays unspent, RESIDUAL, and recoverable only by both original
+      participants.
+    - That mutation now fails all five tests.
+  - **NF-F8G-2 (legacy):** a lock that recorded its funding txid but no vout (before the Missão 10 vout column)
+    leaves the canonical outpoint ambiguous. Runtime treats every output of that txid at the script as canonical,
+    so a second one could never become residual, and the preflight reported SAFE.
+    - `npm run multisig:residual-preflight` now raises `CANONICAL_OUTPOINT_VOUT_UNKNOWN` (REVIEW_REQUIRED) from the
+      database alone, so an explorer outage cannot hide it.
+    - It lists every output of that txid the explorer shows, chooses none, and repairs nothing.
+    - New locks always record the vout.
 - **#235 R7G F8C — a signing round executes only under current-state authority, claimed before any broadcast;
   a failed ruling never reopens a dispute beside a final escrow (SIGNING_ROUND_STATE_COMPATIBILITY, candidate).**
   - **NF-F8B-1 (economic ordering):**

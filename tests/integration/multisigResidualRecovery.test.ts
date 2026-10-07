@@ -14,6 +14,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createHash, randomBytes } from 'crypto'
+import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
@@ -560,5 +561,168 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     outage = false
     expect(down.results.find((r: any) => r.escrowId === clean.e.id).classification).toBe('UNVERIFIABLE') // never SAFE without evidence
     expect([await snapshot(), await prisma.escrowResidualRecovery.count()]).toEqual([before, recoveriesBefore])
+  })
+
+  // ─── #235 R7G F8G: canonical settlement spends exactly the canonical outpoint ─────────────────────────────
+  //
+  // NF-F8G-1. Every canonical MULTISIG disposition is built through its real initiation path (cooperative release /
+  // refund, and the arbiter's signed ruling for release / refund / split) on an escrow whose script ALSO holds a
+  // confirmed residual output. The round's PSBT and the transaction actually broadcast must have exactly one input,
+  // the persisted canonical outpoint; the residual output must stay unspent, RESIDUAL, and recoverable only by the
+  // original buyer and seller.
+
+  const arbiterKeys = nacl.sign.keyPair()
+  let arbiterRegistered = false
+  async function registerArbiter() {
+    if (arbiterRegistered) return
+    const publicKey = Buffer.from(arbiterKeys.publicKey).toString('hex')
+    await prisma.user.upsert({ where: { id: ARBITER_USER }, update: { publicKey }, create: { id: ARBITER_USER, publicKey, displayName: ARBITER_USER } })
+    arbiterRegistered = true
+  }
+  /** The escrow disputed, with the trusted arbiter assigned, once the trade projection has caught up. */
+  async function disputedBy(f: Fx) {
+    await registerArbiter()
+    await escrowService.openDispute(f.e.id, f.buyer.id, 'f8g canonical isolation')
+    await prisma.dispute.create({ data: { tradeId: f.t.id, escrowId: f.e.id, openedBy: f.buyer.id, reason: 'f8g canonical isolation', arbiterId: ARBITER_USER } })
+    for (let i = 0; i < 100 && (await prisma.trade.findUniqueOrThrow({ where: { id: f.t.id } })).status !== 'DISPUTED'; i++) await new Promise((r) => setTimeout(r, 20))
+  }
+  /** The assigned arbiter's signed ruling (dispute.service.resolveDispute): for MULTISIG it opens the arbitrated round. */
+  async function rule(f: Fx, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', buyerBps: number | null = null) {
+    const { signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority')
+    const disputeId = (await prisma.dispute.findUniqueOrThrow({ where: { tradeId: f.t.id } })).id
+    const issuedAt = new Date().toISOString()
+    const signature = signAuthorityDecision({ disputeId, escrowId: f.e.id, appealRound: 0, authorityId: ARBITER_USER, outcome: ruling, buyerBps, issuedAt }, arbiterKeys.secretKey)
+    await require('../../src/modules/open-settlement/dispute.service').getDisputeService()
+      .resolveDispute(disputeId, ARBITER_USER, ruling, undefined, undefined, buyerBps ?? undefined, signature, issuedAt)
+  }
+  const inputsOf = (psbtBase64: string) => bitcoin.Psbt.fromBase64(psbtBase64, { network: NET }).txInputs
+    .map((i) => ({ txid: Buffer.from(i.hash).reverse().toString('hex'), vout: i.index }))
+  const classified = async (f: Fx, viewer: string) => (await residual.observeResidualValue(f.e.id, viewer)).outputs
+    .map((o: any) => [o.txid, o.vout, o.classification])
+  /** A locked escrow whose script also holds a later, confirmed, non-canonical deposit. */
+  async function canonicalBesideResidual(label: string) {
+    const f = await locked(label)
+    const extra = deposit(f.addr, 30_000)
+    mine(); mine()
+    const row = await escrowRow(f.e.id)
+    const canonical = { txid: row.txLockId!, vout: row.txLockVout! }
+    expect(canonical).toEqual({ txid: f.funding.txid, vout: f.funding.vout })
+    expect(utxosAt(f.addr).map((u) => [u.txid, u.vout]).sort()).toEqual([[canonical.txid, canonical.vout], [extra.txid, extra.vout]].sort())
+    expect((await classified(f, f.buyer.id)).sort()).toEqual([[canonical.txid, canonical.vout, 'CANONICAL'], [extra.txid, extra.vout, 'RESIDUAL']].sort())
+    return { ...f, extra, canonical }
+  }
+  /** Builds the disposition through `initiate`, proves its inputs, executes it, then proves the residual is untouched and recoverable. */
+  async function settlesOnlyCanonical(f: Awaited<ReturnType<typeof canonicalBesideResidual>>, initiate: () => Promise<unknown>, terminal: string) {
+    await initiate()
+    const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.e.id } })
+    // the round's transaction: exactly the canonical outpoint, on this escrow's own script - no second input, no sweep
+    expect(inputsOf(round.unsignedPsbtBase64)).toEqual([f.canonical])
+    const spent = bitcoin.Psbt.fromBase64(round.unsignedPsbtBase64, { network: NET }).data.inputs[0].witnessUtxo!
+    expect([bitcoin.address.fromOutputScript(Buffer.from(spent.script), NET), Number(spent.value)]).toEqual([f.addr, FUNDING])
+    for (const signer of round.requiredSigners) {
+      await escrowService.submitTransactionSignature(f.e.id, signer, signCopy(round.unsignedPsbtBase64, signer === f.buyer.id ? f.keys.buyer : f.keys.seller))
+    }
+    const e = await escrowRow(f.e.id)
+    expect(e.status).toBe(terminal)
+    // the transaction actually broadcast spends exactly the canonical outpoint, with a valid 2-of-3 witness for it
+    expect(txs.get(e.txReleaseId!)!.spends).toEqual([f.canonical])
+    const raw = broadcasts.find((h) => bitcoin.Transaction.fromHex(h).getId() === e.txReleaseId)!
+    expect(validateSpend(raw, f.addr, FUNDING).valid).toBe(true)
+    mine(); mine()
+    // the residual output: unspent, still RESIDUAL, and the only value left on the script
+    expect(spenderOf(f.extra.txid, f.extra.vout)).toBeUndefined()
+    expect(await classified(f, f.seller.id)).toEqual([[f.extra.txid, f.extra.vout, 'RESIDUAL']])
+    // recoverable only by the original buyer and seller - never the arbiter or a stranger
+    const D = addressOf(`f8g-destination-${f.e.id}`)
+    for (const who of [ARBITER_USER, f.stranger.id]) {
+      expect(await outcome(residual.proposeResidualRecovery(f.e.id, who, { ...f.extra, destination: D }))).toMatch(/not an original participant/)
+    }
+    const { proposed } = await recover(f, f.extra, D)
+    mine(); mine()
+    await residual.reconcileResidualRecoveries()
+    const recovery = await recoveryRow(proposed.id)
+    expect([recovery.status, txs.get(recovery.txid!)!.spends]).toEqual(['CONFIRMED', [{ txid: f.extra.txid, vout: f.extra.vout }]])
+    expect(await classified(f, f.buyer.id)).toEqual([])
+  }
+
+  it('F8G-1: cooperative RELEASE spends exactly the canonical outpoint; the residual stays RESIDUAL and buyer+seller recoverable', async () => {
+    pg.requirePostgres('F8G-1')
+    const f = await canonicalBesideResidual('g-crel')
+    await escrowService.markPaymentSent(f.e.id, f.buyer.id)
+    await settlesOnlyCanonical(f, () => escrowService.initiateRelease(f.e.id, undefined, f.seller.id), 'COMPLETED')
+  })
+
+  it('F8G-2: cooperative REFUND spends exactly the canonical outpoint; the residual stays RESIDUAL and buyer+seller recoverable', async () => {
+    pg.requirePostgres('F8G-2')
+    const f = await canonicalBesideResidual('g-cref')
+    await settlesOnlyCanonical(f, () => escrowService.initiateRefund(f.e.id, f.seller.id), 'REFUNDED')
+  })
+
+  it('F8G-3: arbitrated RELEASE spends exactly the canonical outpoint; the residual stays RESIDUAL and buyer+seller recoverable', async () => {
+    pg.requirePostgres('F8G-3')
+    const f = await canonicalBesideResidual('g-arel')
+    await disputedBy(f)
+    await settlesOnlyCanonical(f, () => rule(f, 'RELEASE'), 'COMPLETED')
+  })
+
+  it('F8G-4: arbitrated REFUND spends exactly the canonical outpoint; the residual stays RESIDUAL and buyer+seller recoverable', async () => {
+    pg.requirePostgres('F8G-4')
+    const f = await canonicalBesideResidual('g-aref')
+    await disputedBy(f)
+    await settlesOnlyCanonical(f, () => rule(f, 'REFUND'), 'REFUNDED')
+  })
+
+  it('F8G-5: arbitrated SPLIT spends exactly the canonical outpoint; the residual stays RESIDUAL and buyer+seller recoverable', async () => {
+    pg.requirePostgres('F8G-5')
+    const f = await canonicalBesideResidual('g-asplit')
+    await disputedBy(f)
+    await settlesOnlyCanonical(f, () => rule(f, 'SPLIT', 6000), 'SPLIT')
+  })
+
+  // ─── #235 R7G F8G: legacy locks without a vout (NF-F8G-2) ───────────────────────────────────────────────
+
+  it('F8G-PREFLIGHT: a lock with a txid but no vout is REVIEW_REQUIRED (CANONICAL_OUTPOINT_VOUT_UNKNOWN), never SAFE, never resolved to one output; a modern lock has no such finding; read only', async () => {
+    pg.requirePostgres('F8G preflight')
+    const { runMultisigResidualPreflight } = require('../../scripts/multisig-residual-preflight')
+    const modern = await locked('g-pf-modern')
+    // a legacy-shaped lock whose funding transaction paid the script twice: the lock takes the canonical output, then
+    // the row is made to look like a pre-vout (Missão 10) lock - the shape this finding exists for
+    const legacy = await addressed('g-pf-legacy')
+    const fundingTxid = randomBytes(32).toString('hex')
+    txs.set(fundingTxid, { height: tip, outputs: [{ address: legacy.addr, value: FUNDING }, { address: legacy.addr, value: 12_000 }], spends: [] })
+    mine(); mine()
+    await escrowService.lockFunds(legacy.e.id, legacy.seller.id)
+    expect([(await escrowRow(legacy.e.id)).txLockId, (await escrowRow(legacy.e.id)).txLockVout]).toEqual([fundingTxid, 0])
+    await prisma.$executeRaw`UPDATE escrows SET "txLockVout" = NULL WHERE id = ${legacy.e.id}`
+    // runtime semantics unchanged: both outputs of that txid are treated as canonical, neither is residual
+    expect((await classified(legacy, legacy.buyer.id)).sort()).toEqual([[fundingTxid, 0, 'CANONICAL'], [fundingTxid, 1, 'CANONICAL']])
+    const ids = [modern.e.id, legacy.e.id]
+    const snapshot = async () => JSON.stringify([await prisma.escrow.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } }), await prisma.escrowResidualRecovery.count()])
+    const before = await snapshot()
+
+    const report = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    const of = (r: any, id: string) => r.results.find((x: any) => x.escrowId === id)
+    const finding = of(report, legacy.e.id).findings.find((x: any) => x.kind === 'CANONICAL_OUTPOINT_VOUT_UNKNOWN')
+    expect(of(report, legacy.e.id).classification).toBe('REVIEW_REQUIRED')
+    expect(finding.detail.txLockId).toBe(fundingTxid)
+    expect(finding.detail.reason).toMatch(/cannot be uniquely identified from durable state; no output is chosen/)
+    // both outputs of the txid are surfaced, and none is designated canonical
+    expect(finding.detail.outputsSharingTxid.map((o: any) => [o.vout, o.valueSats])).toEqual([[0, FUNDING], [1, 12_000]])
+    expect(Object.keys(finding.detail).sort()).toEqual(['outputsSharingTxid', 'reason', 'txLockId'])
+    expect(of(report, modern.e.id).findings.map((x: any) => x.kind)).not.toContain('CANONICAL_OUTPOINT_VOUT_UNKNOWN')
+    expect(of(report, modern.e.id).classification).toBe('SAFE')
+
+    // an explorer outage never turns the null-vout row into SAFE (or merely UNVERIFIABLE)
+    outage = true
+    const down = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    outage = false
+    expect([of(down, legacy.e.id).classification, of(down, legacy.e.id).findings.map((x: any) => x.kind).sort()])
+      .toEqual(['REVIEW_REQUIRED', ['CANONICAL_OUTPOINT_VOUT_UNKNOWN', 'EXPLORER_UNAVAILABLE']])
+    expect(of(down, legacy.e.id).findings.find((x: any) => x.kind === 'CANONICAL_OUTPOINT_VOUT_UNKNOWN').detail.outputsSharingTxid).toEqual([])
+    expect(of(down, modern.e.id).classification).toBe('UNVERIFIABLE')
+
+    // read only: no row repaired, no vout manufactured, no recovery created
+    expect(await snapshot()).toEqual(before)
+    expect((await escrowRow(legacy.e.id)).txLockVout).toBeNull()
   })
 })

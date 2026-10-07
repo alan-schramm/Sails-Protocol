@@ -19,7 +19,12 @@
  *   RESIDUAL_VALUE                 confirmed value on the script that is not canonical funding (recoverable only by
  *                                  both original participants, MULTISIG_RESIDUAL_VALUE_RECOVERY_V1);
  *   CANONICAL_OUTPOINT_MISSING     locked but not terminal, and its canonical outpoint is no longer unspent;
- *   RECOVERY_OUTPOINT_GONE         a live recovery's outpoint is no longer unspent and it has no confirmed spend.
+ *   RECOVERY_OUTPOINT_GONE         a live recovery's outpoint is no longer unspent and it has no confirmed spend;
+ *   CANONICAL_OUTPOINT_VOUT_UNKNOWN (#235 R7G F8G) a legacy lock recorded its funding txid but no vout: canonical
+ *                                  authority cannot be uniquely identified from durable state. Runtime treats every
+ *                                  output of that txid at the script as canonical, so none of them is ever residual;
+ *                                  each one the explorer shows is listed, none is chosen. Raised from the database
+ *                                  alone, so an explorer outage never turns it into SAFE.
  * Prints JSON and exits 1 when anything is not SAFE.
  */
 import 'dotenv/config'
@@ -58,6 +63,7 @@ export async function runMultisigResidualPreflight(connectionString: string, obs
     let unverifiable = false
     if (e.sharedWith > 0) findings.push({ kind: 'SHARED_FUNDING_ADDRESS', detail: { otherEscrows: e.sharedWith } })
     if (!['CREATED', 'FUNDS_LOCKED'].includes(e.status) && !e.txLockId) findings.push({ kind: 'STATE_WITHOUT_FUNDING', detail: { status: e.status } })
+    const voutUnknown = e.txLockId !== null && e.txLockVout === null
     const key = (role: string) => keys.find((k) => k.escrowId === e.id && k.role === role)?.pubkey
     let outputs: Output[] = []
     try {
@@ -75,6 +81,17 @@ export async function runMultisigResidualPreflight(connectionString: string, obs
     const confirmedValue = outputs.filter((o) => o.classification !== 'UNCONFIRMED')
     if (e.status === 'CREATED' && confirmedValue.length) findings.push({ kind: 'ADDRESSED_CREATED_HOLDS_VALUE', detail: confirmedValue })
     for (const o of outputs.filter((x) => x.classification === 'RESIDUAL')) findings.push({ kind: 'RESIDUAL_VALUE', detail: o })
+    if (voutUnknown) {
+      findings.push({
+        kind: 'CANONICAL_OUTPOINT_VOUT_UNKNOWN',
+        detail: {
+          txLockId: e.txLockId,
+          reason: 'funding txid recorded without a vout: the canonical outpoint cannot be uniquely identified from durable state; no output is chosen',
+          // every unspent output of that txid at the script, as observed now (empty when the explorer was not read)
+          outputsSharingTxid: outputs.filter((o) => o.txid === e.txLockId).map(({ txid, vout, valueSats, confirmations }) => ({ txid, vout, valueSats, confirmations })),
+        },
+      })
+    }
     if (e.txLockId && !TERMINAL.includes(e.status) && !unverifiable && !outputs.some((o) => o.classification === 'CANONICAL')) {
       findings.push({ kind: 'CANONICAL_OUTPOINT_MISSING', detail: { txLockId: e.txLockId, txLockVout: e.txLockVout } })
     }
