@@ -18,6 +18,7 @@
 // since real wall-clock timing cannot deterministically hit an exact
 // millisecond boundary against a real, unmocked Date.now().
 
+import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscrows() authoritative path (real Postgres)', () => {
@@ -55,7 +56,8 @@ describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscr
     const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
     const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: type as any, status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt },
+      // #235 R7G F8A: expiresAt only ever lands together with the funding outpoint (lockFunds())
+      data: { tradeId: trade.id, type: type as any, status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt, txLockId: randomBytes(32).toString('hex'), txLockVout: 0 },
     })
     return { escrow, trade }
   }
@@ -126,7 +128,7 @@ describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscr
     const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
     const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const historicalEscrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
+      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txLockId: randomBytes(32).toString('hex'), txLockVout: 0 },
     })
 
     await escrowService.sweepExpiredEscrows()

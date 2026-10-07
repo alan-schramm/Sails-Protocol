@@ -19,6 +19,42 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7G F8A — residual value on a MULTISIG script is recovered only by both original participants
+  (MULTISIG_RESIDUAL_VALUE_RECOVERY_V1); no MULTISIG economic state without its funding outpoint.**
+  - **What counts as residual:** value on an escrow's original 2-of-3 script that is not, and can no longer
+    become, its canonical funding outpoint:
+    - a wrong or partial amount while CREATED;
+    - an extra or duplicate deposit;
+    - anything that arrives after COMPLETED / REFUNDED / SPLIT.
+  - **Classification:** each output at the persisted address is CANONICAL, CANONICAL_CANDIDATE (lockFunds may
+    still claim it), UNCONFIRMED (below the MULTISIG confirmation policy), or RESIDUAL. Nothing is recovered while
+    the canonical funding is reorg-uncertain.
+  - **Who decides:** Sails never attributes residual value to the seller, the buyer, the treasury, the operator
+    or the arbiter, and it never enters normal settlement.
+  - **How it is recovered (one recovery per outpoint):**
+    - either participant proposes it with an explicit destination;
+    - the unsigned PSBT (outpoint, value, script, destination, fee) is frozen before anyone signs;
+    - the buyer AND the seller each sign it with their persisted escrow keys;
+    - the one transaction those two signatures produce, and its txid, are persisted before broadcast;
+    - retries send the same bytes; the server never signs; a fully signed recovery is never withdrawn.
+  - **The commercial escrow is never touched:** a COMPLETED escrow stays COMPLETED while its late residual value
+    is recovered.
+  - **Routes:**
+    - `GET /v1/settlement/escrow/:id/residual-value`;
+    - `POST /v1/settlement/escrow/:id/residual-recoveries`;
+    - `GET` / `POST .../residual-recoveries/:id/signature` / `cancel`.
+
+    The settlement recovery tick converges signed recoveries.
+  - **Database guarantees:**
+    - one live recovery per outpoint;
+    - a canonical outpoint is never residual, and a claimed residual outpoint never becomes canonical;
+    - a recovery is bound to its escrow's unshared address;
+    - the intent is frozen, evidence is write-once, and rows are never deleted;
+    - a MULTISIG escrow never holds PAYMENT_PENDING / DISPUTED / EXPIRED / COMPLETED / REFUNDED / SPLIT without
+      its `txLockId`;
+    - a trade whose MULTISIG / LIGHTNING_HODL escrow has a funding address is never manually CANCELLED.
+  - Migration `20261012120000_multisig_residual_recovery`. Read-only `npm run multisig:residual-preflight`.
+
 - **#235 R7G NF-B1 — no settlement path uses the legacy buyer sub-account; AUTO_SETTLE_ON_MATCH never moves real
   value.**
   - The legacy buyer account (`buyerIndexFor()`, `0'/0/<sha256('buyer:' + id) % (2^31-1)>` under the Sails seed)

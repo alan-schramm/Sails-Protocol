@@ -130,8 +130,11 @@ describe('Timelock expiry sweep: bounded passes, durable round-robin, #379 invar
         INSERT INTO trades (id, "offerId", "buyerId", "sellerId", asset, amount, "priceUsd", "totalUsd", "updatedAt")
         SELECT gen_random_uuid()::text, '${offer}', '${buyer}', '${seller}', 'BTC', 0.001, 65000, 65, now() FROM generate_series(1, ${n})
         RETURNING id)
-      INSERT INTO escrows (id, "tradeId", type, status, "lockedAmount", asset, "timelockHours", "expiresAt", "updatedAt")
-      SELECT gen_random_uuid()::text, t.id, '${type}', 'FUNDS_LOCKED', 0.001, 'BTC', 1, $1::timestamptz + (ROW_NUMBER() OVER () - 1) * interval '1 millisecond', now() FROM t
+      INSERT INTO escrows (id, "tradeId", type, status, "lockedAmount", asset, "timelockHours", "expiresAt", "txLockId", "txLockVout", "updatedAt")
+      SELECT gen_random_uuid()::text, t.id, '${type}', 'FUNDS_LOCKED', 0.001, 'BTC', 1, $1::timestamptz + (ROW_NUMBER() OVER () - 1) * interval '1 millisecond',
+             -- as escrow.service.ts's lockFunds() writes it: expiresAt only ever lands together with the funding outpoint
+             -- (#235 R7G F8A: a MULTISIG escrow never reaches EXPIRED without one)
+             encode(sha256(convert_to(t.id, 'UTF8')), 'hex'), 0, now() FROM t
       RETURNING id`, first)
     return rows.map((r) => r.id)
   }

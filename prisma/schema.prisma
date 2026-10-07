@@ -597,6 +597,8 @@ model Escrow {
   // durable pre-submission execution-boundary truth (see that model's own
   // header comment). Empty for every non-WDK_USDT_EVM escrow.
   wdkTransferAttempts WdkTransferAttempt[]
+  // #235 R7G F8A - cooperative recovery of value on this escrow's script outside its canonical funding outpoint.
+  residualRecoveries EscrowResidualRecovery[]
   // Issue #240 — LIGHTNING_HODL/SAFE_GUARD_EVM's own durable finalize-submission evidence (see that
   // model's own header comment). At most one row (escrowId is @unique there), empty for every other type.
   signatureCollectionFinalizationAttempt SignatureCollectionFinalizationAttempt?
@@ -829,6 +831,52 @@ enum WdkAttemptAuthority {
 // preserving full history rather than overwriting it — the same
 // append-only evidence-table convention EscrowFundingEvidence/
 // EscrowReleaseEvidence already established in this file.
+// #235 R7G F8A - MULTISIG_RESIDUAL_VALUE_RECOVERY_V1. Value that reaches an escrow's original 2-of-3 script but is
+// not (or can no longer be) its canonical funding outpoint stays under the authority of that escrow's two original
+// participants: one recovery per residual outpoint, the destination and fee committed in the unsigned PSBT before
+// anyone signs, executed only with BOTH the buyer's and the seller's signatures (the server never signs it). Rows are
+// never deleted; the database freezes the intent and refuses a residual claim on a canonical outpoint and vice versa
+// (migration 20261012120000_multisig_residual_recovery).
+enum EscrowResidualRecoveryStatus {
+  PROPOSED  // intent recorded (unsigned PSBT); zero or one participant signature
+  SIGNED    // both participant signatures; the final transaction and its txid are persisted, not yet accepted
+  SUBMITTED // the network accepted that exact transaction
+  CONFIRMED // that transaction is confirmed at the MULTISIG confirmation policy depth
+  CANCELLED // withdrawn before both participants signed; releases the outpoint
+}
+
+model EscrowResidualRecovery {
+  id                     String                       @id @default(uuid())
+  escrowId               String
+  escrow                 Escrow                       @relation(fields: [escrowId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  fundingAddress         String
+  outpointTxid           String
+  outpointVout           Int
+  valueSats              BigInt
+  destination            String
+  feeSats                BigInt
+  unsignedPsbtBase64     String
+  proposedBy             String
+  status                 EscrowResidualRecoveryStatus @default(PROPOSED)
+  buyerSignedPsbtBase64  String?
+  buyerSignedAt          DateTime?
+  sellerSignedPsbtBase64 String?
+  sellerSignedAt         DateTime?
+  signedTxHex            String?
+  txid                   String?                      @unique
+  submittedAt            DateTime?
+  confirmedAt            DateTime?
+  confirmedBlockHeight   Int?
+  cancelledAt            DateTime?
+  cancelledBy            String?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+
+  @@index([escrowId])
+  @@index([status])
+  @@map("escrow_residual_recoveries")
+}
+
 model WdkTransferAttempt {
   id            String                   @id @default(uuid())
   escrowId      String

@@ -223,6 +223,7 @@ describe('Fee reorg + release reorg — economic idempotency and boundedness (re
     const escrow = await prisma.escrow.create({
       data: {
         tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'PAYMENT_PENDING',
+        txLockId: hex(`fee-lock-${s}`), txLockVout: 0, // #235 R7G F8A: past FUNDS_LOCKED a MULTISIG escrow carries its funding outpoint
         feePolicyVersionId: policy.id, snapshotProtocolFeeRate: '0.004', snapshotPayerModel: 'SELLER_PAYS', snapshotEconomicBasis: 'SELLER_DELIVERED_VALUE',
         snapshotFeeCollectionAddress: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx', snapshotFeeCollectionWaivedPreFunding: false,
       },

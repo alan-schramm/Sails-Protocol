@@ -53,6 +53,7 @@ describe('Generation-1 expiry-recovery state machine (Missão 11 Fase 7.3.3, rea
       data: {
         tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001',
         timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), // already expired
+        txLockId: require('crypto').randomBytes(32).toString('hex'), txLockVout: 0, // #235 R7G F8A: as lockFunds() writes it
       },
     })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })

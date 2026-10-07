@@ -102,12 +102,13 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
       escrow = await prisma.escrow.create({
         data: {
           tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'PAYMENT_PENDING',
+          txLockId: require('crypto').randomBytes(32).toString('hex'), txLockVout: 0, // #235 R7G F8A: as lockFunds() writes it
           feePolicyVersionId: policy.id, snapshotProtocolFeeRate: '0.004', snapshotPayerModel: 'SELLER_PAYS', snapshotEconomicBasis: 'SELLER_DELIVERED_VALUE',
           snapshotFeeCollectionAddress: COLLECTIBLE_ADDRESS, snapshotFeeCollectionWaivedPreFunding: false,
         },
       })
     } else {
-      escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'PAYMENT_PENDING' } })
+      escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'PAYMENT_PENDING', txLockId: require('crypto').randomBytes(32).toString('hex'), txLockVout: 0 } })
     }
 
     const obligation = policy
