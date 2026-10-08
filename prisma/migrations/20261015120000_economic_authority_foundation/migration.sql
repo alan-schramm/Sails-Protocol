@@ -22,6 +22,7 @@ CREATE TABLE "trade_limit_policy_versions" (
     "rollingFiatCapUsd" DECIMAL(24,2) NOT NULL,
     "quoteMaxAgeSeconds" INTEGER NOT NULL,
     "quoteWindowSeconds" INTEGER NOT NULL,
+    "quotePublicationMaxSeconds" INTEGER NOT NULL,
     "maxSourceDisagreementBps" INTEGER NOT NULL,
     "minAgreeingOperators" INTEGER NOT NULL,
     "sourceMaxAgeSeconds" INTEGER NOT NULL,
@@ -163,6 +164,7 @@ ALTER TABLE "trade_limit_policy_versions" ADD CONSTRAINT "trade_limit_policy_ver
   "version" >= 1 AND length(btrim("label")) > 0
   AND "openSettlementCapUsd" > 0 AND "rollingFiatCapUsd" > 0
   AND "quoteWindowSeconds" > 0 AND "quoteMaxAgeSeconds" >= "quoteWindowSeconds"
+  AND "quotePublicationMaxSeconds" > 0 AND "quotePublicationMaxSeconds" <= "quoteMaxAgeSeconds"
   AND "maxSourceDisagreementBps" BETWEEN 0 AND 10000
   AND "minAgreeingOperators" >= 2
   AND "sourceMaxAgeSeconds" > 0 AND "sourceFutureSkewSeconds" >= 0
@@ -278,7 +280,8 @@ CREATE TRIGGER trade_limit_method_policies_insert_guard BEFORE INSERT ON "trade_
 -- --- Valuation quotes -------------------------------------------------------------------------------------------
 
 -- A quote is published under the version in force, for a rail asset, under its deterministic id, for the aligned
--- window containing asOf, and no later than one window after asOf (no backdated or future quotes).
+-- window containing asOf, and within the publication bound of asOf (no backdated or future quotes). The bound is
+-- checked again at commit (valuation_quote_assert_complete): a transaction held open cannot publish a late quote.
 CREATE OR REPLACE FUNCTION valuation_quotes_insert() RETURNS trigger AS $$
 DECLARE
   t timestamp := clock_timestamp() AT TIME ZONE 'UTC';
@@ -305,8 +308,8 @@ BEGIN
     RAISE EXCEPTION 'valuation_quotes: windowStart % is not the %-second window containing asOf %', NEW."windowStart", p."quoteWindowSeconds", NEW."asOf"
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
-  IF NEW."collectedAt" > t OR t - NEW."asOf" > w THEN
-    RAISE EXCEPTION 'valuation_quotes: a quote is published within % of its asOf and never ahead of the clock (asOf %, collectedAt %, now %)', w, NEW."asOf", NEW."collectedAt", t
+  IF NEW."collectedAt" > t OR t - NEW."asOf" > make_interval(secs => p."quotePublicationMaxSeconds") THEN
+    RAISE EXCEPTION 'valuation_quotes: a quote is published within % s of its asOf and never ahead of the clock (asOf %, collectedAt %, now %)', p."quotePublicationMaxSeconds", NEW."asOf", NEW."collectedAt", t
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
   RETURN NEW;
@@ -341,6 +344,10 @@ BEGIN
   SELECT * INTO q FROM "valuation_quotes" WHERE "id" = quote_id;
   IF NOT FOUND THEN RETURN; END IF;
   SELECT * INTO p FROM "trade_limit_policy_versions" WHERE "id" = q."policyVersionId";
+  IF (clock_timestamp() AT TIME ZONE 'UTC') - q."asOf" > make_interval(secs => p."quotePublicationMaxSeconds") THEN
+    RAISE EXCEPTION 'valuation_quotes: quote % commits more than % s after its asOf %', quote_id, p."quotePublicationMaxSeconds", q."asOf"
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
   SELECT count(*), count("sourceTimestamp"), max("priceUsd"), min("priceUsd"),
          count(*) FILTER (WHERE "sourceTimestamp" IS NOT NULL AND ("sourceTimestamp" < q."asOf" - make_interval(secs => p."sourceMaxAgeSeconds")
                                                               OR "sourceTimestamp" > q."asOf" + make_interval(secs => p."sourceFutureSkewSeconds"))),
@@ -519,10 +526,11 @@ DO $$
 BEGIN
   INSERT INTO "trade_limit_policy_versions" (
     "id", "version", "label", "activatedAt", "openSettlementCapUsd", "rollingFiatCapUsd", "quoteMaxAgeSeconds",
-    "quoteWindowSeconds", "maxSourceDisagreementBps", "minAgreeingOperators", "sourceMaxAgeSeconds", "sourceFutureSkewSeconds"
+    "quoteWindowSeconds", "quotePublicationMaxSeconds", "maxSourceDisagreementBps", "minAgreeingOperators", "sourceMaxAgeSeconds",
+    "sourceFutureSkewSeconds"
   ) VALUES (
     'r7-trade-authorization-policy-v1', 1, 'R7_TRADE_AUTHORIZATION_POLICY_V1 (experimental)', now() AT TIME ZONE 'UTC',
-    250.00, 750.00, 120, 30, 100, 2, 60, 15
+    250.00, 750.00, 120, 30, 10, 100, 2, 60, 15
   );
   INSERT INTO "trade_limit_rail_policies" ("policyVersionId", "escrowType", "asset")
     VALUES ('r7-trade-authorization-policy-v1', 'MULTISIG', 'BTC');

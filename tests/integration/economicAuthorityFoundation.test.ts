@@ -149,6 +149,8 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
 
   const count = async (text: string, params: unknown[] = []) => Number((await db.query(text, params)).rows[0].n)
   const quoteRows = (id: string) => count(`SELECT count(*) AS n FROM valuation_quotes WHERE id = $1`, [id])
+  /** Committed quotes of any id for the window containing `asOf`. */
+  const windowRows = (asOf: Date) => count(`SELECT count(*) AS n FROM valuation_quotes WHERE "windowStart" = $1`, [ts(windowOf(asOf))])
 
   /** Purges committed quote evidence of this suite (immutable by design: the guards are lifted for cleanup only). */
   async function purge() {
@@ -172,6 +174,21 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
     const q = await committed((c) => publish(c, { obs }))
     expect(q.won).toBe(true)
     return q
+  }
+
+  /**
+   * Plants a quote as historical state: it was published on time when it was current, so the publication-time
+   * guards (insert bound and its commit-time re-check) are lifted for the fixture only. Its summary is consistent by
+   * construction (publish() derives it from the observations).
+   */
+  async function plantHistorical(asOf: Date, obs: Obs[]) {
+    const guards: Array<[string, string]> = [['valuation_quotes', 'valuation_quotes_insert_guard'], ['valuation_quotes', 'valuation_quotes_completeness_guard'], ['price_observations', 'price_observations_completeness_guard']]
+    return committed(async (c) => {
+      for (const [t, g] of guards) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER ${g}`)
+      const q = await publish(c, { asOf, obs })
+      for (const [t, g] of guards) await c.query(`ALTER TABLE ${t} ENABLE TRIGGER ${g}`)
+      return q
+    })
   }
 
   type Fixture = { sellerId: string; buyerId: string; accountId: string; offerId: string; tradeId: string; escrowId: string; amount: string }
@@ -256,8 +273,8 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
   it('V1 is seeded exactly as frozen: 250.00 / 750.00 USD, 120 s / 30 s, 100 bps, 2 operators, MULTISIG/BTC, PIX 90 days only', async () => {
     pg.requirePostgres('V1')
     const v = (await db.query(`SELECT * FROM trade_limit_policy_versions WHERE id = $1`, [POLICY_V1])).rows[0]
-    expect([v.version, v.openSettlementCapUsd, v.rollingFiatCapUsd, v.quoteMaxAgeSeconds, v.quoteWindowSeconds, v.maxSourceDisagreementBps, v.minAgreeingOperators])
-      .toEqual([1, '250.00', '750.00', 120, 30, 100, 2])
+    expect([v.version, v.openSettlementCapUsd, v.rollingFiatCapUsd, v.quoteMaxAgeSeconds, v.quoteWindowSeconds, v.quotePublicationMaxSeconds, v.maxSourceDisagreementBps, v.minAgreeingOperators])
+      .toEqual([1, '250.00', '750.00', 120, 30, 10, 100, 2])
     expect(v.label).toMatch(/experimental/)
     expect((await db.query(`SELECT "escrowType"::text || '/' || asset::text AS r FROM trade_limit_rail_policies WHERE "policyVersionId" = $1`, [POLICY_V1])).rows.map((r) => r.r)).toEqual(['MULTISIG/BTC'])
     const methods = (await db.query(`SELECT "paymentMethod"::text AS m, eligible, "fiatWindowDays" AS d, "evidenceClass"::text AS e FROM trade_limit_method_policies WHERE "policyVersionId" = $1`, [POLICY_V1])).rows
@@ -268,11 +285,11 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
   })
 
   const V2 = (over: Record<string, unknown> = {}) => {
-    const v = { id: `r7he1-v-${randomBytes(4).toString('hex')}`, version: 2, label: 'test', activatedAt: null as string | null, open: '100.00', fiat: '300.00', maxAge: 120, window: 30, bps: 100, ops: 2, srcAge: 60, skew: 15, ...over }
+    const v = { id: `r7he1-v-${randomBytes(4).toString('hex')}`, version: 2, label: 'test', activatedAt: null as string | null, open: '100.00', fiat: '300.00', maxAge: 120, window: 30, pub: 10, bps: 100, ops: 2, srcAge: 60, skew: 15, ...over }
     return [
-      `INSERT INTO trade_limit_policy_versions (id, version, label, "activatedAt", "openSettlementCapUsd", "rollingFiatCapUsd", "quoteMaxAgeSeconds", "quoteWindowSeconds", "maxSourceDisagreementBps", "minAgreeingOperators", "sourceMaxAgeSeconds", "sourceFutureSkewSeconds")
-       VALUES ($1, $2, $3, coalesce($4::timestamp, now() AT TIME ZONE 'UTC'), $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [v.id, v.version, v.label, v.activatedAt, v.open, v.fiat, v.maxAge, v.window, v.bps, v.ops, v.srcAge, v.skew],
+      `INSERT INTO trade_limit_policy_versions (id, version, label, "activatedAt", "openSettlementCapUsd", "rollingFiatCapUsd", "quoteMaxAgeSeconds", "quoteWindowSeconds", "quotePublicationMaxSeconds", "maxSourceDisagreementBps", "minAgreeingOperators", "sourceMaxAgeSeconds", "sourceFutureSkewSeconds")
+       VALUES ($1, $2, $3, coalesce($4::timestamp, now() AT TIME ZONE 'UTC'), $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [v.id, v.version, v.label, v.activatedAt, v.open, v.fiat, v.maxAge, v.window, v.pub, v.bps, v.ops, v.srcAge, v.skew],
     ] as const
   }
 
@@ -294,7 +311,7 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
   it('2: invalid numeric policy values are rejected (no zero/negative/unlimited caps, < 2 operators, bad bps, age < window)', async () => {
     pg.requirePostgres('2')
     await rolledBack(async (c) => {
-      for (const bad of [{ open: '0' }, { open: '-1.00' }, { fiat: '0.00' }, { open: null }, { fiat: null }, { ops: 1 }, { bps: -1 }, { bps: 10001 }, { maxAge: 20, window: 30 }, { window: 0 }, { srcAge: 0 }, { skew: -1 }, { label: ' ' }]) {
+      for (const bad of [{ open: '0' }, { open: '-1.00' }, { fiat: '0.00' }, { open: null }, { fiat: null }, { ops: 1 }, { bps: -1 }, { bps: 10001 }, { maxAge: 20, window: 30 }, { window: 0 }, { pub: 0 }, { pub: 121 }, { srcAge: 0 }, { skew: -1 }, { label: ' ' }]) {
         const [text, params] = V2(bad)
         await refused(c, bad.open === null || bad.fiat === null ? '23502' : '23514', text, [...params])
       }
@@ -383,9 +400,9 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
       ['observation collected before asOf', { obs: [{ operator: 'KRAKEN', price: '50000', collectedAt: new Date(Date.now() - 60_000) }, { operator: 'COINBASE', price: '50000' }] }],
     ]
     for (const [label, spec] of attempts) {
-      let id = ''
-      await expect(committed(async (c) => { id = (await publish(c, spec)).id })).rejects.toMatchObject({ code: expect.stringMatching(/^23/) })
-      expect([label, await quoteRows(id)]).toEqual([label, 0])
+      const asOf = spec.asOf ?? new Date(Date.now() - 2_000)
+      await expect(committed((c) => publish(c, { ...spec, asOf }))).rejects.toMatchObject({ code: expect.stringMatching(/^23/) })
+      expect([label, await windowRows(asOf)]).toEqual([label, 0])
     }
     // Field-level refusals at insert time.
     const bad: Array<[string, QuoteSpec, string]> = [
@@ -399,9 +416,9 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
       ['future asOf', { obs: AGREEING, asOf: new Date(Date.now() + 60_000) }, '23000'],
     ]
     for (const [label, spec, code] of bad) {
-      let id = ''
-      await expect(committed(async (c) => { id = (await publish(c, spec)).id })).rejects.toMatchObject({ code })
-      expect([label, id ? await quoteRows(id) : 0]).toEqual([label, 0])
+      const asOf = spec.asOf ?? new Date(Date.now() - 2_000)
+      await expect(committed((c) => publish(c, { ...spec, asOf }))).rejects.toMatchObject({ code })
+      expect([label, await windowRows(asOf)]).toEqual([label, 0])
     }
   })
 
@@ -416,10 +433,36 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
     expect(await quoteRows(id)).toBe(0)
 
     const q = await currentQuote()
+    // Refused by the INSERT itself (not only by the commit-time completeness re-check).
+    await rolledBack((c) => refused(c, '23000', `INSERT INTO price_observations (id, "quoteId", operator, "priceUsd", "sourceTimestamp", "collectedAt", "payloadSha256") VALUES ('obs-late2', $1, 'GEMINI', 99999, NULL, now() AT TIME ZONE 'UTC', $2)`, [q.id, sha('y')]))
     await expect(db.query(`INSERT INTO price_observations (id, "quoteId", operator, "priceUsd", "sourceTimestamp", "collectedAt", "payloadSha256") VALUES ('obs-late2', $1, 'GEMINI', 99999, NULL, now() AT TIME ZONE 'UTC', $2)`, [q.id, sha('y')]))
       .rejects.toMatchObject({ code: '23000' })
     expect(await count(`SELECT count(*) AS n FROM price_observations WHERE "quoteId" = $1`, [q.id])).toBe(3)
     await purge()
+  })
+
+  it('D4: a quote is published within 10 s of its asOf — at insert and at commit; the 30 s window alignment does not stand in for it', async () => {
+    pg.requirePostgres('D4')
+    // 8 s after asOf: inside the bound.
+    const onTime = await committed((c) => publish(c, { asOf: new Date(Date.now() - 8_000), obs: AGREEING }))
+    expect(onTime.won).toBe(true)
+    expect(await quoteRows(onTime.id)).toBe(1)
+    await purge()
+    // 12 s after asOf: the INSERT itself is refused, although asOf is still within its 30 s window.
+    const lateAsOf = new Date(Date.now() - 12_000)
+    await rolledBack(async (c) => {
+      await c.query('SAVEPOINT late')
+      await expect(publish(c, { asOf: lateAsOf, obs: AGREEING })).rejects.toMatchObject({ code: '23000' })
+      await c.query('ROLLBACK TO SAVEPOINT late')
+    })
+    expect(await windowRows(lateAsOf)).toBe(0)
+    // Inserted 7 s after asOf, committed after 11 s: refused at commit — a transaction held open cannot publish late.
+    let held = ''
+    await expect(committed(async (c) => {
+      held = (await publish(c, { asOf: new Date(Date.now() - 7_000), obs: AGREEING })).id
+      await new Promise((r) => setTimeout(r, 4_000))
+    })).rejects.toMatchObject({ code: '23000' })
+    expect(await quoteRows(held)).toBe(0)
   })
 
   it('7: committed quote evidence cannot be updated, deleted or truncated', async () => {
@@ -609,16 +652,9 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
 
   it('C5: quote shopping, stale quotes, a non-current policy and funded/closed escrows cannot be authorized by direct SQL', async () => {
     pg.requirePostgres('C5')
-    // A historical quote (two windows ago) planted as state — the insert guard refuses backdating, so it is lifted
-    // for the fixture only; completeness is still enforced at commit.
+    // A historical quote (two windows ago) planted as state.
     const oldAsOf = new Date(Date.now() - 65_000)
-    const cheap = await committed(async (c) => {
-      await c.query(`ALTER TABLE valuation_quotes DISABLE TRIGGER valuation_quotes_insert_guard`)
-      const r = await publish(c, { asOf: oldAsOf, obs: [{ operator: 'KRAKEN', price: '40000' }, { operator: 'COINBASE', price: '40000' }] })
-      await c.query('SET CONSTRAINTS ALL IMMEDIATE') // completeness is checked now, so the guard can be restored
-      await c.query(`ALTER TABLE valuation_quotes ENABLE TRIGGER valuation_quotes_insert_guard`)
-      return r
-    })
+    const cheap = await plantHistorical(oldAsOf, [{ operator: 'KRAKEN', price: '40000' }, { operator: 'COINBASE', price: '40000' }])
     const f = await committed((c) => fixture(c))
     // Only quote in existence and > 30 s but < 120 s old: usable.
     await rolledBack(async (c) => {
@@ -630,13 +666,7 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
     await purge()
 
     // A stale (> 120 s) quote, even the newest one, authorizes nothing.
-    const stale = await committed(async (c) => {
-      await c.query(`ALTER TABLE valuation_quotes DISABLE TRIGGER valuation_quotes_insert_guard`)
-      const r = await publish(c, { asOf: new Date(Date.now() - 150_000), obs: AGREEING })
-      await c.query('SET CONSTRAINTS ALL IMMEDIATE') // completeness is checked now, so the guard can be restored
-      await c.query(`ALTER TABLE valuation_quotes ENABLE TRIGGER valuation_quotes_insert_guard`)
-      return r
-    })
+    const stale = await plantHistorical(new Date(Date.now() - 150_000), AGREEING)
     await expect(db.query(RESERVE, reservation(f, stale.id, exposure(f.amount, '50000')))).rejects.toMatchObject({ code: '23000' })
     await purge()
 

@@ -26,7 +26,8 @@ All notable changes to this project will be documented in this file.
     backfilled: an escrow without a reservation stays "unclassified", never "zero exposure".
   - V1 values:
     - open settlement cap 250.00 USD; rolling fiat cap 750.00 USD;
-    - quote max age 120 s; publication window 30 s; source disagreement ≤ 100 bps; ≥ 2 operators;
+    - quote max age 120 s; publication window 30 s; publication ≤ 10 s after a quote's asOf (checked at insert
+      and again at commit); source disagreement ≤ 100 bps; ≥ 2 operators;
     - rail MULTISIG/BTC only; payment method PIX only (90-day fiat window);
     - no tiers, no promotion, no unlimited.
   - A payment method or rail without a policy row is not eligible.

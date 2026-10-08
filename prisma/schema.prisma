@@ -2915,21 +2915,23 @@ enum PolicyConfidence {
 /// activatedAt <= now() (ties: highest version). Caps are mandatory: there is no unlimited tier and no tier
 /// promotion in this schema.
 model TradeLimitPolicyVersion {
-  id                       String   @id @default(uuid())
-  version                  Int      @unique
-  label                    String
-  activatedAt              DateTime @default(now())
-  openSettlementCapUsd     Decimal  @db.Decimal(24, 2)
-  rollingFiatCapUsd        Decimal  @db.Decimal(24, 2)
-  quoteMaxAgeSeconds       Int
-  quoteWindowSeconds       Int
-  maxSourceDisagreementBps Int
-  minAgreeingOperators     Int
-  sourceMaxAgeSeconds      Int
-  sourceFutureSkewSeconds  Int
+  id                         String   @id @default(uuid())
+  version                    Int      @unique
+  label                      String
+  activatedAt                DateTime @default(now())
+  openSettlementCapUsd       Decimal  @db.Decimal(24, 2)
+  rollingFiatCapUsd          Decimal  @db.Decimal(24, 2)
+  quoteMaxAgeSeconds         Int
+  quoteWindowSeconds         Int
+  // Maximum time from a quote's asOf to its publication (checked at insert and at commit).
+  quotePublicationMaxSeconds Int
+  maxSourceDisagreementBps   Int
+  minAgreeingOperators       Int
+  sourceMaxAgeSeconds        Int
+  sourceFutureSkewSeconds    Int
   // Database transaction that created the version; its rail/method rows may only be written in that transaction.
-  dbTxId                   BigInt   @default(dbgenerated("txid_current()"))
-  createdAt                DateTime @default(now())
+  dbTxId                     BigInt   @default(dbgenerated("txid_current()"))
+  createdAt                  DateTime @default(now())
 
   rails        TradeLimitRailPolicy[]
   methods      TradeLimitMethodPolicy[]
