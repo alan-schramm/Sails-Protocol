@@ -132,40 +132,41 @@ model User {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  offers             Offer[]
-  buyerTrades        Trade[]           @relation("BuyerTrades")
-  sellerTrades       Trade[]           @relation("SellerTrades")
-  sentMessages       Message[]
-  reputationGiven    ReputationEvent[] @relation("RaterEvents")
-  reputationReceived ReputationEvent[] @relation("RatedEvents")
-  arbiterProfile     ArbiterProfile? // RFC-021 — present only if this participant has registered as an arbiter candidate
-  paymentAccounts    PaymentAccount[] // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
-  vouchesGiven       Vouch[]           @relation("VouchesGiven") // RFC-021 D7 — peer vouches this participant has extended to newcomers
-  vouchesReceived    Vouch[]           @relation("VouchesReceived") // RFC-021 D7 — peer vouches this participant has received
-  payoutAddresses    PayoutAddress[] // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
+  offers               Offer[]
+  buyerTrades          Trade[]               @relation("BuyerTrades")
+  sellerTrades         Trade[]               @relation("SellerTrades")
+  sentMessages         Message[]
+  reputationGiven      ReputationEvent[]     @relation("RaterEvents")
+  reputationReceived   ReputationEvent[]     @relation("RatedEvents")
+  arbiterProfile       ArbiterProfile? // RFC-021 — present only if this participant has registered as an arbiter candidate
+  paymentAccounts      PaymentAccount[] // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
+  exposureReservations ExposureReservation[] // #235 R7H-E1 — as the seller
+  vouchesGiven         Vouch[]               @relation("VouchesGiven") // RFC-021 D7 — peer vouches this participant has extended to newcomers
+  vouchesReceived      Vouch[]               @relation("VouchesReceived") // RFC-021 D7 — peer vouches this participant has received
+  payoutAddresses      PayoutAddress[] // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
 
   @@index([reputationScore]) // P2: performance for leaderboard queries
   @@map("users")
 }
 
 model Offer {
-  id              String        @id @default(uuid())
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  asset           AssetType
-  side            TradeSide
-  priceUsd        Decimal       @db.Decimal(24, 8)
-  priceBrl        Decimal?      @db.Decimal(24, 8)
-  minAmount       Decimal       @db.Decimal(24, 8)
-  maxAmount       Decimal       @db.Decimal(24, 8)
-  paymentMethod   PaymentMethod
-  paymentDetails  String?
-  status          OfferStatus   @default(ACTIVE)
-  network         String?
-  description     String?
-  moduleId        String        @default("openliquidity")
-  protocolVersion String        @default("0.1")
-  intentType      String?
+  id               String          @id @default(uuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id])
+  asset            AssetType
+  side             TradeSide
+  priceUsd         Decimal         @db.Decimal(24, 8)
+  priceBrl         Decimal?        @db.Decimal(24, 8)
+  minAmount        Decimal         @db.Decimal(24, 8)
+  maxAmount        Decimal         @db.Decimal(24, 8)
+  paymentMethod    PaymentMethod
+  paymentDetails   String?
+  status           OfferStatus     @default(ACTIVE)
+  network          String?
+  description      String?
+  moduleId         String          @default("openliquidity")
+  protocolVersion  String          @default("0.1")
+  intentType       String?
   // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
   // the real Intent row this Offer was created from (createOffer() ->
   // intentEngine.create()). Nullable: pre-migration Offer rows have no
@@ -196,8 +197,8 @@ model Offer {
   // idempotency-claim column at all — `intentId` itself is already a
   // 1:1 correlation key for "this logical attempt" once R4 made Intent
   // itself uniquely tied to the idempotency claim.
-  intentId        String?       @unique
-  intent          Intent?       @relation(fields: [intentId], references: [id])
+  intentId         String?         @unique
+  intent           Intent?         @relation(fields: [intentId], references: [id])
   // #235 R7C — on a SELL offer the maker is the seller, i.e. the fiat
   // receiver, and declares here the PaymentAccount the buyer will pay
   // into (verified at createOffer(): seller-owned, same paymentMethod).
@@ -206,8 +207,8 @@ model Offer {
   // that declared none.
   paymentAccountId String?
   paymentAccount   PaymentAccount? @relation("OfferPaymentAccount", fields: [paymentAccountId], references: [id], onDelete: Restrict)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   trades Trade[]
 
@@ -253,15 +254,15 @@ enum OfferEnvelopeStatus {
 // stores a bare "trusted" boolean; `signature` is always the real,
 // re-verifiable Ed25519 signature, not a cached verdict.
 model OfferEnvelope {
-  id             String              @id @default(uuid())
-  logicalOfferId String
-  ownerPublicKey String
-  asset          AssetType
-  side           TradeSide
-  priceUsd       Decimal             @db.Decimal(24, 8)
-  minAmount      Decimal             @db.Decimal(24, 8)
-  maxAmount      Decimal             @db.Decimal(24, 8)
-  paymentMethod  PaymentMethod
+  id              String              @id @default(uuid())
+  logicalOfferId  String
+  ownerPublicKey  String
+  asset           AssetType
+  side            TradeSide
+  priceUsd        Decimal             @db.Decimal(24, 8)
+  minAmount       Decimal             @db.Decimal(24, 8)
+  maxAmount       Decimal             @db.Decimal(24, 8)
+  paymentMethod   PaymentMethod
   // Owner-chosen per offer identity (ownerPublicKey + logicalOfferId,
   // Property H) — determines CURRENT-STATE ordering only
   // (`OfferEnvelopeRepository.getLatest()` selects the highest
@@ -275,25 +276,25 @@ model OfferEnvelope {
   // legitimately share the same (ownerPublicKey, logicalOfferId,
   // revision) — that is owner equivocation (Property J), not a schema
   // bug.
-  revision       Int
+  revision        Int
   // Owner-supplied, advisory only — never used for cross-node ordering
   // (that's `revision`'s job, precisely because wall-clock time isn't
   // trusted across independently-operated nodes, ADR-001 §3).
-  createdAt      DateTime
-  revisedAt      DateTime
+  createdAt       DateTime
+  revisedAt       DateTime
   // Self-enforcing: any verifier checks this against its own clock:
   // no action or central authority is needed to "expire" an offer
   // (ADR-001 §2/§3).
-  expiresAt      DateTime
+  expiresAt       DateTime
   // CANCELLED is a signed tombstone at a higher revision, not a row
   // deletion — cancellation is portable via the exact same
   // signature/revision mechanism as any other update (ADR-001 §3).
-  status         OfferEnvelopeStatus @default(ACTIVE)
+  status          OfferEnvelopeStatus @default(ACTIVE)
   // Ed25519 signature hex, over the sha256 digest of this envelope's
   // own canonical serialization (`hashOfferEnvelope()`) — verifiable by
   // any party holding `ownerPublicKey`, independent of this node's own
   // database integrity.
-  signature      String
+  signature       String
   // CTO Gate correction (2026-09-09, Sixth Pass, Property O): a
   // content-derived identity for this signed fact, independent of
   // `signature`. Confirmed directly (a controlled test against the real
@@ -315,12 +316,12 @@ model OfferEnvelope {
   // different signed fact" (equivocation). `signature` remains stored
   // in full and is still what every verification re-checks — it is
   // demoted from "identity" to "authorization evidence," not removed.
-  contentDigest  String
+  contentDigest   String
   // Local bookkeeping only — when THIS node first verified and stored
   // this envelope. Never protocol truth, never used in verification.
-  receivedAt     DateTime            @default(now())
-  moduleId       String              @default("openliquidity")
-  protocolVersion String             @default("0.1")
+  receivedAt      DateTime            @default(now())
+  moduleId        String              @default("openliquidity")
+  protocolVersion String              @default("0.1")
 
   // CTO Gate correction (2026-09-09), Property H: the economic offer
   // identity is the PAIR (ownerPublicKey, logicalOfferId), never
@@ -364,31 +365,31 @@ model OfferEnvelope {
 }
 
 model Trade {
-  id              String      @id @default(uuid())
-  offerId         String
-  offer           Offer       @relation(fields: [offerId], references: [id])
-  buyerId         String
-  buyer           User        @relation("BuyerTrades", fields: [buyerId], references: [id])
-  sellerId        String
-  seller          User        @relation("SellerTrades", fields: [sellerId], references: [id])
-  asset           AssetType
-  amount          Decimal     @db.Decimal(24, 8)
-  priceUsd        Decimal     @db.Decimal(24, 8)
-  totalUsd        Decimal     @db.Decimal(24, 8)
-  status          TradeStatus @default(PENDING)
-  escrowId        String?     @unique
-  escrow          Escrow?
-  network         String?
-  moduleId        String      @default("openp2p")
-  protocolVersion String      @default("0.1")
-  intentType      String      @default("TradeIntent")
+  id                     String          @id @default(uuid())
+  offerId                String
+  offer                  Offer           @relation(fields: [offerId], references: [id])
+  buyerId                String
+  buyer                  User            @relation("BuyerTrades", fields: [buyerId], references: [id])
+  sellerId               String
+  seller                 User            @relation("SellerTrades", fields: [sellerId], references: [id])
+  asset                  AssetType
+  amount                 Decimal         @db.Decimal(24, 8)
+  priceUsd               Decimal         @db.Decimal(24, 8)
+  totalUsd               Decimal         @db.Decimal(24, 8)
+  status                 TradeStatus     @default(PENDING)
+  escrowId               String?         @unique
+  escrow                 Escrow?
+  network                String?
+  moduleId               String          @default("openp2p")
+  protocolVersion        String          @default("0.1")
+  intentType             String          @default("TradeIntent")
   // RFC-018 — copied from the accepted Offer's intentId at trade
   // creation (createTrade()). Nullable, same rationale as Offer.intentId
   // above.
-  intentId        String?
-  intent          Intent?     @relation(fields: [intentId], references: [id])
-  completedAt     DateTime?
-  cancelledAt     DateTime?
+  intentId               String?
+  intent                 Intent?         @relation(fields: [intentId], references: [id])
+  completedAt            DateTime?
+  cancelledAt            DateTime?
   // #235 R7C — the seller's (fiat receiver's) PaymentAccount this trade's
   // fiat leg is paid into, bound once at createTrade() and never changed
   // (no write path updates it). The only account a peer attestation of
@@ -396,14 +397,15 @@ model Trade {
   // trade created before R7C): such a trade can never be attested.
   sellerPaymentAccountId String?
   sellerPaymentAccount   PaymentAccount? @relation("TradeSellerPaymentAccount", fields: [sellerPaymentAccountId], references: [id], onDelete: Restrict)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
-  messages         Message[]
-  reputationEvents ReputationEvent[]
-  disputes         Dispute[]
+  messages                Message[]
+  reputationEvents        ReputationEvent[]
+  disputes                Dispute[]
   // #235 R7C — the PaymentAccount whose PEER attestation this trade authorized (at most its own bound account).
-  attestedPaymentAccounts PaymentAccount[] @relation("PaymentAccountAttestedTrade")
+  attestedPaymentAccounts PaymentAccount[]     @relation("PaymentAccountAttestedTrade")
+  exposureReservation     ExposureReservation? // #235 R7H-E1 — the trade's economic authorization evidence, if any
 
   @@index([buyerId])
   @@index([sellerId])
@@ -574,31 +576,32 @@ model Escrow {
   // its batch, not to the escrow history.
   expirySweepAttemptedAt                DateTime?
 
-  events             EscrowEvent[]
-  disputes           Dispute[]
-  feeDistribution    FeeDistribution?
-  feeObligation      FeeObligation?
+  events                                 EscrowEvent[]
+  disputes                               Dispute[]
+  feeDistribution                        FeeDistribution?
+  feeObligation                          FeeObligation?
   // Missão 07.6.3 (R3) — back-relations for the three FKs that already
   // existed at the database level (first migration) but weren't
   // declared here. releaseApprovals/participantKeys are one-to-many
   // (each has its own @@unique([escrowId, ...]) allowing up to one row
   // per role/approver); pendingTransaction is one-to-one, matching
   // EscrowPendingTransaction.escrowId's own @unique.
-  releaseApprovals   EscrowReleaseApproval[]
-  participantKeys    EscrowParticipantKey[]
-  pendingTransaction EscrowPendingTransaction?
+  releaseApprovals                       EscrowReleaseApproval[]
+  participantKeys                        EscrowParticipantKey[]
+  pendingTransaction                     EscrowPendingTransaction?
   // Missão 11 Fase 9.1 §1 — the durable funding-evidence trail (see that
   // model's own header comment).
-  fundingEvidence    EscrowFundingEvidence[]
+  fundingEvidence                        EscrowFundingEvidence[]
   // Sails Core Implementation Program M9-F — the durable release-leg
   // reorg-evidence trail (see that model's own header comment).
-  releaseEvidence    EscrowReleaseEvidence[]
+  releaseEvidence                        EscrowReleaseEvidence[]
   // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — WDK_USDT_EVM's
   // durable pre-submission execution-boundary truth (see that model's own
   // header comment). Empty for every non-WDK_USDT_EVM escrow.
-  wdkTransferAttempts WdkTransferAttempt[]
+  wdkTransferAttempts                    WdkTransferAttempt[]
   // #235 R7G F8A - cooperative recovery of value on this escrow's script outside its canonical funding outpoint.
-  residualRecoveries EscrowResidualRecovery[]
+  residualRecoveries                     EscrowResidualRecovery[]
+  exposureReservation                    ExposureReservation? // #235 R7H-E1
   // Issue #240 — LIGHTNING_HODL/SAFE_GUARD_EVM's own durable finalize-submission evidence (see that
   // model's own header comment). At most one row (escrowId is @unique there), empty for every other type.
   signatureCollectionFinalizationAttempt SignatureCollectionFinalizationAttempt?
@@ -838,8 +841,8 @@ enum WdkAttemptAuthority {
 // never deleted; the database freezes the intent and refuses a residual claim on a canonical outpoint and vice versa
 // (migration 20261012120000_multisig_residual_recovery).
 enum EscrowResidualRecoveryStatus {
-  PROPOSED  // intent recorded (unsigned PSBT); zero or one participant signature
-  SIGNED    // both participant signatures; the final transaction and its txid are persisted, not yet accepted
+  PROPOSED // intent recorded (unsigned PSBT); zero or one participant signature
+  SIGNED // both participant signatures; the final transaction and its txid are persisted, not yet accepted
   SUBMITTED // the network accepted that exact transaction
   CONFIRMED // that transaction is confirmed at the MULTISIG confirmation policy depth
   CANCELLED // withdrawn before both participants signed; releases the outpoint
@@ -878,32 +881,32 @@ model EscrowResidualRecovery {
 }
 
 model WdkTransferAttempt {
-  id            String                   @id @default(uuid())
-  escrowId      String
-  escrow        Escrow                   @relation(fields: [escrowId], references: [id])
-  operationType WdkTransferOperationType
-  status        WdkTransferAttemptStatus @default(PREPARED)
-  destination   String
-  amount        Decimal                  @db.Decimal(24, 8)
-  chainId       Int?
-  txHash        String?
+  id                     String                   @id @default(uuid())
+  escrowId               String
+  escrow                 Escrow                   @relation(fields: [escrowId], references: [id])
+  operationType          WdkTransferOperationType
+  status                 WdkTransferAttemptStatus @default(PREPARED)
+  destination            String
+  amount                 Decimal                  @db.Decimal(24, 8)
+  chainId                Int?
+  txHash                 String?
   // #235 R7G-F6B - WDK_SIGNED_TRANSACTION_IDENTITY_V1 (SIGNED_RAW_V1 rows): the signing account, the token
   // contract, the nonce allocated from WdkNonceLane and the exact signed transaction, all written once in
   // the transaction that allocates the nonce, before any broadcast. A database trigger makes them (and
   // escrowId/operationType/destination/amount/chainId/txHash/authority) immutable once signed; partial
   // unique indexes on txHash and (chainId, fromAddress, nonce) cover SIGNED_RAW_V1 rows. See the migration.
-  authority     WdkAttemptAuthority      @default(LEGACY_TRANSFER_V0)
-  fromAddress   String?
-  tokenContract String?
-  nonce         BigInt?
-  signedRawTx   String?
+  authority              WdkAttemptAuthority      @default(LEGACY_TRANSFER_V0)
+  fromAddress            String?
+  tokenContract          String?
+  nonce                  BigInt?
+  signedRawTx            String?
   // #235 R7G-F6B-P - the evidence that made a SIGNED_RAW_V1 receipt final, written with CONFIRMED / REVERTED
   // and immutable: the receipt's block, the observed head, and the rule applied (CONFIRMATIONS:<n>).
-  receiptBlockNumber BigInt?
-  receiptBlockHash   String?
-  finalityHeadBlock  BigInt?
-  finalityRule       String?
-  finalizedAt        DateTime?
+  receiptBlockNumber     BigInt?
+  receiptBlockHash       String?
+  finalityHeadBlock      BigInt?
+  finalityRule           String?
+  finalizedAt            DateTime?
   // #235 R7G-F6B-P1 - WDK_IRREVERSIBLE_RPC_CORROBORATION_V1: the two sources that independently agreed on
   // a terminal state (labels, never URLs), the corroborator's head, the final block at which a
   // NONCE_CONSUMED_ELSEWHERE nonce was observed consumed, and the head when the transaction was signed
@@ -919,12 +922,12 @@ model WdkTransferAttempt {
   fundsAttempt           WdkTransferAttempt?      @relation("WdkGasFunding", fields: [fundsAttemptId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   gasFunding             WdkTransferAttempt?      @relation("WdkGasFunding")
   valueWei               Decimal?                 @db.Decimal(78, 0)
-  createdAt     DateTime                 @default(now())
-  updatedAt     DateTime                 @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
   // Exactly one row per logical operation may own submission authority.
   // Safely retryable terminal attempts remain as history but relinquish this
   // nullable key before a replacement generation is created.
-  activeKey     String?                  @unique
+  activeKey              String?                  @unique
 
   // The durable-identity query this table exists to answer: "is there
   // already an active (non-safely-retryable) attempt for this exact
@@ -940,11 +943,11 @@ model WdkTransferAttempt {
 // never decreases (trigger). Initialized once from the chain; any later evidence that the account's chain
 // nonce went past what Sails allocated halts the lane (haltedAt/haltedReason) until an operator reviews it.
 model WdkNonceLane {
-  chainId      Int
-  account      String
-  nextNonce    BigInt
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  chainId   Int
+  account   String
+  nextNonce BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@id([chainId, account])
   @@map("wdk_nonce_lanes")
@@ -987,7 +990,7 @@ enum WdkLaneAuditAction {
 // #235 R7G-F6B-P1 - append-only audit of every lane governance action (database trigger). dbTxId ties a
 // record to the transaction that acted on the lane; the lane / halt triggers require it.
 model WdkLaneAudit {
-  id                String              @id @default(uuid())
+  id                String             @id @default(uuid())
   chainId           Int
   account           String
   action            WdkLaneAuditAction
@@ -996,8 +999,8 @@ model WdkLaneAudit {
   previousNextNonce BigInt?
   newNextNonce      BigInt?
   detail            String
-  dbTxId            BigInt              @default(dbgenerated("txid_current()"))
-  createdAt         DateTime            @default(now())
+  dbTxId            BigInt             @default(dbgenerated("txid_current()"))
+  createdAt         DateTime           @default(now())
 
   @@index([chainId, account, createdAt])
   @@map("wdk_lane_audit")
@@ -1038,15 +1041,15 @@ enum SignatureCollectionFinalizationStatus {
 }
 
 model SignatureCollectionFinalizationAttempt {
-  id          String                                 @id @default(uuid())
-  escrowId    String                                 @unique
-  escrow      Escrow                                 @relation(fields: [escrowId], references: [id])
+  id          String                                @id @default(uuid())
+  escrowId    String                                @unique
+  escrow      Escrow                                @relation(fields: [escrowId], references: [id])
   pendingTxId String
   kind        String // 'release' | 'refund' - mirrors EscrowPendingTransaction.kind (never 'split': neither provider supports it)
   status      SignatureCollectionFinalizationStatus @default(SUBMISSION_UNKNOWN)
   txHash      String?
-  createdAt   DateTime                               @default(now())
-  updatedAt   DateTime                                @updatedAt
+  createdAt   DateTime                              @default(now())
+  updatedAt   DateTime                              @updatedAt
 
   @@map("signature_collection_finalization_attempts")
 }
@@ -1839,18 +1842,18 @@ model ArbiterProfile {
 // different attacks (a stolen/mule account can belong to an otherwise
 // reputable trader's compromised identity).
 model PaymentAccount {
-  id              String        @id @default(uuid())
-  ownerId         String
-  owner           User          @relation(fields: [ownerId], references: [id])
+  id                String                           @id @default(uuid())
+  ownerId           String
+  owner             User                             @relation(fields: [ownerId], references: [id])
   // Privacy-preserving hash of the real account identifier (PIX key,
   // bank account number) — never the raw value. Bisq's own
   // AccountAgeWitness uses the same shape: a hash both sides can check
   // without either seeing the other's real account data.
-  accountHash     String        @unique
-  paymentMethod   PaymentMethod
-  signed          Boolean       @default(false)
-  signedBy        String? // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
-  signedAt        DateTime?
+  accountHash       String                           @unique
+  paymentMethod     PaymentMethod
+  signed            Boolean                          @default(false)
+  signedBy          String? // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
+  signedAt          DateTime?
   // #235 R7C — what made `signed` true. Set in the same write that sets
   // `signed`, never changed afterwards. PEER: the buyer of
   // `attestedTradeId`, a clean COMPLETED trade bound to this account.
@@ -1859,15 +1862,16 @@ model PaymentAccount {
   attestationSource PaymentAccountAttestationSource?
   attestedTradeId   String?
   attestedTrade     Trade?                           @relation("PaymentAccountAttestedTrade", fields: [attestedTradeId], references: [id], onDelete: Restrict)
-  firstUsedAt     DateTime      @default(now())
-  completedTrades Int           @default(0)
-  chargebacks     Int           @default(0)
-  moduleId        String        @default("opensettlement")
-  protocolVersion String        @default("0.1")
-  updatedAt       DateTime      @updatedAt
+  firstUsedAt       DateTime                         @default(now())
+  completedTrades   Int                              @default(0)
+  chargebacks       Int                              @default(0)
+  moduleId          String                           @default("opensettlement")
+  protocolVersion   String                           @default("0.1")
+  updatedAt         DateTime                         @updatedAt
 
-  boundOffers Offer[] @relation("OfferPaymentAccount")
-  boundTrades Trade[] @relation("TradeSellerPaymentAccount")
+  boundOffers          Offer[]               @relation("OfferPaymentAccount")
+  boundTrades          Trade[]               @relation("TradeSellerPaymentAccount")
+  exposureReservations ExposureReservation[] // #235 R7H-E1
 
   @@index([ownerId])
   @@map("payment_accounts")
@@ -2389,7 +2393,7 @@ model CapabilityGrant {
 // not cascading relations, so later lifecycle cleanup cannot erase authority
 // provenance that already governed an economic attempt.
 model CapabilityExecutionAuthorization {
-  id                String   @id @default(uuid())
+  id                 String   @id @default(uuid())
   pendingOperationId String   @unique
   escrowId           String
   grantId            String
@@ -2516,28 +2520,28 @@ model EscrowParticipantKey {
 // finalize succeeds — a completed release/refund leaves no pending row
 // behind, only Escrow.txReleaseId as the durable record.
 model EscrowPendingTransaction {
-  id                  String   @id @default(uuid())
-  escrowId            String   @unique
+  id                           String    @id @default(uuid())
+  escrowId                     String    @unique
   // Missão 07.6.3 (R3): this FK to escrows(id) has existed at the
   // database level since the first migration — declaring it here just
   // makes schema.prisma match reality. `@unique` above (already
   // present) is what makes this a real one-to-one relation — at most
   // one in-flight signature-collection round per escrow.
-  escrow              Escrow   @relation(fields: [escrowId], references: [id])
-  kind                String // 'release' | 'refund' | 'split'
-  toAddress           String
+  escrow                       Escrow    @relation(fields: [escrowId], references: [id])
+  kind                         String // 'release' | 'refund' | 'split'
+  toAddress                    String
   // Only set for kind='split' — the seller's payout address, alongside
   // toAddress (buyer's) above. A split PSBT has two real outputs, unlike
   // release/refund's one, so it needs a second address column rather than
   // reusing toAddress twice.
-  toAddressSecondary  String?
+  toAddressSecondary           String?
   // Missão 11 Fase 3 — real gap found wiring FeeObligation into the
   // signature-collection finalize path: initiateSplit() validated and used
   // buyerBps to build the PSBT, but never persisted it anywhere, so
   // submitTransactionSignature() (which can run much later, once all
   // signatures arrive) had no way to compute the seller's basisAmount for
   // a SPLIT settled via this path. Only set for kind='split'.
-  buyerBps            Int?
+  buyerBps                     Int?
   // Missão 11 Fase 4 §J — the fee-collection decision the provider ACTUALLY
   // built into unsignedPsbtBase64 at construction time (multisig.provider.ts's
   // buildUnsignedRelease()/buildUnsignedSplit()), persisted so
@@ -2546,8 +2550,8 @@ model EscrowPendingTransaction {
   // real transaction rather than an independent, possibly-diverging
   // recomputation. Null for a legacy (non-policy-aware) escrow or a
   // provider that doesn't yet implement fee-aware construction.
-  feeCollectionSats   Int?
-  feeCollectionWaived Boolean?
+  feeCollectionSats            Int?
+  feeCollectionWaived          Boolean?
   // Missão 11 Fase 9.1.1 §3 — the exact miner-fee amount (satoshis) this
   // PSBT was actually built against (multisig.provider.ts's own
   // estimateFeeSats(), computed once at construction time from a
@@ -2562,8 +2566,8 @@ model EscrowPendingTransaction {
   // doesn't populate it (kept nullable rather than defaulted, matching
   // feeCollectionSats' own convention, so "not recorded" stays
   // distinguishable from "recorded as zero").
-  minerFeeSats        Int?
-  unsignedPsbtBase64  String
+  minerFeeSats                 Int?
+  unsignedPsbtBase64           String
   // Participant ids who must each submit their own signed copy. On a
   // DISPUTED release/refund this list has only ONE entry (buyer or
   // seller) — the arbiter's own required signature is pre-embedded into
@@ -2573,9 +2577,9 @@ model EscrowPendingTransaction {
   // only ONE entry too (buyer, by convention — see multisig.provider.ts's
   // buildUnsignedSplit()) — still a 2-of-3 script underneath, so only one
   // more signature can combine with the arbiter's already-embedded one.
-  requiredSigners     String[]
-  triggeredBy         String
-  createdAt           DateTime @default(now())
+  requiredSigners              String[]
+  triggeredBy                  String
+  createdAt                    DateTime  @default(now())
   // When settlement reconciliation PASS 0 last claimed this operation (a
   // fully-signed operation whose escrow never claimed its transition,
   // migration 20260930140000). Queue position only, never authority: what
@@ -2586,9 +2590,9 @@ model EscrowPendingTransaction {
   // #239D X1 — true: Sails never returned another participant's signature for this round while it was
   // incomplete (rounds created since). false: created under the old read contract — potentially exposed,
   // so never treated as safely supersedable.
-  signaturesConfidential  Boolean   @default(true)
+  signaturesConfidential       Boolean   @default(true)
   // #239D D1/H1 — when the cooperative set became complete with no dispute yet (set under the escrow lock).
-  bilateralAuthorityAt    DateTime?
+  bilateralAuthorityAt         DateTime?
 
   // ADR-005 / #218 — durable ruling-generation provenance, snapshotted at
   // the moment a DISPUTED ruling creates this pending operation (never
@@ -2602,12 +2606,12 @@ model EscrowPendingTransaction {
   // arbitration-authority.ts already verifies at ruling time — reused
   // here as the immutable fingerprint of the exact signed decision, never
   // a separately-invented digest.
-  disputeId               String?
-  rulingAppealRound       Int?
-  rulingArbiterId         String?
-  rulingOutcome           DisputeRuling?
+  disputeId                String?
+  rulingAppealRound        Int?
+  rulingArbiterId          String?
+  rulingOutcome            DisputeRuling?
   rulingAuthoritySignature String?
-  rulingAuthorityIssuedAt DateTime?
+  rulingAuthorityIssuedAt  DateTime?
 
   signatures EscrowTransactionSignature[]
 
@@ -2626,15 +2630,15 @@ model EscrowPendingTransaction {
 // Capability/Eligibility Authority (is the actor still permitted?) are
 // orthogonal gates; neither substitutes for the other (ADR-005 §7).
 model EconomicDispositionAuthorization {
-  id                 String   @id @default(uuid())
-  pendingOperationId String   @unique
+  id                 String        @id @default(uuid())
+  pendingOperationId String        @unique
   escrowId           String
   disputeId          String
   appealRound        Int
   arbiterId          String
   ruling             DisputeRuling
   operationDigest    String
-  authorizedAt       DateTime @default(now())
+  authorizedAt       DateTime      @default(now())
 
   @@index([escrowId])
   @@index([disputeId])
@@ -2865,11 +2869,11 @@ model IdempotencyKey {
 // applyEventProjectionOnce() (src/common/events/event-projection.ts), in the
 // same transaction as the mutation it guards.
 model EventProjectionClaim {
-  id            String   @id @default(uuid())
-  eventId       String
-  projectionKey String
-  subjectId     String
-  appliedAt     DateTime @default(now())
+  id                            String    @id @default(uuid())
+  eventId                       String
+  projectionKey                 String
+  subjectId                     String
+  appliedAt                     DateTime  @default(now())
   // Used only on 'transition.claimed' rows (the settlement reconciler's PASS 3
   // queue, migration 20260930120000); null on every other projection key.
   // Set in the same transaction that writes the transition's
@@ -2887,4 +2891,144 @@ model EventProjectionClaim {
   @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
   @@index([projectionKey, subjectId])
   @@map("event_projection_claims")
+}
+
+// ─── #235 R7H-E1 — economic authorization foundation (R7_TRADE_AUTHORIZATION_POLICY_V1) ─────────────────────
+// Evidence only: nothing here instructs a spend, a release or a settlement. Every row is immutable once committed
+// (database triggers, see migration 20261015120000_economic_authority_foundation). Not enforced by any production
+// flow yet (later slices).
+
+/// Where a payment method's policy row comes from.
+enum PolicyEvidenceClass {
+  REGULATORY
+  PROVIDER_TERMS
+  UNVERIFIED
+}
+
+enum PolicyConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// One immutable version of the authorization policy. The effective version is the one with the latest
+/// activatedAt <= now() (ties: highest version). Caps are mandatory: there is no unlimited tier and no tier
+/// promotion in this schema.
+model TradeLimitPolicyVersion {
+  id                       String   @id @default(uuid())
+  version                  Int      @unique
+  label                    String
+  activatedAt              DateTime @default(now())
+  openSettlementCapUsd     Decimal  @db.Decimal(24, 2)
+  rollingFiatCapUsd        Decimal  @db.Decimal(24, 2)
+  quoteMaxAgeSeconds       Int
+  quoteWindowSeconds       Int
+  maxSourceDisagreementBps Int
+  minAgreeingOperators     Int
+  sourceMaxAgeSeconds      Int
+  sourceFutureSkewSeconds  Int
+  // Database transaction that created the version; its rail/method rows may only be written in that transaction.
+  dbTxId                   BigInt   @default(dbgenerated("txid_current()"))
+  createdAt                DateTime @default(now())
+
+  rails        TradeLimitRailPolicy[]
+  methods      TradeLimitMethodPolicy[]
+  quotes       ValuationQuote[]
+  reservations ExposureReservation[]
+
+  @@map("trade_limit_policy_versions")
+}
+
+/// A settlement rail the policy version authorizes. A rail without a row is not eligible.
+model TradeLimitRailPolicy {
+  policyVersionId String
+  policyVersion   TradeLimitPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  escrowType      EscrowType
+  asset           AssetType
+
+  @@id([policyVersionId, escrowType, asset])
+  @@map("trade_limit_rail_policies")
+}
+
+/// A payment method's economic policy within one version. A method without a row is not eligible.
+model TradeLimitMethodPolicy {
+  policyVersionId String
+  policyVersion   TradeLimitPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod
+  eligible        Boolean
+  fiatWindowDays  Int?
+  evidenceClass   PolicyEvidenceClass
+  confidence      PolicyConfidence
+  note            String?
+
+  @@id([policyVersionId, paymentMethod])
+  @@map("trade_limit_method_policies")
+}
+
+/// The one canonical BTC/USD valuation for a publication window, published together with its observations.
+model ValuationQuote {
+  // Deterministic: "<baseAsset>:<windowStart epoch seconds>" (database-checked). The primary key is therefore the
+  // one-quote-per-window authority — the single unique index publishers arbitrate on (ON CONFLICT (id) DO NOTHING).
+  id               String                  @id
+  policyVersionId  String
+  policyVersion    TradeLimitPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  baseAsset        AssetType
+  windowStart      DateTime
+  asOf             DateTime
+  collectedAt      DateTime
+  priceMaxUsd      Decimal                 @db.Decimal(24, 8)
+  priceMedianUsd   Decimal                 @db.Decimal(24, 8)
+  observationCount Int
+  sourceSpreadBps  Int
+  // Database transaction that published the quote; its observations may only be written in that transaction.
+  dbTxId           BigInt                  @default(dbgenerated("txid_current()"))
+  createdAt        DateTime                @default(now())
+
+  observations PriceObservation[]
+  reservations ExposureReservation[]
+
+  @@index([baseAsset, windowStart])
+  @@map("valuation_quotes")
+}
+
+/// One accepted source observation behind a quote.
+model PriceObservation {
+  id              String         @id @default(uuid())
+  quoteId         String
+  quote           ValuationQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  operator        String
+  priceUsd        Decimal        @db.Decimal(24, 8)
+  sourceTimestamp DateTime?
+  collectedAt     DateTime
+  payloadSha256   String
+
+  @@unique([quoteId, operator])
+  @@map("price_observations")
+}
+
+/// The immutable economic authorization snapshot of one escrow. Its absence never means zero exposure.
+model ExposureReservation {
+  id               String                  @id @default(uuid())
+  tradeId          String                  @unique
+  trade            Trade                   @relation(fields: [tradeId], references: [id], onDelete: Restrict)
+  escrowId         String                  @unique
+  escrow           Escrow                  @relation(fields: [escrowId], references: [id], onDelete: Restrict)
+  sellerId         String
+  seller           User                    @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  paymentAccountId String
+  paymentAccount   PaymentAccount          @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  policyVersionId  String
+  policyVersion    TradeLimitPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  quoteId          String
+  quote            ValuationQuote          @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  paymentMethod    PaymentMethod
+  escrowType       EscrowType
+  asset            AssetType
+  assetAmount      Decimal                 @db.Decimal(24, 8)
+  exposureUsd      Decimal                 @db.Decimal(24, 2)
+  authorizedAt     DateTime                @default(now())
+
+  @@index([sellerId])
+  @@index([paymentAccountId])
+  @@map("exposure_reservations")
 }
