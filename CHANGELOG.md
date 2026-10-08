@@ -19,6 +19,31 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7H-E3 — seller authorization, PaymentAccount binding and payment-method reconciliation of escrow creation.**
+  - **Seller only:** only the trade's seller creates its escrow (`escrow.service.ts` `createEscrow`). The caller is
+    the authenticated session, or the DB-derived `trade.sellerId` for internal callers; a payload field never
+    counts. The buyer, unrelated participants and unauthenticated callers are refused, with zero side effects.
+  - **Binding on governed rails:** migration `20261017120000_escrow_seller_payment_binding`. A rail is governed
+    once any policy version has listed it (V1: MULTISIG/BTC), monotonically. A new escrow on a governed rail
+    requires, under the version in force, all of:
+    - the rail is eligible;
+    - the trade's seller is the one its offer committed;
+    - the trade is bound to a payment account the seller owns, whose method equals the offer's;
+    - that method is eligible.
+  - **Where it is checked:** in the repository transaction under the trade lock, with row locks on the trade,
+    offer and account (clean 409s). The escrow INSERT/rail-change trigger runs the same check, so direct writes
+    are held to it too.
+  - **Committed terms frozen:**
+    - a payment account's owner, hash and method never change;
+    - a traded offer's owner, side, asset, method and account are fixed;
+    - an escrowed trade's parties, offer, asset and amount are fixed.
+  - **Production:** creating an escrow on a rail no policy governs is refused.
+  - **Retry:** a retry before `Trade.escrowId` is projected now gets a clean "already has an escrow" (409), not a
+    unique-constraint error.
+  - **Offer API:** `paymentMethod` is validated against the database's canonical enum, so a UI display-only method
+    is refused with 400.
+  - #235 is **not** closed.
+
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.
   - **Adapters for four exchanges:** Kraken, Coinbase Exchange and Bitstamp as primaries; Gemini as a reserve,
