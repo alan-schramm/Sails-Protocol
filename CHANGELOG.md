@@ -19,6 +19,35 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7H-E1 — economic authorization foundation (schema only; no enforcement yet).**
+  - Additive migration `20261015120000_economic_authority_foundation`. It adds versioned trade-limit policy rows
+    (`R7_TRADE_AUTHORIZATION_POLICY_V1`, experimental), canonical BTC/USD valuation quotes with their source
+    observations, and immutable per-escrow exposure reservations. No existing table gains a column and no row is
+    backfilled: an escrow without a reservation stays "unclassified", never "zero exposure".
+  - V1 values:
+    - open settlement cap 250.00 USD; rolling fiat cap 750.00 USD;
+    - quote max age 120 s; publication window 30 s; publication ≤ 10 s after a quote's asOf (checked at insert
+      and again at commit); source disagreement ≤ 100 bps; ≥ 2 operators;
+    - rail MULTISIG/BTC only; payment method PIX only (90-day fiat window);
+    - no tiers, no promotion, no unlimited.
+  - A payment method or rail without a policy row is not eligible.
+  - The database enforces every invariant, including against direct SQL:
+    - policy versions, rails, methods, quotes, observations and reservations are immutable (no UPDATE, DELETE or
+      TRUNCATE);
+    - a version's rows can only be written in its creating transaction;
+    - a quote commits only with observations that exactly support its declared max, median, count and spread,
+      checked at commit and re-checked for every added observation;
+    - a quote's id is deterministic (`BTC:<window epoch>`), and that primary key is the window's only unique key, so
+      concurrent publishers yield via `ON CONFLICT (id) DO NOTHING`;
+    - a reservation must match the trade's seller, bound payment account, method, escrow, asset and amount; it uses
+      the newest fresh quote under the version in force; its value is `ceil(amount × max price)` to the cent, at
+      most the open cap;
+    - a reservation can only be written for a new, unfunded escrow;
+    - the trade, escrow, payment-account and offer fields a reservation snapshotted are frozen once it exists.
+  - No production flow writes these tables yet. Collectors, seller-only creation, owner-wide caps and fiat/reorg
+    accounting are later R7H slices, so #235 is **not** closed.
+  - New real-PostgreSQL suite: `tests/integration/economicAuthorityFoundation.test.ts`.
+
 - **#235 R7G F8G — canonical / residual input separation, mechanically proven; legacy locks without a vout
   surfaced by the residual preflight.**
   - **NF-F8G-1 (evidence):** a canonical MULTISIG settlement spends exactly the persisted canonical outpoint and
