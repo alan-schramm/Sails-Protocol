@@ -32,6 +32,7 @@ import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { wdkSettlementProvider } from './modules/open-settlement/wdk-settlement.provider'
 import { startSettlementRecoverySchedule, type SettlementRecoverySchedule } from './modules/open-settlement/settlement-recovery-schedule'
+import { startQuoteCollector, type QuoteCollector } from './modules/open-valuation/quote-collector'
 import { startGuardedInterval, type GuardedInterval } from './common/guarded-interval'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
@@ -429,12 +430,13 @@ export async function startServer() {
   // graceful-shutdown path leaves no dangling connections on the DB/
   // Redis side even if something delays the actual process exit.
   let settlementRecovery: SettlementRecoverySchedule | undefined
+  let quoteCollector: QuoteCollector | undefined
   const backgroundSweepers: GuardedInterval[] = []
   const shutdown = async (signal: string) => {
     app.log.info({ msg: 'Shutting down gracefully', signal })
     // Stop scheduling first, then drain any recovery tick or sweeper run already in flight before its
     // Postgres/Redis connections are closed (an interrupted run would be safe, only noisier).
-    const drained = Promise.all([settlementRecovery?.stop(), ...backgroundSweepers.map((sweeper) => sweeper.stop())])
+    const drained = Promise.all([settlementRecovery?.stop(), quoteCollector?.stop(), ...backgroundSweepers.map((sweeper) => sweeper.stop())])
     await app.close()
     await drained
     await eventBus.disableCrossInstanceFanout()
@@ -516,6 +518,29 @@ export async function startServer() {
   // (settlement-recovery-schedule.ts).
   if (config.features.escrowSettlementReconciler) {
     settlementRecovery = startSettlementRecoverySchedule(app.log, config.trade.settlementReconcileIntervalMs)
+  }
+
+  // #235 R7H-E2 — economic authority separation. The application's credential must not be able to publish
+  // valuation quotes (migration 20261016120000_economic_authority_roles); while it still can (it connects as the
+  // schema owner, not as a sails_app member), the deployment is not separated and says so on every start.
+  let separation: Array<{ separated: boolean }> | undefined
+  try {
+    separation = await prisma.$queryRaw<Array<{ separated: boolean }>>`SELECT NOT has_table_privilege('valuation_quotes', 'INSERT') AS separated`
+  } catch (err) {
+    app.log.warn({ msg: 'Could not check economic authority separation', module: 'economic-authority', err: err instanceof Error ? err.message : err })
+  }
+  if (separation?.[0]?.separated === false) {
+    app.log.error({ msg: 'Application database credential can publish valuation quotes: economic authority is not separated (connect DATABASE_URL as a sails_app member, see docs/DEPLOYMENT.md)', module: 'economic-authority' })
+  }
+
+  // #235 R7H-E2 — BTC/USD canonical quote collector, only with its own credential (see config/index.ts).
+  if (config.quoteCollector.databaseUrl) {
+    quoteCollector = await startQuoteCollector(app.log, {
+      databaseUrl: config.quoteCollector.databaseUrl,
+      intervalMs: config.quoteCollector.intervalMs,
+      sourceTimeoutMs: config.quoteCollector.sourceTimeoutMs,
+      strictCredential: config.isProduction,
+    })
   }
 
   // RFC-021 D8 — off by default, see config/index.ts's own comment.
