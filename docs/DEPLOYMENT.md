@@ -101,6 +101,52 @@ hardening — e.g. an inline comment in `.env.example` itself flagging
 these three values as dev-only — not authorized or scheduled by this
 note.
 
+### 2.1 Database credentials and the price collector (#235 R7H-E2)
+
+Migration `20261016120000_economic_authority_roles` creates two group roles
+(`NOLOGIN`; no password is ever stored in a migration):
+
+| Role | Used by | Can |
+|---|---|---|
+| `sails_app` | the application (`DATABASE_URL`) | read and write every application table; **read only** on valuation quotes, price observations and trade-limit policy rows; insert-only on exposure reservations |
+| `sails_quote_collector` | the price collector (`QUOTE_COLLECTOR_DATABASE_URL`) | read the policy in force; insert valuation quotes and price observations; nothing else |
+
+Migrations keep running as the schema owner (section 3). To separate the
+runtime credentials, create one login per role, as the owner:
+
+```sql
+CREATE ROLE sails_app_login LOGIN PASSWORD '<secret>' IN ROLE sails_app;
+CREATE ROLE sails_collector_login LOGIN PASSWORD '<other secret>' IN ROLE sails_quote_collector;
+```
+
+Then point `DATABASE_URL` at `sails_app_login` and set
+`QUOTE_COLLECTOR_DATABASE_URL` to `sails_collector_login`. It must differ from
+`DATABASE_URL`, or config load refuses to start.
+
+While the application still connects as the owner, it logs an
+`economic authority is not separated` error on every start. Until then, the
+application credential can publish valuation quotes.
+
+```bash
+QUOTE_COLLECTOR_DATABASE_URL=postgresql://sails_collector_login:<other secret>@host:5432/sails_protocol
+QUOTE_COLLECTOR_INTERVAL_MS=10000   # how often each node attempts the current 30 s window
+QUOTE_SOURCE_TIMEOUT_MS=3000        # per exchange request (the publication bound is 10 s)
+```
+
+When `QUOTE_COLLECTOR_DATABASE_URL` is unset, no collector runs. No quote is
+then published, so nothing new can be authorized once the newest quote passes
+its maximum age. Existing escrows settle, dispute and recover without any
+quote.
+
+Every node may run the collector: the nodes publish one canonical quote per
+window between them.
+
+Check the exchanges from wherever the service runs:
+
+```bash
+npm run price:smoke
+```
+
 ## 3. Setup
 
 **Docker-first path (2026-08-03) — no Node/npm on the host at all**, the

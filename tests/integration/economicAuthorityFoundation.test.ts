@@ -712,7 +712,7 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
       const c = await connect(target.toString())
       const dirs = readdirSync(MIGRATIONS, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
       const prior = dirs.filter((d) => d < E1_MIGRATION)
-      expect(dirs[dirs.length - 1]).toBe(E1_MIGRATION)
+      expect(dirs).toContain(E1_MIGRATION) // later migrations (e.g. R7H-E2 roles) are not part of this proof
       for (const d of prior) await c.query(readFileSync(join(MIGRATIONS, d, 'migration.sql'), 'utf8'))
 
       // Legacy: an open MULTISIG escrow, a funded one, a completed one, a non-MULTISIG one, an unbound trade.

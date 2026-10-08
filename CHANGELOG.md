@@ -19,6 +19,38 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
+  - New module `src/modules/open-valuation/`.
+  - **Adapters for four exchanges:** Kraken, Coinbase Exchange and Bitstamp as primaries; Gemini as a reserve,
+    used only when the primaries do not agree.
+    - Operator identity comes from the adapter, never from the payload.
+    - A source list with a repeated operator or a shared endpoint host is refused.
+    - Prices stay decimal strings end to end. A JSON-number, non-positive or over-precise price is malformed.
+  - **Selection:**
+    - stale and future source timestamps are excluded first;
+    - the largest price-contiguous group within 100 bps of its median, with at least 2 operators, is accepted,
+      so an extreme price is excluded and reported;
+    - two equally large disagreeing groups publish nothing;
+    - the quote's authorization price is the group's maximum.
+  - **Collector:**
+    - asOf is the database clock;
+    - sources are fetched concurrently, each bounded, outside any transaction;
+    - nothing is published past the 10 s bound (1 s margin);
+    - publication is one transaction (`ON CONFLICT (id) DO NOTHING` on the deterministic id, then the
+      observations), so losers yield and never overwrite, and a crash leaves nothing.
+    - `readAuthorizationQuote()` returns the newest quote only if it is current and fresh, otherwise null
+      (fail closed).
+  - **Migration `20261016120000_economic_authority_roles`:**
+    - `sails_app`: full DML except on economic evidence. Read-only on quotes, observations and policy rows;
+      insert-only on reservations.
+    - `sails_quote_collector`: reads the policy, inserts quotes and observations, nothing else.
+  - **Operational behaviour:**
+    - The collector runs only with its own credential (`QUOTE_COLLECTOR_DATABASE_URL`). In production it refuses
+      an over-privileged one.
+    - The application logs an error at every start while its own credential can still publish quotes.
+  - `npm run price:smoke` checks the live sources. CI uses local HTTP fixtures.
+  - Deployment steps: `docs/DEPLOYMENT.md` §2.1. #235 is **not** closed.
+
 - **#235 R7H-E1 — economic authorization foundation (schema only; no enforcement yet).**
   - Additive migration `20261015120000_economic_authority_foundation`. It adds versioned trade-limit policy rows
     (`R7_TRADE_AUTHORIZATION_POLICY_V1`, experimental), canonical BTC/USD valuation quotes with their source

@@ -63,6 +63,13 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 // A background scheduler interval: a strict positive integer that setInterval()
 // honours as written.
+function distinctCredential(url: string | undefined): string | undefined {
+  if (url !== undefined && url === process.env.DATABASE_URL) {
+    throw new Error('QUOTE_COLLECTOR_DATABASE_URL must be a separate credential from DATABASE_URL (a sails_quote_collector member)')
+  }
+  return url || undefined
+}
+
 function requiredIntervalMs(name: string, fallback: number): number {
   const value = requiredPositiveInt(name, fallback)
   if (value > MAX_TIMER_DELAY_MS) {
@@ -285,6 +292,16 @@ export const config = {
     url: isProductionEnv
       ? required('DATABASE_URL')
       : required('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/sails_protocol'),
+  },
+
+  // #235 R7H-E2 — the BTC/USD price collector (modules/open-valuation/quote-collector.ts). Off unless
+  // QUOTE_COLLECTOR_DATABASE_URL is set: a login that is only a member of the sails_quote_collector role, the one
+  // credential allowed to publish valuation quotes. It must differ from DATABASE_URL (the application's own
+  // credential can never publish economic evidence); in production the collector refuses an over-privileged one.
+  quoteCollector: {
+    databaseUrl: distinctCredential(process.env.QUOTE_COLLECTOR_DATABASE_URL),
+    intervalMs: requiredIntervalMs('QUOTE_COLLECTOR_INTERVAL_MS', 10000),
+    sourceTimeoutMs: requiredIntervalMs('QUOTE_SOURCE_TIMEOUT_MS', 3000),
   },
 
   redis: {
