@@ -18,6 +18,7 @@ import * as ecc from '@bitcoinerlab/secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 describe('#244 stale dispute-pending cleanup vs concurrent signature — real Postgres', () => {
   jest.setTimeout(60_000)
@@ -93,11 +94,12 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   /** A MULTISIG escrow with a RESOLVED dispute and a zero-signature pending round older than the cleanup margin. */
   async function fixture(requiredSigners: 'both' | 'buyer' = 'both') {
     const [buyer, seller, arbiter] = await Promise.all([newUser(), newUser(), newUser()])
+    const acct = await sellerPixAccount(prisma, seller.id)
     const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
+      data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
     })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED', multisigAddr: fundingSurface().address!, txLockId: randomBytes(32).toString('hex'), txLockVout: 0 } }) // #235 R7G F8A: a funded escrow
     await prisma.escrowParticipantKey.createMany({ data: [

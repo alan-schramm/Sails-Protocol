@@ -4,6 +4,7 @@
 // recommendation can only propose an automated resolution for the exact generation it assessed.
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 
 describe('#309 dispute evidence generation — real Postgres', () => {
@@ -44,7 +45,7 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
-      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' }, seller.id)

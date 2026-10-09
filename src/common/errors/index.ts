@@ -106,6 +106,15 @@ export class EscrowError extends AppError {
   }
 }
 
+// #235 R7H-E3C — a new trade on a governed rail is admitted only when the escrow it exists for could be authorized
+// (escrow_economic_binding_violation(), decided on the uncommitted trade row). 409: the offer / account / policy
+// state conflicts with the request, which the caller cannot fix by reshaping the same payload.
+export class TradeAdmissionError extends AppError {
+  constructor(message: string, reason?: CapabilityDenialReason) {
+    super(message, 409, 'TRADE_ADMISSION_REFUSED', undefined, reason)
+  }
+}
+
 // Issue #291 - a settlement result (provider evidence: txReleaseId) is
 // write-once. A DIFFERENT value for an escrow that already holds one is an
 // integrity anomaly: never overwritten, never silently ignored.

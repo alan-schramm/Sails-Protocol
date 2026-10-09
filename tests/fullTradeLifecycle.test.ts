@@ -297,6 +297,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     $executeRaw: jest.fn().mockResolvedValue(0),
     // The ruling path's SELECT ... FOR UPDATE of the dispute it displaces, answered from the same fake table.
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
+      if (strings.join('?').includes('escrow_economic_binding_violation')) return [{ violation: null, governed: false }]
       if (!strings.join('?').includes('FROM disputes')) return []
       const row: any = await disputes.findUnique({ where: { id: values[0] as string } } as any)
       return row ? [{ status: row.status, appealRound: row.appealRound, arbiterId: row.arbiterId ?? null }] : []

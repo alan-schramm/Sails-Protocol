@@ -16,6 +16,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -141,24 +142,26 @@ describe('#235 R7D — payment-account trust ramp from durable clean completions
   /** SELL offer by `seller` declaring `acct` (or none), taken by `buyer`. */
   async function sellTrade(seller: { id: string }, buyer: { id: string }, acct?: { accountHash: string }) {
     const o = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', paymentMethod: 'PIX', ...(acct ? { paymentAccountHash: acct.accountHash } : {}) })
-    return tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    const admit = () => tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    // #235 R7H-E3C — an undeclared (unbound) trade is no longer admitted; it is the historical (pre-E3C) row here.
+    return acct ? admit() : refusedThenHistoricalTrade(prisma, tradeService, admit, 'UNBOUND_ACCOUNT', o, buyer.id, '0.0005')
   }
 
   /** Real MOCK escrow up to PAYMENT_PENDING; the release is left to the caller. */
-  async function paymentPending(trade: { id: string }, seller: { id: string }, buyer: { id: string }) {
+  async function paymentPending(trade: { id: string; sellerId: string }, seller: { id: string }, buyer: { id: string }) {
     await prisma.payoutAddress.upsert({
       where: { participantId_asset: { participantId: buyer.id, asset: 'BTC' } },
       create: { participantId: buyer.id, asset: 'BTC', address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' },
       update: {},
     })
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, trade.sellerId)
     await escrowService.lockFunds(escrow.id, seller.id)
     await escrowService.markPaymentSent(escrow.id, buyer.id)
     return escrow
   }
 
   /** The real clean release; returns once every projection of the COMPLETED transition has run. */
-  async function releaseCleanly(trade: { id: string }, seller: { id: string }, buyer: { id: string }) {
+  async function releaseCleanly(trade: { id: string; sellerId: string }, seller: { id: string }, buyer: { id: string }) {
     const escrow = await paymentPending(trade, seller, buyer)
     await escrowService.releaseFunds(escrow.id, undefined, seller.id)
     const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } }))!
@@ -227,7 +230,7 @@ describe('#235 R7D — payment-account trust ramp from durable clean completions
     const seller = await user('seller-10'); const buyer = await user('buyer-10')
     const acct = await account(seller.id)
     const trade = await sellTrade(seller, buyer, acct)
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, trade.sellerId)
     await escrowService.lockFunds(escrow.id, seller.id)
     await escrowService.refundFunds(escrow.id, seller.id)
     const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: 'REFUNDED' } }))!

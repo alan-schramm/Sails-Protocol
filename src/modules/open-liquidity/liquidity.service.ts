@@ -200,6 +200,12 @@ export interface PublicOfferDetail {
   description: string | null
   createdAt: string
   updatedAt: string
+  /**
+   * #235 R7H-E3C — whether a SELL offer carries its seller's committed PaymentAccount (never which one). On a
+   * governed rail an unbound SELL offer admits no trade (trade-repository.ts), so a client can say so up front.
+   * Always false for a BUY offer: its seller is whoever takes it, and declares the account then.
+   */
+  paymentAccountBound: boolean
   seller: PublicOfferSeller
 }
 
@@ -217,6 +223,7 @@ type PublicOfferDetailRow = {
   description: string | null
   createdAt: Date
   updatedAt: Date
+  paymentAccountId?: string | null
   user: {
     id: string
     publicKey: string
@@ -247,6 +254,7 @@ function mapOfferToPublicDetail(offer: PublicOfferDetailRow): PublicOfferDetail 
     description: offer.description,
     createdAt: offer.createdAt.toISOString(),
     updatedAt: offer.updatedAt.toISOString(),
+    paymentAccountBound: offer.paymentAccountId != null,
     seller: {
       id: offer.user.id,
       publicKey: offer.user.publicKey,
@@ -652,7 +660,7 @@ export class LiquidityRouter {
       select: {
         id: true, asset: true, side: true, priceUsd: true, priceBrl: true,
         minAmount: true, maxAmount: true, paymentMethod: true, status: true,
-        network: true, description: true, createdAt: true, updatedAt: true,
+        network: true, description: true, createdAt: true, updatedAt: true, paymentAccountId: true,
         user: { select: {
           id: true, publicKey: true, displayName: true, peerId: true,
           verified: true, reputationScore: true, totalTrades: true, disputeCount: true,

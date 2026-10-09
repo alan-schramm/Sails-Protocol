@@ -16,6 +16,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const ATTESTED = 'settlement.payment_account.attested'
@@ -126,14 +127,14 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
   }
 
   /** The real clean path on the MOCK rail: escrow, lock, payment sent, release — no dispute. */
-  async function completeCleanly(trade: { id: string }, seller: { id: string }, buyer: { id: string }) {
+  async function completeCleanly(trade: { id: string; sellerId: string }, seller: { id: string }, buyer: { id: string }) {
     // A release pays the buyer's registered payout address (escrow-lifecycle.ts resolvePayoutAddress()).
     await prisma.payoutAddress.upsert({
       where: { participantId_asset: { participantId: buyer.id, asset: 'BTC' } },
       create: { participantId: buyer.id, asset: 'BTC', address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' },
       update: {},
     })
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, trade.sellerId)
     await escrowService.lockFunds(escrow.id, seller.id)
     await escrowService.markPaymentSent(escrow.id, buyer.id)
     await escrowService.releaseFunds(escrow.id, undefined, seller.id)
@@ -145,9 +146,9 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
   }
 
   /** A trade forced into an end state by writing the durable rows directly (state fixtures only). */
-  async function tradeInState(trade: { id: string }, buyer: { id: string }, tradeStatus: string, escrowStatus: string | null, disputed: boolean) {
+  async function tradeInState(trade: { id: string; sellerId: string }, buyer: { id: string }, tradeStatus: string, escrowStatus: string | null, disputed: boolean) {
     if (escrowStatus) {
-      const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, buyer.id)
+      const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.0005', asset: 'BTC' }, trade.sellerId)
       await prisma.escrow.update({ where: { id: escrow.id }, data: { status: escrowStatus as any } })
       if (disputed) await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'r7c fixture' } })
     }
@@ -323,7 +324,8 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
     const seller = await participant('r7c-seller-26'); const buyer = await participant('r7c-buyer-26')
     const acct = await account(seller.id) // the seller DOES own a matching PIX account
     const o = await offer(seller.id, 'SELL') // but declared none
-    const trade = await tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    // #235 R7H-E3C — such a trade is no longer admitted; attestation is checked on the historical (pre-E3C) row.
+    const trade = await refusedThenHistoricalTrade(prisma, tradeService, () => tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' }), 'UNBOUND_ACCOUNT', o, buyer.id, '0.0005')
     expect(trade.sellerPaymentAccountId).toBeNull()
     await completeCleanly(trade, seller, buyer)
     const before = await snapshot(acct.accountHash, trade.id)

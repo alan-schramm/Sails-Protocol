@@ -32,6 +32,7 @@ import { prisma } from '../../common/database'
 import { ForbiddenError, NotFoundError, ValidationError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { applyEventProjectionOnce } from '../../common/events/event-projection'
+import { isUniqueConstraintError } from '../../common/idempotency'
 import type { PaymentMethod } from '../../common/types'
 
 // RFC-021 D5 — trade-limit ramp. Deliberately reuses SECURITY_MODEL.md
@@ -105,6 +106,19 @@ export class PaymentAccountService {
   async getOrCreate(ownerId: string, accountHash: string, paymentMethod: PaymentMethod) {
     const existing = await prisma.paymentAccount.findUnique({ where: { accountHash } })
     if (existing) return existing
+    try {
+      return await this.createAccount(ownerId, accountHash, paymentMethod)
+    } catch (err) {
+      // #235 R7H-E3B — two registrations of one new hash racing (a double submit, two participants): the unique
+      // index admits exactly one; the other caller gets that row, never a 500. Its owner decides what they see.
+      if (!isUniqueConstraintError(err)) throw err
+      const winner = await prisma.paymentAccount.findUnique({ where: { accountHash } })
+      if (!winner) throw err
+      return winner
+    }
+  }
+
+  private async createAccount(ownerId: string, accountHash: string, paymentMethod: PaymentMethod) {
 
     // "First rail" checked precisely, not just "this exact hash is new" —
     // an already-established owner adding a second/third payment method

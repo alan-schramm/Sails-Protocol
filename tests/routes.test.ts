@@ -75,6 +75,10 @@ const mockCapabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: mockCapabilityGrantExecuteRaw,
+    // #235 R7H-E3 - EscrowRepository.create()'s binding check (proven on real PostgreSQL in escrowSellerPaymentBinding.test.ts).
+    // #235 R7H-E3C - TradeRepository.create() runs the same check on the new trade inside this transaction (proven on
+    // real PostgreSQL in tradeAdmissionAuthority.test.ts), so the tx client also inserts the trade (trade.create below).
+    $queryRaw: async () => [{ violation: null, governed: false }],
     // Issue #303 delta - CapabilityGrantRepository.create() now runs inside this
     // transaction (advisory lock + equivalent-live-grant lookup + insert), so the
     // tx client must expose findMany/create too; findMany defaults to "no live grants".
@@ -90,6 +94,7 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     // re-reads only the trade's status (an escrowable ACTIVE trade by default), then inserts.
     escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
     trade: {
+      create: (...args: unknown[]) => mockTradeCreate(...args),
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: any[]) => (args[0]?.select?.status ? Promise.resolve({ status: 'ACTIVE' }) : mockTradeUpdate(...args)),
     },
@@ -1582,8 +1587,16 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(401)
     })
 
-    it('creates an escrow for an authenticated caller', async () => {
+    it("refuses escrow creation by the trade's buyer, even claiming sellerId in the payload: only the seller commits the escrow (#235 R7H-E3)", async () => {
       const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.01' })
+      const res = await app.inject({ method: 'POST', url: '/v1/settlement/escrow', headers: { authorization: `Bearer ${token}` }, payload: { tradeId: 'trade-1', lockedAmount: '0.01', asset: 'BTC', sellerId: 'buyer-1' } })
+      expect(res.statusCode).toBe(403)
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
+    })
+
+    it('creates an escrow for an authenticated caller', async () => {
+      const token = await authedSession('seller-1')
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.01' })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
@@ -1649,7 +1662,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // RFC-020), but no trade-backed escrow may use it. STACKS has no authorized translation, so the trade
     // is refused before any rail is considered, and SAFE_GUARD_EVM locks native ETH, which no AssetType is.
     it('refuses SAFE_GUARD_EVM on a trade in an asset with no canonical scope mapping — nothing is created (#235 R7F-B)', async () => {
-      const token = await authedSession('buyer-1')
+      const token = await authedSession('seller-1')
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'STACKS', amount: '1.5' })
 
       const res = await app.inject({
@@ -1665,7 +1678,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
 
     it('rejects SAFE_GUARD_EVM for USDT_ERC20 — not the canonical {USDT,ETHEREUM} implementation (Mission 4 correction, previously silently accepted)', async () => {
-      const token = await authedSession('buyer-1')
+      const token = await authedSession('seller-1')
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '1.5' })
 
       const res = await app.inject({

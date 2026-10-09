@@ -12,6 +12,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)', () => {
@@ -67,7 +68,7 @@ describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)'
   async function makeEscrow(status: 'COMPLETED' | 'PAYMENT_PENDING' | 'SPLIT' | 'REFUNDED' = 'COMPLETED') {
     const seller = await newUser()
     const buyer = await newUser()
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', status, lockedAmount: '0.001', asset: 'BTC' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })

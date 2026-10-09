@@ -26,6 +26,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 const COLLECTIBLE_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 
@@ -77,8 +78,9 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
   async function createFixtureEscrowWithObligation(suffix: string, opts: { withPolicy?: boolean } = { withPolicy: true }) {
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fase5-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fase5-${suffix}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
 
     let policy: any = null
     let escrow: any

@@ -119,16 +119,19 @@ describe('Timelock expiry sweep: bounded passes, durable round-robin, #379 invar
     const tag = randomBytes(6).toString('hex')
     const first = new Date(seedClock)
     seedClock += n
-    const [{ seller, buyer, offer }] = await prisma.$queryRawUnsafe<Array<{ seller: string; buyer: string; offer: string }>>(`
+    // #235 R7H-E3: the seller's PIX account, bound to the offer and to every seeded trade (tests/integration/economicFixtures.ts).
+    const [{ seller, buyer, offer, account }] = await prisma.$queryRawUnsafe<Array<{ seller: string; buyer: string; offer: string; account: string }>>(`
       WITH s AS (INSERT INTO users (id, "publicKey", "updatedAt") VALUES (gen_random_uuid()::text, 'expiry-bound-s-${tag}', now()) RETURNING id),
            b AS (INSERT INTO users (id, "publicKey", "updatedAt") VALUES (gen_random_uuid()::text, 'expiry-bound-b-${tag}', now()) RETURNING id),
-           o AS (INSERT INTO offers (id, "userId", asset, side, "priceUsd", "minAmount", "maxAmount", "paymentMethod", "updatedAt")
-                 SELECT gen_random_uuid()::text, s.id, 'BTC', 'SELL', 65000, 0.001, 1, 'PIX', now() FROM s RETURNING id)
-      SELECT s.id AS seller, b.id AS buyer, o.id AS offer FROM s, b, o`)
+           a AS (INSERT INTO payment_accounts (id, "ownerId", "accountHash", "paymentMethod", "updatedAt")
+                 SELECT gen_random_uuid()::text, s.id, 'expiry-bound-pix-${tag}', 'PIX', now() FROM s RETURNING id),
+           o AS (INSERT INTO offers (id, "userId", asset, side, "priceUsd", "minAmount", "maxAmount", "paymentMethod", "paymentAccountId", "updatedAt")
+                 SELECT gen_random_uuid()::text, s.id, 'BTC', 'SELL', 65000, 0.001, 1, 'PIX', a.id, now() FROM s, a RETURNING id)
+      SELECT s.id AS seller, b.id AS buyer, o.id AS offer, a.id AS account FROM s, b, o, a`)
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`
       WITH t AS (
-        INSERT INTO trades (id, "offerId", "buyerId", "sellerId", asset, amount, "priceUsd", "totalUsd", "updatedAt")
-        SELECT gen_random_uuid()::text, '${offer}', '${buyer}', '${seller}', 'BTC', 0.001, 65000, 65, now() FROM generate_series(1, ${n})
+        INSERT INTO trades (id, "offerId", "buyerId", "sellerId", asset, amount, "priceUsd", "totalUsd", "sellerPaymentAccountId", "updatedAt")
+        SELECT gen_random_uuid()::text, '${offer}', '${buyer}', '${seller}', 'BTC', 0.001, 65000, 65, '${account}', now() FROM generate_series(1, ${n})
         RETURNING id)
       INSERT INTO escrows (id, "tradeId", type, status, "lockedAmount", asset, "timelockHours", "expiresAt", "txLockId", "txLockVout", "updatedAt")
       SELECT gen_random_uuid()::text, t.id, '${type}', 'FUNDS_LOCKED', 0.001, 'BTC', 1, $1::timestamptz + (ROW_NUMBER() OVER () - 1) * interval '1 millisecond',

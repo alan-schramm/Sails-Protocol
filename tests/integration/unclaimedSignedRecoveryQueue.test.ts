@@ -26,6 +26,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createHash, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 const QUEUE_HEAD = Date.parse('2000-01-01T00:00:00.000Z')
 const HOUR = 3_600_000
@@ -53,6 +54,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   let buyerId: string
   let sellerId: string
   let offerId: string
+  let sellerAccount: { id: string; accountHash: string }
   let headOffset = 0
   const owned: string[] = []
   const realFetch = global.fetch
@@ -67,7 +69,8 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     const suffix = randomUUID().slice(0, 8)
     buyerId = (await prisma.user.create({ data: { publicKey: `pk-p0q-buyer-${suffix}` } })).id
     sellerId = (await prisma.user.create({ data: { publicKey: `pk-p0q-seller-${suffix}` } })).id
-    offerId = (await prisma.offer.create({ data: { userId: sellerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })).id
+    sellerAccount = await sellerPixAccount(prisma, sellerId)
+    offerId = (await prisma.offer.create({ data: { userId: sellerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(sellerAccount) } })).id
   })
 
   afterEach(async () => {
@@ -145,7 +148,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
 
   /** A fully-signed release on a PAYMENT_PENDING MULTISIG escrow that never claimed its transition (C8). */
   async function candidate({ createdAt = new Date(QUEUE_HEAD + (headOffset += 1000)), signed = true } = {}): Promise<Candidate> {
-    const trade = await prisma.trade.create({ data: { offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', txLockId: randomUUID().replace(/-/g, '').padEnd(64, '0'), txLockVout: 0 } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: 'tb1q-p0q', unsignedPsbtBase64: 'p0q', requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })

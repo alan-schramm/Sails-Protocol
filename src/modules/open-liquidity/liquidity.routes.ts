@@ -7,6 +7,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { PaymentMethod as PaymentMethodEnum } from '@prisma/client'
 import { liquidityRouter } from './liquidity.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
@@ -33,7 +34,9 @@ const assetSideQuerySchema = z.object({
   // Real filters (Production Readiness Audit, 2026-08-09) — decimal
   // strings for price, same RFC-009 convention as every other
   // amount/price field in this API.
-  paymentMethod: z.string().min(1).optional(),
+  // #235 R7H-E3 — the canonical PaymentMethod enum (the database's), never an open string: a UI display-only
+  // method (types.ts's filter catalog) is refused here instead of reaching the database.
+  paymentMethod: z.nativeEnum(PaymentMethodEnum).optional(),
   // 2026-08-15 security review — see common/validation.ts's own header
   // comment; these two were z.string().min(1) (non-empty only).
   priceMin: positiveDecimalString('priceMin').optional(),
@@ -53,7 +56,7 @@ const createOfferSchema = z.object({
   priceBrl: z.string().optional(),
   minAmount: positiveDecimalString('minAmount'),
   maxAmount: positiveDecimalString('maxAmount'),
-  paymentMethod: z.string().min(1),
+  paymentMethod: z.nativeEnum(PaymentMethodEnum),
   paymentDetails: z.string().optional(),
   network: z.string().optional(),
   description: z.string().optional(),

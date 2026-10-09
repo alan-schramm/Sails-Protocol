@@ -25,6 +25,9 @@ export {} // see chatUnification.test.ts's identical comment
 
 let mockEscrowFeatureFlag = false // MULTISIG/LIGHTNING_HODL only matter with mockEscrow off
 let isProductionFlag = false // Issue #229 — MOCK escrow production-eligibility gate
+// #235 R7H-E3 - whether the escrow's rail is governed by a trade-limit policy (the repository's binding query answer).
+let mockBindingGoverned = true
+
 jest.mock('../src/config', () => ({
   get config() {
     return {
@@ -207,7 +210,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     $executeRaw: jest.fn().mockResolvedValue(0),
     // The event store checks, in its publish transaction, whether the escrow transition already has a
     // durable event (one event per transition, migration 20260930130000); none has, here.
-    $queryRaw: jest.fn().mockResolvedValue([]),
+    // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : [])),
   })
 )
 
@@ -280,7 +284,7 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', multisigAddr: null })
 
-    const result = await escrowService.createEscrow({ tradeId: 'trade-1', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    const result = await escrowService.createEscrow({ tradeId: 'trade-1', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
@@ -291,7 +295,7 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-2', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-2', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
@@ -308,7 +312,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -318,7 +322,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
   it('refuses an LN_BTC trade before persistence — no authorized translation, so no default rail (#235 R7F-B D3)', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LN_BTC', amount: '0.001' })
 
-    await expect(escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')).rejects.toThrow(/no authorized settlement translation/)
+    await expect(escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
 
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -327,7 +331,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-3', tradeId: 'trade-3', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-3', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-3', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
   })
@@ -336,7 +340,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '10' })
 
     // #235 R7F-B (D3) — refused even earlier now: SPARK has no authorized translation at all.
-    await expect(escrowService.createEscrow({ tradeId: 'trade-4', lockedAmount: '10', asset: 'SPARK' as any }, 'buyer-1')).rejects.toThrow(/no authorized settlement translation/)
+    await expect(escrowService.createEscrow({ tradeId: 'trade-4', lockedAmount: '10', asset: 'SPARK' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
@@ -345,13 +349,13 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '10' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-5', tradeId: 'trade-5', type: 'MOCK', asset: 'BTC', lockedAmount: '10' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-5', lockedAmount: '10', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-5', lockedAmount: '10', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
 
     mockEscrowCreate.mockClear()
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-5b', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '10' })
-    await expect(escrowService.createEscrow({ tradeId: 'trade-5b', lockedAmount: '10', asset: 'SPARK' as any }, 'buyer-1')).rejects.toThrow(/no authorized settlement translation/)
+    await expect(escrowService.createEscrow({ tradeId: 'trade-5b', lockedAmount: '10', asset: 'SPARK' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
@@ -359,7 +363,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-6', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-6', tradeId: 'trade-6', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -372,12 +376,25 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     isProductionFlag = false
   })
 
+  it('#235 R7H-E3: in production, a rail no trade-limit policy governs is refused at creation, before any insert', async () => {
+    isProductionFlag = true
+    mockBindingGoverned = false
+    try {
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-g', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
+      await expect(escrowService.createEscrow({ tradeId: 'trade-prod-g', type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1'))
+        .rejects.toMatchObject({ statusCode: 409, reason: 'DISABLED', message: expect.stringMatching(/not governed by any trade-limit policy/) })
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
+    } finally {
+      mockBindingGoverned = true
+    }
+  })
+
   it('rejects an explicit type: "MOCK" in production', async () => {
     isProductionFlag = true
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     ).rejects.toThrow(/not economically eligible in production/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -387,7 +404,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
     ).rejects.toThrow(/not economically eligible in production/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -398,7 +415,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
 
     let caught: unknown
     try {
-      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     } catch (err) {
       caught = err
     }
@@ -415,7 +432,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-dev-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-dev-1', tradeId: 'trade-dev-1', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -425,7 +442,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-3', tradeId: 'trade-prod-3', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -436,7 +453,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-4', tradeId: 'trade-prod-4', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -740,7 +757,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-1', tradeId: 'trade-btc-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -749,7 +766,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-2', tradeId: 'trade-btc-2', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-2', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-2', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -758,7 +775,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     ).rejects.toThrow("type 'WDK_USDT_EVM' does not match 'MULTISIG'")
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -767,7 +784,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-4', tradeId: 'trade-btc-4', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-4', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-4', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -776,7 +793,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LN_BTC', amount: '0.001' })
 
     for (const type of [undefined, 'LIGHTNING_HODL', 'MULTISIG', 'MOCK']) {
-      await expect(escrowService.createEscrow({ tradeId: 'trade-btc-5', type: type as any, lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')).rejects.toThrow(/no authorized settlement translation/)
+      await expect(escrowService.createEscrow({ tradeId: 'trade-btc-5', type: type as any, lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
     }
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -796,7 +813,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-usdt-1', tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
   })
@@ -805,7 +822,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-2', type: 'MULTISIG' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-2', type: 'MULTISIG' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
     ).rejects.toThrow("type 'MULTISIG' does not match 'WDK_USDT_EVM'")
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -814,7 +831,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-trc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_TRC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-trc', lockedAmount: '5', asset: 'USDT_TRC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-trc', lockedAmount: '5', asset: 'USDT_TRC20' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -823,7 +840,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-liquid', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_LIQUID', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-liquid', lockedAmount: '5', asset: 'USDT_LIQUID' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-liquid', lockedAmount: '5', asset: 'USDT_LIQUID' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
   })
 
@@ -831,7 +848,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-liquid-btc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LIQUID_BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
   })
 })
@@ -876,7 +893,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     } catch (err) {
       caught = err
     }
-    await expect(escrowService.createEscrow({ tradeId: 'trade-lc-1', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')).rejects.toMatchObject({ reason: 'UNAVAILABLE' })
+    await expect(escrowService.createEscrow({ tradeId: 'trade-lc-1', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')).rejects.toMatchObject({ reason: 'UNAVAILABLE' })
 
     expect(caught).toBeInstanceOf(EscrowError)
     const err = caught as InstanceType<typeof EscrowError>
@@ -893,7 +910,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
 
     expect(() => resolveEscrowType('SPARK' as any, 'LIQUID_COVENANT' as any)).toThrow(/LIQUID_COVENANT/)
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-lc-2', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-lc-2', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')
     ).rejects.toThrow()
     // If any fallback had silently substituted a different type, this call
     // would have succeeded with a DIFFERENT resolved type — asserting the
@@ -919,7 +936,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
 
     expect(() => resolveEscrowType('SPARK' as any, 'FUTURE_UNIMPLEMENTED_RAIL' as any)).toThrow("No SettlementProvider registered for escrow type 'FUTURE_UNIMPLEMENTED_RAIL'")
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-future-1', type: 'FUTURE_UNIMPLEMENTED_RAIL' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-future-1', type: 'FUTURE_UNIMPLEMENTED_RAIL' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')
     ).rejects.toThrow()
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
@@ -932,7 +949,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-ms-243', tradeId: 'trade-ms-243', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-ms-243', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-ms-243', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -942,7 +959,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-mock-243', tradeId: 'trade-mock-243', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-mock-243', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-mock-243', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -960,7 +977,7 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
 
     let caught: unknown
     try {
-      await escrowService.createEscrow({ tradeId: 'trade-mock-244', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      await escrowService.createEscrow({ tradeId: 'trade-mock-244', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     } catch (err) {
       caught = err
     }

@@ -18,6 +18,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 describe('Issue #254 - dispute reputation outcomes bind to the correct immutable generation (real PostgreSQL)', () => {
@@ -93,7 +94,7 @@ describe('Issue #254 - dispute reputation outcomes bind to the correct immutable
     const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     await prisma.payoutAddress.create({ data: { participantId: buyer.id, asset: 'BTC', address: `bc1q${randomUUID().replace(/-/g, '')}`.slice(0, 42) } })
     await prisma.payoutAddress.create({ data: { participantId: seller.id, asset: 'BTC', address: `bc1q${randomUUID().replace(/-/g, '')}`.slice(0, 42) } })
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', status: 'DISPUTED', lockedAmount: '0.001', asset: 'BTC' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })

@@ -443,14 +443,20 @@ export class EscrowService {
   // required now — same "buyer or seller of the trade" bar every other
   // trade-mutating method in this file already enforces (see e.g.
   // submitParticipantKey()'s identical check a few lines below).
+  // #235 R7H-E3 — narrowed to the SELLER: the seller commits the escrowed funds and the payment account the fiat
+  // leg is paid into, so only the seller (participantId is always the authenticated caller, or a DB-derived
+  // trade.sellerId for internal callers) can create the escrow. The account / method / policy binding itself is
+  // decided in the repository transaction and by the database.
   async createEscrow(input: CreateEscrowInput, participantId: string) {
     // Reads Trade only to validate existence — this is a read, not a write,
     // so it does not violate the module boundary (OpenSettlement may read
     // cross-module state; it must never WRITE to another module's tables).
     const trade = await tradeRepository.findById(input.tradeId)
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+    if (participantId !== trade.sellerId) {
+      throw new ForbiddenError(participantId === trade.buyerId
+        ? `Only the seller of trade ${trade.id} can create its escrow: the seller commits the escrowed funds and the payment account`
+        : `${participantId} is not the seller of trade ${trade.id}`)
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
     // #235 R7G-A — fail fast; this.repo.create() re-checks under the trade-lifecycle lock.
@@ -505,6 +511,7 @@ export class EscrowService {
       asset,
       network: input.network,
       timelockHours,
+      requireGovernedRail: config.isProduction,
       ...(feeSnapshot ? { feeSnapshot } : {}),
     })
 

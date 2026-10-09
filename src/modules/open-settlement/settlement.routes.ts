@@ -16,6 +16,7 @@ import { getDisputeService } from './dispute.service'
 import { loadDisputeRulingRecord } from './dispute-outcome'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
+import { readEconomicPolicy } from './economic-policy'
 import { payoutAddressService } from './payout-address.service'
 import { tradeService } from '../open-p2p/trade.service'
 import { requireAuth } from '../../common/middleware/auth'
@@ -833,6 +834,14 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // fields were removed (ownerId, signedBy, id, moduleId, protocolVersion,
   // updatedAt) and why: verifying a payment rail's trust history never
   // required knowing which platform identity owns or attested it.
+  // #235 R7H-E3B — the trade-limit policy in force (governed rails, eligible payment methods), public and read-only:
+  // clients use it to tell which offers can carry a protected escrow; escrow creation re-checks it in the database.
+  app.get('/v1/settlement/economic-policy', {
+    ...docsOnlySchema({ tags: ['open-settlement'] }),
+  }, async (_request, reply) => {
+    return reply.code(200).send(success(await readEconomicPolicy()))
+  })
+
   app.get('/v1/settlement/payment-accounts/:accountHash', {
     ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {

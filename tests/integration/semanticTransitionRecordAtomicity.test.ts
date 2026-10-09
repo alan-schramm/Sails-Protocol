@@ -16,6 +16,7 @@
 // isolation, per mission §37 ("Testability before authority").
 
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 import {
   createTransitionRecord,
   createInteractionId,
@@ -88,8 +89,9 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-str-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-str-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const escrow = await prisma.escrow.create({
       // #235 R7G F8A: expiresAt only ever lands together with the funding outpoint (lockFunds())
       data: { tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), txLockId: require('crypto').randomBytes(32).toString('hex'), txLockVout: 0 },
@@ -266,8 +268,9 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-legacy-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-legacy-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const historicalEscrow = await prisma.escrow.create({
       data: { tradeId: trade.id, type: 'MOCK', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
     })

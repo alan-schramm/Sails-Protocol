@@ -47,8 +47,16 @@
 import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType, TradeStatus } from '../../common/types'
+import type { EscrowType } from '../../common/types/trade'
+import { TradeAdmissionError } from '../../common/errors'
 import { lockTradeLifecycle } from './trade-lifecycle-lock'
 import { unilateralRevocationBlocker } from '../open-settlement/unilateral-revocation'
+
+/** '<CODE>: <reason>' from escrow_economic_binding_violation(): the policy refusing the rail or method, or a binding the new trade lacks. */
+function tradeAdmissionRefused(violation: string): TradeAdmissionError {
+  const policy = /^(RAIL_NOT_ELIGIBLE|METHOD_NOT_ELIGIBLE):/.test(violation)
+  return new TradeAdmissionError(`Trade refused by the economic authorization binding — ${violation}`, policy ? 'DISABLED' : 'INELIGIBLE')
+}
 
 type TradeRow = NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>>
 type OfferRow = NonNullable<Awaited<ReturnType<typeof prisma.offer.findUnique>>>
@@ -70,6 +78,13 @@ export interface CreateTradeData {
   intentId: string | null
   /** #235 R7C — the seller's PaymentAccount bound to this trade, already verified by the caller; null = unbound. */
   sellerPaymentAccountId?: string | null
+  /**
+   * #235 R7H-E3C — the canonical rail this trade would be escrowed on. When set, the trade is admitted only if that
+   * escrow could be authorized: escrow_economic_binding_violation() is evaluated on the new, uncommitted trade row
+   * in the inserting transaction (it returns NULL for ungoverned rails). null/absent: no trade-backed escrow exists
+   * for the asset, nothing to check.
+   */
+  escrowRail?: { type: EscrowType; asset: AssetType } | null
 }
 
 export interface TradeRepository {
@@ -161,19 +176,29 @@ class PrismaTradeRepository implements TradeRepository {
   }
 
   async create(input: CreateTradeData) {
-    return prisma.trade.create({
-      data: {
-        offerId: input.offerId,
-        buyerId: input.buyerId,
-        sellerId: input.sellerId,
-        asset: input.asset,
-        amount: input.amount,
-        priceUsd: input.priceUsd,
-        totalUsd: input.totalUsd,
-        network: input.network,
-        intentId: input.intentId,
-        sellerPaymentAccountId: input.sellerPaymentAccountId ?? null,
-      },
+    const data = {
+      offerId: input.offerId,
+      buyerId: input.buyerId,
+      sellerId: input.sellerId,
+      asset: input.asset,
+      amount: input.amount,
+      priceUsd: input.priceUsd,
+      totalUsd: input.totalUsd,
+      network: input.network,
+      intentId: input.intentId,
+      sellerPaymentAccountId: input.sellerPaymentAccountId ?? null,
+    }
+    const rail = input.escrowRail
+    if (!rail) return prisma.trade.create({ data })
+    // #235 R7H-E3C — the same authority escrow creation answers to (migration 20261017120000), asked about the
+    // trade before it is committed: the function locks the offer and the bound account FOR SHARE until this
+    // transaction ends, and a refusal rolls the insert back — no trade, nothing downstream.
+    return prisma.$transaction(async (tx) => {
+      const trade = await tx.trade.create({ data })
+      const [admission] = await tx.$queryRaw<Array<{ violation: string | null }>>`
+        SELECT escrow_economic_binding_violation(${trade.id}, ${rail.type}::"EscrowType", ${rail.asset}::"AssetType") AS violation`
+      if (admission?.violation) throw tradeAdmissionRefused(admission.violation)
+      return trade
     })
   }
 

@@ -19,6 +19,71 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **#235 R7H-E3 — seller authorization, PaymentAccount binding and payment-method reconciliation of escrow creation.**
+  - **Seller only:** only the trade's seller creates its escrow (`escrow.service.ts` `createEscrow`). The caller is
+    the authenticated session, or the DB-derived `trade.sellerId` for internal callers; a payload field never
+    counts. The buyer, unrelated participants and unauthenticated callers are refused, with zero side effects.
+  - **Binding on governed rails:** migration `20261017120000_escrow_seller_payment_binding`. A rail is governed
+    once any policy version has listed it (V1: MULTISIG/BTC), monotonically. A new escrow on a governed rail
+    requires, under the version in force, all of:
+    - the rail is eligible;
+    - the trade's seller is the one its offer committed;
+    - the trade is bound to a payment account the seller owns, whose method equals the offer's;
+    - that method is eligible.
+  - **Where it is checked:** in the repository transaction under the trade lock, with row locks on the trade,
+    offer and account (clean 409s). The escrow INSERT/rail-change trigger runs the same check, so direct writes
+    are held to it too.
+  - **Committed terms frozen:**
+    - a payment account's owner, hash and method never change;
+    - a traded offer's owner, side, asset, method and account are fixed;
+    - an escrowed trade's parties, offer, asset and amount are fixed.
+  - **Production:** creating an escrow on a rail no policy governs is refused.
+  - **Retry:** a retry before `Trade.escrowId` is projected now gets a clean "already has an escrow" (409), not a
+    unique-constraint error.
+  - **Offer API:** `paymentMethod` is validated against the database's canonical enum, so a UI display-only method
+    is refused with 400.
+  - #235 is **not** closed.
+  - **R7H-E3A:** 38 integration suites were migrated onto valid E3 preconditions through
+    `tests/integration/economicFixtures.ts`. Each now uses a seller-owned PIX account bound to its offer and trade,
+    and the seller creates the escrow.
+    - This is a test-only change. No assertion was removed or relaxed, and no production code changed.
+    - E1 test 3/C3 plants its non-PIX and unbound escrows as explicit historical rows: the E3 creation guard is
+      lifted only inside that fixture's transaction.
+  - **R7H-E3B — the UI binds the seller's receiving account:**
+    - **SELL offer** (`PublishOffer.tsx`): on a governed rail, the maker types their key and explicitly confirms
+      the binding. The UI then registers the account, verifies the returned row names the authenticated seller,
+      and publishes with `paymentAccountHash`.
+    - **BUY offer** (`OfferDetail.tsx`): the taker is the seller, so the taker does the same and the trade
+      request carries the hash. The publisher's own account is never used.
+    - **Trade page** (`Trade.tsx`): a legacy unbound trade, or an ineligible method, shows the seller why no
+      protected escrow can exist instead of a "Criar Escrow" button. E3 refusals are shown in plain language.
+    - **Policy source:** eligibility comes from a new public read-only endpoint, `GET
+      /v1/settlement/economic-policy` (SDK `settlement.economicPolicy()`), backed by the database's own policy
+      functions. Without it the UI publishes and trades nothing. The server remains the authority.
+    - **Fix — duplicate registration:** two concurrent registrations of one new account hash (a double submit,
+      or two participants) returned a 500. The unique-index loser now receives the winning row.
+    - **Privacy:** a BUY taker's raw key never reaches the server. A SELL maker's key is persisted only as the
+      offer's payment details, where it is shown to the buyer by design. The account hash is unsalted, so it does
+      not keep a known or guessable key secret.
+  - **R7H-E3C — canonical trade admission (CTO D-E3C-1, Option A):**
+    - **Rule.** A new trade whose canonical escrow route is governed (V1: BTC → MULTISIG) is admitted only if
+      that escrow could be authorized. `trade-repository.ts` evaluates the E3 function
+      `escrow_economic_binding_violation()` on the new trade row, inside the transaction that inserts it. Any
+      violation rolls the insert back and returns 409 `TRADE_ADMISSION_REFUSED`.
+    - **Effect.** A refused admission leaves no trade, event, offer Intent walk, escrow or reservation. Legacy
+      unbound governed SELL offers, unbound BUY takes and ineligible methods no longer admit trades that can never
+      be escrowed.
+    - **Rail.** The canonical route is the production one. A test-only MOCK escrow never makes such a trade
+      admissible, in any environment. Assets without a governed canonical route are unchanged.
+    - **No new authority.** No new policy engine and no migration. Historical trades are untouched: their
+      escrow stays refused.
+    - **Public offer view** gains `paymentAccountBound`: whether a SELL offer carries its seller's committed
+      account, never which one. It is not evidence of PIX-key control or identity. The UI shows such offers as
+      non-executable and maps admission refusals to plain language.
+    - **Tests.** Test-only fixture migration: 12 settlement suites now use bound PIX offers (identical test sets
+      and assertions), and the E3 guard suites plant their invalid trades as historical rows after proving the
+      new admission is refused.
+
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.
   - **Adapters for four exchanges:** Kraken, Coinbase Exchange and Bitstamp as primaries; Gemini as a reserve,

@@ -24,6 +24,7 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 type TxState = { confirmedAt: number } | 'mempool' | 'missing' | 'error'
 
@@ -121,6 +122,7 @@ describe('Fee reorg + release reorg — economic idempotency and boundedness (re
   let buyerId: string
   let sellerId: string
   let offerId: string
+  let sellerAccount: { id: string; accountHash: string }
 
   beforeAll(async () => {
     await pg.probe()
@@ -135,7 +137,8 @@ describe('Fee reorg + release reorg — economic idempotency and boundedness (re
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     buyerId = (await prisma.user.create({ data: { publicKey: `pk-reorg-buyer-${suffix}` } })).id
     sellerId = (await prisma.user.create({ data: { publicKey: `pk-reorg-seller-${suffix}` } })).id
-    offerId = (await prisma.offer.create({ data: { userId: sellerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })).id
+    sellerAccount = await sellerPixAccount(prisma, sellerId)
+    offerId = (await prisma.offer.create({ data: { userId: sellerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(sellerAccount) } })).id
   })
 
   afterAll(async () => {
@@ -211,7 +214,7 @@ describe('Fee reorg + release reorg — economic idempotency and boundedness (re
   /** A MULTISIG fee obligation taken through the real recognition flow: BROADCAST, then CONFIRMED at `height`. */
   async function collectedFee(label: string, height: number, opts: { distributed?: boolean; broadcastOnly?: boolean } = {}): Promise<FeeFixture> {
     const s = `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const trade = await prisma.trade.create({ data: { offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const policy = await prisma.feePolicyVersion.create({
       data: {
         label: `reorg-${s}`, railScope: `MULTISIG-reorg-${s}`, status: 'PUBLISHED', publishedAt: new Date(),
@@ -281,7 +284,7 @@ describe('Fee reorg + release reorg — economic idempotency and boundedness (re
     opts: { status?: 'COMPLETED' | 'REFUNDED' | 'SPLIT' | 'DISPUTED'; evidence?: Array<{ kind: 'OBSERVED_CONFIRMED' | 'RECONFIRMED' | 'REORGED_INVALIDATED' | 'AMBIGUOUS'; observedAtHeight?: number; txid?: string }> } = {}
   ): Promise<ReleaseFixture> {
     const status = opts.status ?? 'COMPLETED'
-    const trade = await prisma.trade.create({ data: { offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const txReleaseId = hex(`release-${label}`)
     const txLockId = hex(`lock-${label}`)
     const escrow = await prisma.escrow.create({

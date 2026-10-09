@@ -12,6 +12,7 @@ import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -151,7 +152,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
   async function sellerSignedRelease(suffix: string) {
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     createdEscrowIds.push(escrow.id)
@@ -254,7 +255,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     freshChain()
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     createdEscrowIds.push(escrow.id)

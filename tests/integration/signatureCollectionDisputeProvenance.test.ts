@@ -23,6 +23,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, deleteFixtureAccounts, sellerPixAccount } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -138,6 +139,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
       await prisma.vouch.deleteMany({ where: { OR: [{ voucherId: { in: createdUserIds } }, { voucheeId: { in: createdUserIds } }] } })
       await prisma.arbiterProfile.deleteMany({ where: { participantId: { in: createdUserIds } } })
       await prisma.offer.deleteMany({ where: { userId: { in: createdUserIds } } })
+      await deleteFixtureAccounts(prisma, createdUserIds) // #235 R7H-E3C — the sellers' fixture accounts, after the offers that reference them
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
     }
   })
@@ -155,7 +157,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     createdUserIds.push(buyer.id, seller.id)
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     createdTradeIds.push(trade.id)
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'DISPUTED', lockedAmount: '0.001', asset: 'BTC' } })

@@ -87,6 +87,9 @@ export interface CreateEscrowData {
   asset: AssetType
   network: string | undefined
   timelockHours: number
+  // #235 R7H-E3 — refuse a rail no trade-limit policy has ever governed (set in production: every economically
+  // executable rail must be governed, see escrow_rail_governed()).
+  requireGovernedRail?: boolean
   // Missão 11 Fase 4.1 §4 — the fee-policy snapshot, computed BEFORE this
   // escrow exists (escrow-fee-snapshot.service.ts's computeSnapshotFields())
   // and folded into this SAME insert rather than a separate update
@@ -100,6 +103,12 @@ export interface CreateEscrowData {
     snapshotFeeCollectionAddress: string | null
     snapshotFeeCollectionWaivedPreFunding: boolean
   }
+}
+
+/** '<CODE>: <reason>' from escrow_economic_binding_violation(): the policy refusing a rail or method, or a binding the trade does not satisfy. */
+function economicBindingRefused(violation: string): EscrowError {
+  const policy = /^(RAIL_NOT_ELIGIBLE|METHOD_NOT_ELIGIBLE):/.test(violation)
+  return new EscrowError(`Escrow refused by the economic authorization binding — ${violation}`, policy ? 'DISABLED' : 'INELIGIBLE')
 }
 
 export interface EscrowRepository {
@@ -225,6 +234,20 @@ class PrismaEscrowRepository implements EscrowRepository {
       await lockTradeLifecycle(tx, input.tradeId)
       const trade = await tx.trade.findUnique({ where: { id: input.tradeId }, select: { status: true } })
       assertFirstEscrowAllowed(input.tradeId, trade?.status)
+      // #235 R7H-E3 — the seller / PaymentAccount / payment-method binding, decided inside this transaction under
+      // the trade lock (the database function locks the trade, offer and account rows it reads). The insert trigger
+      // escrows_trade_economic_binding_guard re-checks the same function, so a direct write is held to it too.
+      // hasEscrow: a retry that lands before Trade.escrowId is projected (by the settlement.escrow.created handler)
+      // gets the same clean refusal as one after it, not a unique-constraint error.
+      const [binding] = await tx.$queryRaw<Array<{ violation: string | null; governed: boolean; hasEscrow: boolean }>>`
+        SELECT escrow_economic_binding_violation(${input.tradeId}, ${input.type}::"EscrowType", ${input.asset}::"AssetType") AS violation,
+               escrow_rail_governed(${input.type}::"EscrowType", ${input.asset}::"AssetType") AS governed,
+               EXISTS (SELECT 1 FROM escrows WHERE "tradeId" = ${input.tradeId}) AS "hasEscrow"`
+      if (binding.hasEscrow) throw new EscrowError('Trade already has an escrow')
+      if (binding.violation) throw economicBindingRefused(binding.violation)
+      if (input.requireGovernedRail && !binding.governed) {
+        throw new EscrowError(`Escrow rail ${input.type}/${input.asset} is not governed by any trade-limit policy version: no escrow can be created on it here`, 'DISABLED')
+      }
       return tx.escrow.create({
         data: {
           tradeId: input.tradeId,
@@ -243,6 +266,9 @@ class PrismaEscrowRepository implements EscrowRepository {
             snapshotFeeCollectionWaivedPreFunding: input.feeSnapshot.snapshotFeeCollectionWaivedPreFunding,
           } : {}),
         },
+      }).catch((err: unknown) => {
+        const refused = err instanceof Error ? /economic binding refused — ([^\n]*)/.exec(err.message) : null
+        throw refused ? economicBindingRefused(refused[1]) : err
       })
     })
   }

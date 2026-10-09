@@ -17,6 +17,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount, deleteFixtureAccounts } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 type Node = { prisma: any; escrowService: any; tradeService: any; repo: any; providers: (type: string) => any; eventBus: any; redis?: any }
@@ -88,6 +89,7 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
       await prisma.$executeRaw`DELETE FROM escrows WHERE id = ANY(${escrowIds})`
       await prisma.$executeRaw`DELETE FROM trades WHERE id = ANY(${tradeIds})`
       await prisma.$executeRaw`DELETE FROM offers WHERE "userId" = ANY(${users})`
+      await deleteFixtureAccounts(prisma, users)
       await prisma.$executeRaw`DELETE FROM payout_addresses WHERE "participantId" = ANY(${users})`
       await prisma.$executeRaw`DELETE FROM intent_events WHERE "intentId" = ANY(${intentIds})`
       await prisma.$executeRaw`DELETE FROM intents WHERE id = ANY(${intentIds})`
@@ -140,11 +142,12 @@ describe('#235 R7G-B1 — unilateral cancellation authority (real PostgreSQL)', 
     const seller = await party(`${label}-s`)
     const buyer = await party(`${label}-b`)
     for (const p of [buyer, seller]) await prisma.payoutAddress.create({ data: { participantId: p.id, asset: asset as any, address: PAYOUT } }).catch(() => undefined)
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: asset as any, side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100000', paymentMethod: 'PIX' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: asset as any, side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100000', ...boundOfferRow(acct) } })
     const intent = intentStatus
       ? await prisma.intent.create({ data: { type: 'TradeIntent', participantId: seller.id, moduleId: 'openp2p', payload: {}, status: intentStatus } })
       : null
-    const t = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: asset as any, amount, priceUsd: '1', totalUsd: amount, status: 'ACTIVE', intentId: intent?.id ?? null } })
+    const t = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: asset as any, amount, priceUsd: '1', totalUsd: amount, status: 'ACTIVE', intentId: intent?.id ?? null } })
     return { t, seller, buyer, amount, asset, intent }
   }
   type Fx = Awaited<ReturnType<typeof trade>>
