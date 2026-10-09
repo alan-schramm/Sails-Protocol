@@ -12,8 +12,9 @@ import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
-import { SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
+import { SailsTransportError, type EconomicPolicy, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { bindSellerPaymentAccount, protectedEscrowEligibility } from '../lib/paymentAccountBinding'
 import { disputeRatePct, isPowerTraderFromCanonical } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
@@ -97,10 +98,27 @@ export function OfferDetail() {
   // `sailsClient.openp2p.trade()`'s own doc comment for the full
   // contract this closes — createTrade() had no idempotency at all
   // before this mission.
+  // #235 R7H-E3B — on a BUY offer the taker is the seller, so the taker (never the publisher) commits the
+  // receiving account the buyer will pay into. Kept only in this component's state: never in navigation state,
+  // storage or logs. The policy comes from the server; without it no trade is started (fail closed).
+  const [receivingKey, setReceivingKey] = useState('')
+  const [confirmAccountBinding, setConfirmAccountBinding] = useState(false)
+  const [policy, setPolicy] = useState<EconomicPolicy | null>(null)
+  const [policyError, setPolicyError] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    sailsClient.settlement.economicPolicy()
+      .then((p) => { if (!cancelled) setPolicy(p) })
+      .catch(() => { if (!cancelled) setPolicyError(true) })
+    return () => { cancelled = true }
+  }, [])
+  useEffect(() => { setConfirmAccountBinding(false) }, [receivingKey])
+
   const tradeIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
   useEffect(() => {
+    // A different receiving account is a different trade request too (the server hashes it into the key's payload).
     tradeIdempotencyKeyRef.current = crypto.randomUUID()
-  }, [amount])
+  }, [amount, receivingKey])
 
   useEffect(() => {
     if (!id) return
@@ -144,6 +162,9 @@ export function OfferDetail() {
   // (offer.seller.id) now that the raw offer.userId field is gone from
   // the public response; same value, same check.
   const isOwnOffer = user?.id === offer.seller.id
+  const eligibility = policy ? protectedEscrowEligibility(policy, offer.asset, offer.paymentMethod) : null
+  const methodBlocked = eligibility?.governed === true && !eligibility.eligible ? eligibility : null
+  const takerBindsAccount = offer.side === 'BUY' && eligibility?.governed === true && !methodBlocked
 
   const handleStartTrade = async () => {
     if (!user) {
@@ -162,15 +183,29 @@ export function OfferDetail() {
       toast.error('Informe uma quantidade dentro do limite da oferta')
       return
     }
+    if (!policy) {
+      toast.error('Não foi possível verificar a política de escrow protegido — recarregue a página.')
+      return
+    }
+    if (methodBlocked) {
+      toast.error('Esta oferta não pode ter escrow protegido: o método de pagamento não é aceito pela política vigente.')
+      return
+    }
+    if (takerBindsAccount && !confirmAccountBinding) {
+      toast.error(receivingKey.trim() ? 'Confirme o vínculo da sua chave de recebimento a este trade.' : 'Informe a sua chave de recebimento.')
+      return
+    }
     setStartingTrade(true)
     try {
+      // #235 R7H-E3B — registered (or re-resolved) and proven to be this user's own account before the trade exists.
+      const binding = takerBindsAccount ? await bindSellerPaymentAccount(sailsClient, user.id, offer.paymentMethod, receivingKey) : null
       // Real @satsails/p2p-trading-sdk call — POST /v1/openp2p/trades (requires the
       // active session; the server derives the counterparty from it,
       // trade.routes.ts). This is the real trade.service.ts's
       // createTrade(), which also walks the offer's real Intent through
       // DISCOVERING -> MATCHED -> NEGOTIATING (RFC-018) — not a client-
       // side mock Trade built from whatever was picked here.
-      const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum), tradeIdempotencyKeyRef.current)
+      const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum), tradeIdempotencyKeyRef.current, binding?.accountHash)
       // A NEW key for whatever this user does next — this one is now
       // either COMPLETED or (if the whole request somehow still fails
       // downstream of trade creation) irrelevant, since navigation below
@@ -315,7 +350,47 @@ export function OfferDetail() {
                 </div>
               )}
 
-              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full py-3">
+              {policyError && (
+                <p role="alert" className="mt-3 text-xs text-red-500">
+                  Não foi possível verificar a política de escrow protegido. Recarregue a página para continuar.
+                </p>
+              )}
+              {methodBlocked && (
+                <div role="alert" className="mt-3 bg-red-500/10 border border-red-500/25 rounded-lg p-3 text-xs text-red-500">
+                  {PAYMENT_METHOD_LABELS[offer.paymentMethod]} não é aceito para escrow protegido em {ASSET_SHORT_LABELS[offer.asset]} pela
+                  política vigente — esta oferta não pode ser negociada com escrow protegido.
+                </div>
+              )}
+              {takerBindsAccount && (
+                <div className="mt-4">
+                  <label className="text-xs text-brand-text-muted block">
+                    Sua chave de recebimento ({PAYMENT_METHOD_LABELS[offer.paymentMethod]})
+                    <Input
+                      value={receivingKey}
+                      onChange={(e) => setReceivingKey(e.target.value)}
+                      className="w-full mt-1.5"
+                      placeholder={offer.paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Conta em que você recebe o pagamento'}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="mt-2 flex items-start gap-2 text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border rounded-lg p-3">
+                    <input
+                      type="checkbox"
+                      checked={confirmAccountBinding}
+                      onChange={(e) => setConfirmAccountBinding(e.target.checked)}
+                      disabled={!receivingKey.trim()}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Vincular esta chave como a minha conta de recebimento deste trade. Ela fica registrada na minha conta
+                      Sails e é a conta em que o comprador paga — envie-a a ele pelo chat do trade. O escrow protegido só pode
+                      ser criado com ela.
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              <Button onClick={handleStartTrade} disabled={startingTrade || methodBlocked !== null} className="mt-4 w-full py-3">
                 {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
               </Button>
             </Card>

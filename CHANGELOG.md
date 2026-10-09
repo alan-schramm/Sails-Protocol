@@ -49,6 +49,22 @@ All notable changes to this project will be documented in this file.
     - This is a test-only change. No assertion was removed or relaxed, and no production code changed.
     - E1 test 3/C3 plants its non-PIX and unbound escrows as explicit historical rows: the E3 creation guard is
       lifted only inside that fixture's transaction.
+  - **R7H-E3B — the UI binds the seller's receiving account:**
+    - **SELL offer** (`PublishOffer.tsx`): on a governed rail, the maker types their key and explicitly confirms
+      the binding. The UI then registers the account, verifies the returned row names the authenticated seller,
+      and publishes with `paymentAccountHash`.
+    - **BUY offer** (`OfferDetail.tsx`): the taker is the seller, so the taker does the same and the trade
+      request carries the hash. The publisher's own account is never used.
+    - **Trade page** (`Trade.tsx`): a legacy unbound trade, or an ineligible method, shows the seller why no
+      protected escrow can exist instead of a "Criar Escrow" button. E3 refusals are shown in plain language.
+    - **Policy source:** eligibility comes from a new public read-only endpoint, `GET
+      /v1/settlement/economic-policy` (SDK `settlement.economicPolicy()`), backed by the database's own policy
+      functions. Without it the UI publishes and trades nothing. The server remains the authority.
+    - **Fix — duplicate registration:** two concurrent registrations of one new account hash (a double submit,
+      or two participants) returned a 500. The unique-index loser now receives the winning row.
+    - **Privacy:** a BUY taker's raw key never reaches the server. A SELL maker's key is persisted only as the
+      offer's payment details, where it is shown to the buyer by design. The account hash is unsalted, so it does
+      not keep a known or guessable key secret.
 
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.
