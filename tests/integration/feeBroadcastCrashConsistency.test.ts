@@ -20,6 +20,7 @@ import { ECPairFactory } from 'ecpair'
 import { createHash, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { boundOfferRow, boundTradeRow, sellerPixAccount, deleteFixtureAccounts } from './economicFixtures'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -122,6 +123,7 @@ describe('Issue #245 - fee BROADCAST evidence / FeeObligation crash consistency 
     if (createdTradeIds.length) await prisma.trade.deleteMany({ where: { id: { in: createdTradeIds } } })
     if (createdUserIds.length) {
       await prisma.offer.deleteMany({ where: { userId: { in: createdUserIds } } })
+      await deleteFixtureAccounts(prisma, createdUserIds)
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
     }
     if (createdPolicyIds.length) await prisma.feePolicyVersion.deleteMany({ where: { id: { in: createdPolicyIds } } })
@@ -133,8 +135,9 @@ describe('Issue #245 - fee BROADCAST evidence / FeeObligation crash consistency 
     const seller = await prisma.user.create({ data: { publicKey: randomUUID() } })
     const buyer = await prisma.user.create({ data: { publicKey: randomUUID() } })
     createdUserIds.push(seller.id, buyer.id)
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     createdTradeIds.push(trade.id)
     const policy = await prisma.feePolicyVersion.create({
       data: {

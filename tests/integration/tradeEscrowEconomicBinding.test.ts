@@ -15,6 +15,7 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, boundOfferRow, boundTradeRow, deleteFixtureAccounts, sellerPixAccount } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const UNTRANSLATED = ['LN_BTC', 'USDT_LIGHTNING', 'SPARK', 'STACKS', 'RSK_BTC'] as const
@@ -63,6 +64,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
       await prisma.$executeRaw`DELETE FROM escrows WHERE id = ANY(${escrowIds})`
       await prisma.$executeRaw`DELETE FROM trades WHERE id = ANY(${tradeIds})`
       await prisma.$executeRaw`DELETE FROM offers WHERE "userId" = ANY(${users})`
+      await deleteFixtureAccounts(prisma, users)
       await prisma.$executeRaw`DELETE FROM payout_addresses WHERE "participantId" = ANY(${users})`
       await prisma.$executeRaw`DELETE FROM intent_events WHERE "intentId" IN (SELECT id FROM intents WHERE "participantId" = ANY(${users}))`
       await prisma.$executeRaw`DELETE FROM intents WHERE "participantId" = ANY(${users})`
@@ -86,8 +88,9 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   /** A Trade row with the given economic intent (state fixture; the creation path itself is covered by T9/T10). */
   async function trade(asset: string, amount: string, label = 'x') {
     const { seller, buyer } = await parties(label)
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: asset as any, side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100000000', paymentMethod: 'PIX' } })
-    const t = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: asset as any, amount, priceUsd: '1', totalUsd: amount } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: asset as any, side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100000000', ...boundOfferRow(acct) } })
+    const t = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: asset as any, amount, priceUsd: '1', totalUsd: amount } })
     return { trade: t, seller, buyer }
   }
 
@@ -95,6 +98,8 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   const createdEvents = (tradeId: string) => prisma.durableEventRecord.count({ where: { correlationId: tradeId, eventName: 'settlement.escrow.created' } })
   const create = (svc: any, t: { id: string }, actor: { id: string }, input: Record<string, unknown>) =>
     svc.createEscrow({ tradeId: t.id, ...input }, actor.id)
+  /** #235 R7H-E3 — the escrow is created by the trade's seller. */
+  const sellerOf = (t: { sellerId: string }) => ({ id: t.sellerId })
 
   /** Every function on every provider instance, spied, so "zero provider side effect" is asserted, not assumed. */
   function spyProviders() {
@@ -130,21 +135,21 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   it('T1/T4: a BTC trade escrows on MULTISIG with exactly the trade\'s asset and principal', async () => {
     pg.requirePostgres('T1')
     const { trade: t, buyer } = await trade('BTC', '0.00123456', 'btc')
-    const e = await create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.00123456' })
+    const e = await create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.00123456' })
     expect([e.type, e.asset, e.lockedAmount.toString()]).toEqual(['MULTISIG', 'BTC', '0.00123456'])
   })
 
   it('T5: an equivalent decimal representation ("0.0010" for 0.001) is accepted — the trade\'s canonical value is what is stored', async () => {
     pg.requirePostgres('T5')
     const { trade: t, buyer } = await trade('BTC', '0.001', 'repr')
-    const e = await create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0010' })
+    const e = await create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0010' })
     expect(new Prisma.Decimal(e.lockedAmount).equals(t.amount)).toBe(true)
   })
 
   it('T15: a USDT_ERC20 trade escrows on WDK_USDT_EVM (the registered {USDT, ETHEREUM} rail)', async () => {
     pg.requirePostgres('T15')
     const { trade: t, buyer } = await trade('USDT_ERC20', '250.5', 'usdt')
-    const e = await create(escrowService, t, buyer, { asset: 'USDT_ERC20', lockedAmount: '250.500000', type: 'WDK_USDT_EVM' })
+    const e = await create(escrowService, t, sellerOf(t), { asset: 'USDT_ERC20', lockedAmount: '250.500000', type: 'WDK_USDT_EVM' })
     expect([e.type, e.asset, e.lockedAmount.toString()]).toEqual(['WDK_USDT_EVM', 'USDT_ERC20', '250.5'])
   })
 
@@ -154,14 +159,14 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
     const s = await parties('sell')
-    const sellOffer = await liquidityRouter.createOffer({ userId: s.seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', paymentMethod: 'PIX' })
+    const sellOffer = await liquidityRouter.createOffer({ userId: s.seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', ...boundOfferInput(await sellerPixAccount(prisma, s.seller.id)) })
     const sellTrade = await tradeService.createTrade({ offerId: sellOffer.id, counterpartyId: s.buyer.id, amount: '0.0007' })
     const b = await parties('buy')
     const buyOffer = await liquidityRouter.createOffer({ userId: b.buyer.id, asset: 'BTC', side: 'BUY', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', paymentMethod: 'PIX' })
-    const buyTrade = await tradeService.createTrade({ offerId: buyOffer.id, counterpartyId: b.seller.id, amount: '0.0009' })
+    const buyTrade = await tradeService.createTrade({ offerId: buyOffer.id, counterpartyId: b.seller.id, amount: '0.0009', paymentAccountHash: (await sellerPixAccount(prisma, b.seller.id)).accountHash })
 
-    await expect(create(escrowService, sellTrade, s.buyer, { asset: 'BTC', lockedAmount: '1' })).rejects.toThrow(/does not equal trade/) // the offer's max is not the trade
-    const es = await create(escrowService, sellTrade, s.buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0007' })
+    await expect(create(escrowService, sellTrade, s.seller, { asset: 'BTC', lockedAmount: '1' })).rejects.toThrow(/does not equal trade/) // the offer's max is not the trade
+    const es = await create(escrowService, sellTrade, s.seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0007' })
     const eb = await create(escrowService, buyTrade, b.seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0009' })
     expect([es.lockedAmount.toString(), eb.lockedAmount.toString()]).toEqual(['0.0007', '0.0009'])
   })
@@ -171,8 +176,8 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   it('T2/T12/T17/T20/T23: a different asset is refused (also another trade\'s asset) — no escrow, no event, no provider call', async () => {
     pg.requirePostgres('T2')
     const { trade: t, buyer } = await trade('BTC', '0.001', 'asset')
-    await expectRefusedClean(t, () => create(escrowService, t, buyer, { asset: 'USDT_ERC20', lockedAmount: '0.001', type: 'MOCK' }), /does not match trade/)
-    await expectRefusedClean(t, () => create(escrowService, t, buyer, { asset: 'LIQUID_BTC', lockedAmount: '0.001' }), /does not match trade/)
+    await expectRefusedClean(t, () => create(escrowService, t, sellerOf(t), { asset: 'USDT_ERC20', lockedAmount: '0.001', type: 'MOCK' }), /does not match trade/)
+    await expectRefusedClean(t, () => create(escrowService, t, sellerOf(t), { asset: 'LIQUID_BTC', lockedAmount: '0.001' }), /does not match trade/)
   })
 
   it('T3/T6/T7/T11/T18/T21/T23: any other amount is refused, down to one Decimal(24,8) unit either side, and another trade\'s amount', async () => {
@@ -180,11 +185,11 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     const { trade: t, buyer } = await trade('BTC', '0.001', 'amount')
     const other = await trade('BTC', '0.5', 'other')
     for (const lockedAmount of ['0.00099999', '0.00100001', '0.002', '500', other.trade.amount.toString(), '0.001000001']) {
-      await expectRefusedClean(t, () => create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount }), /does not equal trade/)
+      await expectRefusedClean(t, () => create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount }), /does not equal trade/)
     }
     // Far inside Decimal(24,8), where binary floating point would collapse the two values.
     const big = await trade('BTC', '9999999999999999.99999999', 'big')
-    await expectRefusedClean(big.trade, () => create(escrowService, big.trade, big.buyer, { type: 'MOCK', asset: 'BTC', lockedAmount: '9999999999999999.99999998' }), /does not equal trade/)
+    await expectRefusedClean(big.trade, () => create(escrowService, big.trade, sellerOf(big.trade), { type: 'MOCK', asset: 'BTC', lockedAmount: '9999999999999999.99999998' }), /does not equal trade/)
     expect(Number('9999999999999999.99999999')).toBe(Number('9999999999999999.99999998')) // the collapse the Decimal check avoids
   })
 
@@ -192,7 +197,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     pg.requirePostgres('T8')
     const { trade: t, buyer } = await trade('BTC', '0.001', 'rail')
     for (const type of ['WDK_USDT_EVM', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM']) {
-      await expectRefusedClean(t, () => create(escrowService, t, buyer, { type, asset: 'BTC', lockedAmount: '0.001' }), /does not match/)
+      await expectRefusedClean(t, () => create(escrowService, t, sellerOf(t), { type, asset: 'BTC', lockedAmount: '0.001' }), /does not match/)
     }
   })
 
@@ -200,7 +205,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     pg.requirePostgres('untranslated')
     const { trade: t, buyer } = await trade(asset, '1', asset)
     for (const type of RAILS) {
-      await expectRefusedClean(t, () => create(escrowService, t, buyer, { ...(type ? { type } : {}), asset, lockedAmount: '1' }), /no authorized settlement translation/)
+      await expectRefusedClean(t, () => create(escrowService, t, sellerOf(t), { ...(type ? { type } : {}), asset, lockedAmount: '1' }), /no authorized settlement translation/)
     }
   })
 
@@ -209,14 +214,14 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   it('T24/T25/T26: after an escrow exists, a retry changing asset, amount or rail cannot alter it', async () => {
     pg.requirePostgres('T24-T26')
     const { trade: t, buyer } = await trade('BTC', '0.003', 'retry')
-    const first = await create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.003' })
+    const first = await create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.003' })
     for (const input of [
       { type: 'MULTISIG', asset: 'USDT_ERC20', lockedAmount: '0.003' },
       { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.004' },
       { type: 'WDK_USDT_EVM', asset: 'BTC', lockedAmount: '0.003' },
       { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.003' }, // even the identical request cannot create a second escrow
     ]) {
-      await expect(create(escrowService, t, buyer, input)).rejects.toThrow()
+      await expect(create(escrowService, t, sellerOf(t), input)).rejects.toThrow()
     }
     const rows = await escrowsOf(t.id)
     expect(rows.map((r) => [r.id, r.type, r.asset, r.lockedAmount.toString()])).toEqual([[first.id, 'MULTISIG', 'BTC', '0.003']])
@@ -230,7 +235,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     pg.requirePostgres('T27-T29')
     const { trade: t, buyer, seller } = await trade('BTC', '0.005', 'race')
     const attempts = await Promise.allSettled([
-      ...Array.from({ length: 4 }, () => create(escrowService, t, buyer, wrong)),
+      ...Array.from({ length: 4 }, () => create(escrowService, t, sellerOf(t), wrong)),
       create(escrowService, t, seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.005' }),
       ...Array.from({ length: 4 }, () => create(escrowService, t, seller, wrong)),
     ])
@@ -243,7 +248,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     pg.requirePostgres('T30')
     const { trade: t, buyer, seller } = await trade('BTC', '0.006', 'dup')
     const attempts = await Promise.allSettled(Array.from({ length: 6 }, (_, i) =>
-      create(escrowService, t, i % 2 ? buyer : seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.006' })))
+      create(escrowService, t, seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.006' })))
     expect(attempts.filter((a) => a.status === 'fulfilled')).toHaveLength(1)
     // The losers are refused (by the async trade.escrowId pre-check or, under a real race, the unique index) —
     // not replayed as success; that is today's documented semantics.
@@ -262,7 +267,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     })()
     try {
       const raced = await Promise.allSettled([
-        create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.007' }),
+        create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.007' }),
         create(nodeB.escrowService, t, seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.007' }),
         create(nodeB.escrowService, t, seller, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.0071' }),
       ])
@@ -281,7 +286,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     pg.requirePostgres('T33/T34')
     const { trade: t, buyer, seller } = await trade('BTC', '0.008', 'immut')
     await prisma.payoutAddress.create({ data: { participantId: buyer.id, asset: 'BTC', address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' } })
-    const e = await create(escrowService, t, buyer, { type: 'MOCK', asset: 'BTC', lockedAmount: '0.008' })
+    const e = await create(escrowService, t, sellerOf(t), { type: 'MOCK', asset: 'BTC', lockedAmount: '0.008' })
     await escrowService.lockFunds(e.id, seller.id)
     await escrowService.markPaymentSent(e.id, buyer.id)
     await escrowService.releaseFunds(e.id, undefined, seller.id)
@@ -294,7 +299,7 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
     const { trade: t, buyer } = await trade('BTC', '0.009', 'legacy')
     // A row as pre-R7F-B code could write it: amount unrelated to the trade.
     const legacy = await prisma.escrow.create({ data: { tradeId: t.id, type: 'MOCK', asset: 'BTC', lockedAmount: '5', timelockHours: 24 } })
-    await expect(create(escrowService, t, buyer, { type: 'MOCK', asset: 'BTC', lockedAmount: '0.009' })).rejects.toThrow()
+    await expect(create(escrowService, t, sellerOf(t), { type: 'MOCK', asset: 'BTC', lockedAmount: '0.009' })).rejects.toThrow()
     const row = await prisma.escrow.findUniqueOrThrow({ where: { id: legacy.id } })
     expect([row.lockedAmount.toString(), row.asset, row.status]).toEqual(['5', 'BTC', 'CREATED'])
   })
@@ -302,13 +307,13 @@ describe('#235 R7F-B — trade ↔ escrow economic binding (real PostgreSQL)', (
   it('provider parameters: MULTISIG funds exactly Trade.amount in sats; WDK transfers exactly Trade.amount in 6-decimal base units', async () => {
     pg.requirePostgres('provider')
     const { trade: t, buyer } = await trade('BTC', '0.12345678', 'prov-btc')
-    const e = await create(escrowService, t, buyer, { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.12345678' })
+    const e = await create(escrowService, t, sellerOf(t), { type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.12345678' })
     const row = await prisma.escrow.findUniqueOrThrow({ where: { id: e.id } })
     const multisig = getSettlementProvider('MULTISIG') as any
     expect(multisig.requiredFundingSats({ ...row, lockedAmount: row.lockedAmount.toString() })).toBe(12_345_678) // no fee policy: R = T
 
     const u = await trade('USDT_ERC20', '1234.567891', 'prov-usdt')
-    const ue = await create(escrowService, u.trade, u.buyer, { type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '1234.567891' })
+    const ue = await create(escrowService, u.trade, sellerOf(u.trade), { type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '1234.567891' })
     const { toBaseUnits } = require('../../src/modules/open-settlement/wdk-settlement.provider')
     expect(toBaseUnits(ue.lockedAmount.toString(), 6)).toBe(1_234_567_891n)
   })

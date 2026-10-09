@@ -43,6 +43,12 @@ All notable changes to this project will be documented in this file.
   - **Offer API:** `paymentMethod` is validated against the database's canonical enum, so a UI display-only method
     is refused with 400.
   - #235 is **not** closed.
+  - **R7H-E3A:** 38 integration suites were migrated onto valid E3 preconditions through
+    `tests/integration/economicFixtures.ts`. Each now uses a seller-owned PIX account bound to its offer and trade,
+    and the seller creates the escrow.
+    - This is a test-only change. No assertion was removed or relaxed, and no production code changed.
+    - E1 test 3/C3 plants its non-PIX and unbound escrows as explicit historical rows: the E3 creation guard is
+      lifted only inside that fixture's transaction.
 
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.

@@ -17,6 +17,7 @@ import { createHash, randomBytes } from 'crypto'
 import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount, deleteFixtureAccounts } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 bitcoin.initEccLib(ecc)
@@ -165,6 +166,7 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
       await prisma.$executeRaw`DELETE FROM escrows WHERE id = ANY(${escrowIds})`
       await prisma.$executeRaw`DELETE FROM trades WHERE id = ANY(${tradeIds})`
       await prisma.$executeRaw`DELETE FROM offers WHERE "userId" = ANY(${users})`
+      await deleteFixtureAccounts(prisma, users)
       await prisma.$executeRaw`DELETE FROM payout_addresses WHERE "participantId" = ANY(${users})`
       await prisma.$executeRaw`DELETE FROM users WHERE id = ANY(${users})`
     } finally {
@@ -191,8 +193,9 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     const mk = async (r: string) => prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex'), displayName: `r7gf8a-${label}-${r}-${randomBytes(3).toString('hex')}` } })
     const seller = await mk('s'), buyer = await mk('b'), stranger = await mk('x')
     for (const p of [buyer, seller]) await prisma.payoutAddress.create({ data: { participantId: p.id, asset: 'BTC', address: addressOf(`payout-${p.id}`) } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100', paymentMethod: 'PIX' } })
-    const t = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '1', totalUsd: '0.001', status: 'ACTIVE' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '1', minAmount: '0.00000001', maxAmount: '100', ...boundOfferRow(acct) } })
+    const t = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '1', totalUsd: '0.001', status: 'ACTIVE' } })
     const e = await escrowService.createEscrow({ tradeId: t.id, asset: 'BTC', lockedAmount: '0.001', type: 'MULTISIG' }, seller.id)
     const keys = { buyer: keyOf(`${label}-buyer`), seller: keyOf(`${label}-seller`) }
     await escrowService.submitParticipantKey(e.id, buyer.id, hex(keys.buyer), MULTISIG_CAPABILITY_PROFILE_V1)

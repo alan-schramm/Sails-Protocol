@@ -194,7 +194,7 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
   type Fixture = { sellerId: string; buyerId: string; accountId: string; offerId: string; tradeId: string; escrowId: string; amount: string }
 
   /** A seller-bound PIX trade with a new, unfunded MULTISIG escrow — the only shape V1 can authorize. */
-  async function fixture(c: Sql, o: { amount?: string; accountMethod?: string; offerMethod?: string; tradeStatus?: string; escrowStatus?: string; txLockId?: string | null; bind?: boolean } = {}): Promise<Fixture> {
+  async function fixture(c: Sql, o: { amount?: string; accountMethod?: string; offerMethod?: string; tradeStatus?: string; escrowStatus?: string; txLockId?: string | null; bind?: boolean; historical?: boolean } = {}): Promise<Fixture> {
     const tag = randomBytes(6).toString('hex')
     const amount = o.amount ?? '0.00100000'
     const f = { sellerId: `r7he1-s-${tag}`, buyerId: `r7he1-b-${tag}`, accountId: `r7he1-pa-${tag}`, offerId: `r7he1-o-${tag}`, tradeId: `r7he1-t-${tag}`, escrowId: `r7he1-e-${tag}`, amount }
@@ -212,10 +212,15 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
        VALUES ($1, $2, $3, $4, 'BTC', $5, 1, 1, $6, $7, now())`,
       [f.tradeId, f.offerId, f.buyerId, f.sellerId, amount, o.tradeStatus ?? 'ACTIVE', o.bind === false ? null : f.accountId],
     )
+    // historical: an escrow R7H-E3 refuses at creation (non-PIX or unbound), planted as a pre-E3 row so the E1
+    // reservation guard's own refusal is still proven (defense in depth). Only the E3 creation guard is lifted, and
+    // only inside this fixture's transaction.
+    if (o.historical) await c.query('ALTER TABLE escrows DISABLE TRIGGER escrows_trade_economic_binding_guard')
     await c.query(
       `INSERT INTO escrows (id, "tradeId", type, status, "lockedAmount", asset, "txLockId", "updatedAt") VALUES ($1, $2, 'MULTISIG', $3, $4, 'BTC', $5, now())`,
       [f.escrowId, f.tradeId, o.escrowStatus ?? 'CREATED', amount, o.txLockId ?? null],
     )
+    if (o.historical) await c.query('ALTER TABLE escrows ENABLE TRIGGER escrows_trade_economic_binding_guard')
     await c.query(`UPDATE trades SET "escrowId" = $1 WHERE id = $2`, [f.escrowId, f.tradeId])
     return f
   }
@@ -341,15 +346,15 @@ describe('#235 R7H-E1 — economic authorization foundation (real PostgreSQL)', 
 
     const q = await currentQuote()
     // Reservations: TED account + TED offer (no method row), PIX-labelled snapshot over a TED account, PIX offer over a TED account.
-    const ted = await committed((c) => fixture(c, { accountMethod: 'TED', offerMethod: 'TED' }))
+    const ted = await committed((c) => fixture(c, { accountMethod: 'TED', offerMethod: 'TED', historical: true }))
     await expect(db.query(RESERVE, reservation(ted, q.id, exposure(ted.amount, '50000'), { paymentMethod: 'TED' }))).rejects.toMatchObject({ code: '23000' })
     await expect(db.query(RESERVE, reservation(ted, q.id, exposure(ted.amount, '50000'), { paymentMethod: 'PIX' }))).rejects.toMatchObject({ code: '23000' })
-    const mixed = await committed((c) => fixture(c, { accountMethod: 'TED', offerMethod: 'PIX' }))
+    const mixed = await committed((c) => fixture(c, { accountMethod: 'TED', offerMethod: 'PIX', historical: true }))
     await expect(db.query(RESERVE, reservation(mixed, q.id, exposure(mixed.amount, '50000')))).rejects.toMatchObject({ code: '23000' })
-    const other = await committed((c) => fixture(c, { accountMethod: 'PIX', offerMethod: 'OTHER' }))
+    const other = await committed((c) => fixture(c, { accountMethod: 'PIX', offerMethod: 'OTHER', historical: true }))
     await expect(db.query(RESERVE, reservation(other, q.id, exposure(other.amount, '50000')))).rejects.toMatchObject({ code: '23000' })
     // An unbound trade (no seller account) has nothing to authorize.
-    const unbound = await committed((c) => fixture(c, { bind: false }))
+    const unbound = await committed((c) => fixture(c, { bind: false, historical: true }))
     await expect(db.query(RESERVE, reservation(unbound, q.id, exposure(unbound.amount, '50000')))).rejects.toMatchObject({ code: '23000' })
     expect(await count(`SELECT count(*) AS n FROM exposure_reservations WHERE "tradeId" = ANY($1)`, [[ted.tradeId, mixed.tradeId, other.tradeId, unbound.tradeId]])).toBe(0)
     await purge()

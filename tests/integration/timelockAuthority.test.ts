@@ -124,9 +124,9 @@ describe('R5 timelock authority: caller timelockHours is inert, policy is frozen
   ])('T1-T4: a caller-supplied %s timelockHours is ignored; the escrow is created with the policy value', async (_label, callerValue) => {
     pg.requirePostgres('T1-T4')
     const node = startNode('24')
-    const { trade, buyer } = await fixtureTrade()
+    const { trade, seller } = await fixtureTrade()
 
-    const escrow = await createOn(node, trade.id, buyer.id, { timelockHours: callerValue })
+    const escrow = await createOn(node, trade.id, seller.id, { timelockHours: callerValue })
 
     expect(escrow.timelockHours).toBe(24)
     const row = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
@@ -162,7 +162,7 @@ describe('R5 timelock authority: caller timelockHours is inert, policy is frozen
     pg.requirePostgres('T7')
     const p1 = startNode('24')
     const old = await fixtureTrade()
-    const oldEscrow = await createOn(p1, old.trade.id, old.buyer.id)
+    const oldEscrow = await createOn(p1, old.trade.id, old.seller.id)
     await p1.shutdown()
 
     const p2 = startNode('48')
@@ -186,7 +186,7 @@ describe('R5 timelock authority: caller timelockHours is inert, policy is frozen
     const ta = await fixtureTrade()
     const tb = await fixtureTrade()
 
-    const [ea, eb] = await Promise.all([createOn(a, ta.trade.id, ta.buyer.id, { timelockHours: 1 }), createOn(b, tb.trade.id, tb.buyer.id, { timelockHours: 1 })])
+    const [ea, eb] = await Promise.all([createOn(a, ta.trade.id, ta.seller.id, { timelockHours: 1 }), createOn(b, tb.trade.id, tb.seller.id, { timelockHours: 1 })])
     // Cross-lock: each escrow is locked on the OTHER node.
     await Promise.all([b.escrowService.lockFunds(ea.id, ta.seller.id), a.escrowService.lockFunds(eb.id, tb.seller.id)])
 
@@ -206,9 +206,9 @@ describe('R5 timelock authority: caller timelockHours is inert, policy is frozen
     pg.requirePostgres('T9-T13')
     const node = startNode('24')
     node.config.trade.defaultTimelockHours = policyValue
-    const { trade, buyer } = await fixtureTrade()
+    const { trade, seller } = await fixtureTrade()
 
-    await expect(createOn(node, trade.id, buyer.id, { timelockHours: 24 })).rejects.toThrow(/DEFAULT_TIMELOCK_HOURS/)
+    await expect(createOn(node, trade.id, seller.id, { timelockHours: 24 })).rejects.toThrow(/DEFAULT_TIMELOCK_HOURS/)
 
     expect(await prisma.escrow.count({ where: { tradeId: trade.id } })).toBe(0)
     expect((await prisma.trade.findUniqueOrThrow({ where: { id: trade.id } })).escrowId).toBeNull()

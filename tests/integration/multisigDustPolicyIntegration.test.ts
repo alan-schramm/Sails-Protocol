@@ -21,6 +21,7 @@ import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
   jest.setTimeout(30_000)
@@ -88,7 +89,7 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
 
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.00000457', maxAmount: '0.00000457', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.00000457', maxAmount: '0.00000457', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     // #235 R7F-B — createEscrow() binds lockedAmount to the trade's own
     // amount, so the trade itself is for exactly the funding
     // UTXO value below (293 + RELEASE_FEE_1SAT sats) so lockFunds()'s own

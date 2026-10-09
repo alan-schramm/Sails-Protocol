@@ -24,6 +24,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -75,8 +76,9 @@ describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgre
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-atomic-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-atomic-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const railScope = `FIXTURE_RAIL_ATOMICITY-${s}`
     const feePolicy = await prisma.feePolicyVersion.create({
       data: { label: `atomic-feepolicy-${s}`, railScope, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: 'fase7-2-1-atomicity-test' },

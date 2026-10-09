@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // PASS 3's queue is shared with other suites' rows; a marker claimed at QUEUE_HEAD is ahead of all of them.
@@ -93,8 +94,9 @@ describe('Timelock expiry crash consistency: a durable EXPIRED always gets its o
   async function expiredEscrow() {
     const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const escrow = await prisma.escrow.create({
       // #235 R7G F8A: expiresAt only ever lands together with the funding outpoint (lockFunds())
       data: { tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), txLockId: randomBytes(32).toString('hex'), txLockVout: 0 },
