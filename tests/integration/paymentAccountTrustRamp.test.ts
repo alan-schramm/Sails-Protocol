@@ -16,6 +16,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -141,7 +142,9 @@ describe('#235 R7D — payment-account trust ramp from durable clean completions
   /** SELL offer by `seller` declaring `acct` (or none), taken by `buyer`. */
   async function sellTrade(seller: { id: string }, buyer: { id: string }, acct?: { accountHash: string }) {
     const o = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', paymentMethod: 'PIX', ...(acct ? { paymentAccountHash: acct.accountHash } : {}) })
-    return tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    const admit = () => tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    // #235 R7H-E3C — an undeclared (unbound) trade is no longer admitted; it is the historical (pre-E3C) row here.
+    return acct ? admit() : refusedThenHistoricalTrade(prisma, tradeService, admit, 'UNBOUND_ACCOUNT', o, buyer.id, '0.0005')
   }
 
   /** Real MOCK escrow up to PAYMENT_PENDING; the release is left to the caller. */

@@ -16,6 +16,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const ATTESTED = 'settlement.payment_account.attested'
@@ -323,7 +324,8 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
     const seller = await participant('r7c-seller-26'); const buyer = await participant('r7c-buyer-26')
     const acct = await account(seller.id) // the seller DOES own a matching PIX account
     const o = await offer(seller.id, 'SELL') // but declared none
-    const trade = await tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' })
+    // #235 R7H-E3C — such a trade is no longer admitted; attestation is checked on the historical (pre-E3C) row.
+    const trade = await refusedThenHistoricalTrade(prisma, tradeService, () => tradeService.createTrade({ offerId: o.id, counterpartyId: buyer.id, amount: '0.0005' }), 'UNBOUND_ACCOUNT', o, buyer.id, '0.0005')
     expect(trade.sellerPaymentAccountId).toBeNull()
     await completeCleanly(trade, seller, buyer)
     const before = await snapshot(acct.accountHash, trade.id)

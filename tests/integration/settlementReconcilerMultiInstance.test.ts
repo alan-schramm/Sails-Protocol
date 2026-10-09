@@ -16,6 +16,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -75,7 +76,7 @@ describe('Final closure - reconcilePendingSettlements() is convergent under mult
   async function makeEscrow(type: 'MOCK' | 'WDK_USDT_EVM') {
     const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'COMPLETED', lockedAmount: '0.001', asset: 'BTC' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })

@@ -14,7 +14,7 @@ import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
 import { SailsTransportError, type EconomicPolicy, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
-import { bindSellerPaymentAccount, protectedEscrowEligibility } from '../lib/paymentAccountBinding'
+import { bindSellerPaymentAccount, protectedEscrowEligibility, tradeAdmissionRefusalMessage, unboundSellOfferBlocked } from '../lib/paymentAccountBinding'
 import { disputeRatePct, isPowerTraderFromCanonical } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
@@ -42,6 +42,7 @@ interface OfferDetailView {
   minAmount: number
   maxAmount: number
   paymentMethod: PublicOfferDetail['paymentMethod']
+  paymentAccountBound: boolean
   network?: string
   description?: string
 }
@@ -60,6 +61,7 @@ function toOfferDetailView(raw: PublicOfferDetail): OfferDetailView {
     minAmount: Number(raw.minAmount),
     maxAmount: Number(raw.maxAmount),
     paymentMethod: raw.paymentMethod,
+    paymentAccountBound: raw.paymentAccountBound,
     network: raw.network ?? undefined,
     description: raw.description ?? undefined,
   }
@@ -165,6 +167,8 @@ export function OfferDetail() {
   const eligibility = policy ? protectedEscrowEligibility(policy, offer.asset, offer.paymentMethod) : null
   const methodBlocked = eligibility?.governed === true && !eligibility.eligible ? eligibility : null
   const takerBindsAccount = offer.side === 'BUY' && eligibility?.governed === true && !methodBlocked
+  // #235 R7H-E3C — the server admits no trade on a governed SELL offer without its seller's committed account.
+  const unboundOffer = unboundSellOfferBlocked(eligibility, offer.side, offer.paymentAccountBound)
 
   const handleStartTrade = async () => {
     if (!user) {
@@ -185,6 +189,10 @@ export function OfferDetail() {
     }
     if (!policy) {
       toast.error('Não foi possível verificar a política de escrow protegido — recarregue a página.')
+      return
+    }
+    if (unboundOffer) {
+      toast.error('Esta oferta não tem uma conta de recebimento do vendedor vinculada e não pode ser negociada com escrow protegido.')
       return
     }
     if (methodBlocked) {
@@ -214,7 +222,7 @@ export function OfferDetail() {
       toast.success('Trade iniciado')
       navigate(`/trade/${trade.id}`, { state: { offer, amount: amountNum } })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar trade')
+      toast.error(tradeAdmissionRefusalMessage(err) ?? (err instanceof Error ? err.message : 'Falha ao iniciar trade'))
     } finally {
       setStartingTrade(false)
     }
@@ -355,6 +363,12 @@ export function OfferDetail() {
                   Não foi possível verificar a política de escrow protegido. Recarregue a página para continuar.
                 </p>
               )}
+              {unboundOffer && (
+                <div role="alert" className="mt-3 bg-red-500/10 border border-red-500/25 rounded-lg p-3 text-xs text-red-500">
+                  Esta oferta foi publicada sem uma conta de recebimento do vendedor vinculada e não pode ser negociada com escrow
+                  protegido. Escolha outra oferta.
+                </div>
+              )}
               {methodBlocked && (
                 <div role="alert" className="mt-3 bg-red-500/10 border border-red-500/25 rounded-lg p-3 text-xs text-red-500">
                   {PAYMENT_METHOD_LABELS[offer.paymentMethod]} não é aceito para escrow protegido em {ASSET_SHORT_LABELS[offer.asset]} pela
@@ -390,7 +404,7 @@ export function OfferDetail() {
                 </div>
               )}
 
-              <Button onClick={handleStartTrade} disabled={startingTrade || methodBlocked !== null} className="mt-4 w-full py-3">
+              <Button onClick={handleStartTrade} disabled={startingTrade || methodBlocked !== null || unboundOffer} className="mt-4 w-full py-3">
                 {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
               </Button>
             </Card>

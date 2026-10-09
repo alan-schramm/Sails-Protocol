@@ -17,7 +17,7 @@ import { randomBytes } from 'crypto'
 import { Client } from 'pg'
 import type { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { deleteFixtureAccounts } from './economicFixtures'
+import { deleteFixtureAccounts, refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 type Party = { id: string; token: string; client: any }
@@ -382,9 +382,12 @@ describe('#235 R7H-E3B — seller PaymentAccount UI binding journeys (real route
     await expect(seller.client.openp2p.trade(buyOffer.id, '0.0005', idem(), unregistered)).rejects.toMatchObject({ statusCode: 404 })
     expect(await footprint(seller.id)).toEqual({ offers: 0, trades: 0, accounts: 0 })
 
-    // A taker whose client sends no binding gets an unbound trade (the server still accepts it); the escrow is
-    // refused by the E3 guard, and the UI says why before (Trade.tsx's notice) and after (the mapped refusal).
-    const unbound = await seller.client.openp2p.trade(buyOffer.id, '0.0005', idem())
+    // #235 R7H-E3C — a taker whose client sends no binding is refused at admission (nothing is created), and the UI
+    // says why. A trade of that shape from before E3C exists only as a historical row: its escrow stays refused by the
+    // E3 guard, and the Trade page says why before (its notice) and after (the mapped refusal).
+    const attempt = () => seller.client.openp2p.trade(buyOffer.id, '0.0005', idem())
+    expect(ui.tradeAdmissionRefusalMessage(await attempt().then(() => null, (e: unknown) => e))).toMatch(/não tem uma conta de recebimento/)
+    const unbound = await refusedThenHistoricalTrade(prisma, require('../../src/modules/open-p2p/trade.service').tradeService, attempt, 'UNBOUND_ACCOUNT', buyOffer, seller.id, '0.0005')
     const policy = await seller.client.settlement.economicPolicy()
     const viewed = await seller.client.openp2p.getTrade(unbound.id)
     const notice = ui.protectedEscrowBlocker(ui.protectedEscrowEligibility(policy, viewed.asset, viewed.offer.paymentMethod), viewed.sellerPaymentAccountId)
@@ -399,10 +402,13 @@ describe('#235 R7H-E3B — seller PaymentAccount UI binding journeys (real route
     const [seller, buyer] = [await participant('b-unsup-s'), await participant('b-unsup-b')]
     const policy = await seller.client.settlement.economicPolicy()
     expect(ui.protectedEscrowEligibility(policy, 'BTC', 'TED')).toMatchObject({ governed: true, eligible: false, reason: 'METHOD_NOT_ELIGIBLE' })
-    // A client that ignores the UI's block anyway: a fully bound TED trade, refused at escrow by the server.
+    // A client that ignores the UI's block anyway: a fully bound TED trade is refused at admission (#235 R7H-E3C), and
+    // the historical row of that shape is refused at escrow by the server.
     const { accountHash } = await ui.bindSellerPaymentAccount(seller.client, seller.id, 'TED', pixKey())
     const offer = await publish(seller, 'SELL', 'TED', 'conta TED', { paymentAccountHash: accountHash })
-    const trade = await buyer.client.openp2p.trade(offer.id, '0.0005', idem())
+    const attempt = () => buyer.client.openp2p.trade(offer.id, '0.0005', idem())
+    expect(ui.tradeAdmissionRefusalMessage(await attempt().then(() => null, (e: unknown) => e))).toMatch(/não é aceito para escrow protegido/)
+    const trade = await refusedThenHistoricalTrade(prisma, require('../../src/modules/open-p2p/trade.service').tradeService, attempt, 'METHOD_NOT_ELIGIBLE', offer, buyer.id, '0.0005', (await accountsWithHash(accountHash))[0].id)
     const err = await escrowRefusedClean(trade.id, () => createEscrow(seller, trade))
     expect(err.message).toMatch(/METHOD_NOT_ELIGIBLE/)
     expect(ui.escrowBindingRefusalMessage(err)).toBe(ui.protectedEscrowBlocker(ui.protectedEscrowEligibility(policy, 'BTC', 'TED'), 'bound'))

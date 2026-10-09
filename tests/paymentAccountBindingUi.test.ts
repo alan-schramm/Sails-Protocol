@@ -12,6 +12,8 @@ import {
   escrowBindingRefusalMessage,
   protectedEscrowBlocker,
   protectedEscrowEligibility,
+  tradeAdmissionRefusalMessage,
+  unboundSellOfferBlocked,
 } from '../packages/sails-ui/src/lib/paymentAccountBinding'
 
 const policy = (railEligible: boolean, methods: EconomicPolicy['paymentMethods']): EconomicPolicy => ({
@@ -63,5 +65,24 @@ describe('#235 R7H-E3B — UI payment-account binding helpers', () => {
     await expect(bindSellerPaymentAccount({ paymentAccounts: { register } } as any, 'u1', 'PIX', 'key')).rejects.toThrow(PaymentAccountBindingError)
     register.mockImplementationOnce(async () => ({ ownerId: 'u1', accountHash: 'other', paymentMethod: 'PIX' }))
     await expect(bindSellerPaymentAccount({ paymentAccounts: { register } } as any, 'u1', 'PIX', 'key')).rejects.toThrow(PaymentAccountBindingError)
+  })
+
+  it('#235 R7H-E3C — a governed SELL offer without a committed account is shown as non-executable; BUY offers and ungoverned rails are not', () => {
+    const governed = protectedEscrowEligibility(policy(true, [{ paymentMethod: 'PIX', eligible: true }]), 'BTC', 'PIX')
+    expect(unboundSellOfferBlocked(governed, 'SELL', false)).toBe(true)
+    expect(unboundSellOfferBlocked(governed, 'SELL', true)).toBe(false)
+    expect(unboundSellOfferBlocked(governed, 'BUY', false)).toBe(false) // the taker binds on a BUY offer
+    expect(unboundSellOfferBlocked({ governed: false }, 'SELL', false)).toBe(false)
+    expect(unboundSellOfferBlocked(null, 'SELL', false)).toBe(false)
+  })
+
+  it('#235 R7H-E3C — only trade-admission refusals are rewritten, never an escrow refusal or another error', () => {
+    const admission = (code: string) => new Error(`Trade refused by the economic authorization binding — ${code}: detail`)
+    expect(tradeAdmissionRefusalMessage(admission('UNBOUND_ACCOUNT'))).toMatch(/não tem uma conta de recebimento/)
+    expect(tradeAdmissionRefusalMessage(admission('METHOD_NOT_ELIGIBLE'))).toMatch(/não é aceito/)
+    expect(tradeAdmissionRefusalMessage(admission('FOREIGN_ACCOUNT'))).toEqual(expect.any(String))
+    expect(tradeAdmissionRefusalMessage(new Error('Escrow refused by the economic authorization binding — UNBOUND_ACCOUNT: x'))).toBeNull()
+    expect(escrowBindingRefusalMessage(admission('UNBOUND_ACCOUNT'))).toBeNull()
+    expect(tradeAdmissionRefusalMessage(new Error('Offer x is not active'))).toBeNull()
   })
 })

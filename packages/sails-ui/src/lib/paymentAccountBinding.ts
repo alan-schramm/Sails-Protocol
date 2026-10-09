@@ -80,10 +80,37 @@ export function protectedEscrowBlocker(eligibility: ProtectedEscrowEligibility |
   return sellerPaymentAccountId ? null : UNBOUND_TRADE_MESSAGE
 }
 
+/**
+ * #235 R7H-E3C — a SELL offer on a governed rail whose seller never committed a receiving account admits no new
+ * trade (the server refuses it); a client says so instead of offering a button that can only fail.
+ */
+export function unboundSellOfferBlocked(eligibility: ProtectedEscrowEligibility | null, side: 'BUY' | 'SELL', paymentAccountBound: boolean): boolean {
+  return side === 'SELL' && eligibility?.governed === true && !paymentAccountBound
+}
+
+/** A trade-admission refusal (TRADE_ADMISSION_REFUSED) from the same binding, said in terms a trader can act on (null: not one). */
+export function tradeAdmissionRefusalMessage(err: unknown): string | null {
+  const message = err instanceof Error ? err.message : ''
+  const code = /^Trade refused by the economic authorization binding — ([A-Z_]+):/.exec(message)?.[1]
+  switch (code) {
+    case 'UNBOUND_ACCOUNT':
+      return 'Esta oferta não tem uma conta de recebimento do vendedor vinculada e não pode ser negociada com escrow protegido.'
+    case 'METHOD_NOT_ELIGIBLE':
+    case 'RAIL_NOT_ELIGIBLE':
+      return 'O método de pagamento desta oferta não é aceito para escrow protegido pela política vigente.'
+    case 'FOREIGN_ACCOUNT':
+    case 'METHOD_MISMATCH':
+    case 'SELLER_NOT_COMMITTED':
+      return 'A conta de recebimento informada não pertence ao vendedor ou não corresponde ao método da oferta.'
+    default:
+      return null
+  }
+}
+
 /** An escrow refusal from the R7H-E3 binding, said in terms a seller can act on (null: not a binding refusal). */
 export function escrowBindingRefusalMessage(err: unknown): string | null {
   const message = err instanceof Error ? err.message : ''
-  const code = /economic authorization binding — ([A-Z_]+):/.exec(message)?.[1]
+  const code = /^Escrow refused by the economic authorization binding — ([A-Z_]+):/.exec(message)?.[1]
   switch (code) {
     case 'UNBOUND_ACCOUNT':
       return UNBOUND_TRADE_MESSAGE

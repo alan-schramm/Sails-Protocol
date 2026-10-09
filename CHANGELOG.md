@@ -65,6 +65,24 @@ All notable changes to this project will be documented in this file.
     - **Privacy:** a BUY taker's raw key never reaches the server. A SELL maker's key is persisted only as the
       offer's payment details, where it is shown to the buyer by design. The account hash is unsalted, so it does
       not keep a known or guessable key secret.
+  - **R7H-E3C — canonical trade admission (CTO D-E3C-1, Option A):**
+    - **Rule.** A new trade whose canonical escrow route is governed (V1: BTC → MULTISIG) is admitted only if
+      that escrow could be authorized. `trade-repository.ts` evaluates the E3 function
+      `escrow_economic_binding_violation()` on the new trade row, inside the transaction that inserts it. Any
+      violation rolls the insert back and returns 409 `TRADE_ADMISSION_REFUSED`.
+    - **Effect.** A refused admission leaves no trade, event, offer Intent walk, escrow or reservation. Legacy
+      unbound governed SELL offers, unbound BUY takes and ineligible methods no longer admit trades that can never
+      be escrowed.
+    - **Rail.** The canonical route is the production one. A test-only MOCK escrow never makes such a trade
+      admissible, in any environment. Assets without a governed canonical route are unchanged.
+    - **No new authority.** No new policy engine and no migration. Historical trades are untouched: their
+      escrow stays refused.
+    - **Public offer view** gains `paymentAccountBound`: whether a SELL offer carries its seller's committed
+      account, never which one. It is not evidence of PIX-key control or identity. The UI shows such offers as
+      non-executable and maps admission refusals to plain language.
+    - **Tests.** Test-only fixture migration: 12 settlement suites now use bound PIX offers (identical test sets
+      and assertions), and the E3 guard suites plant their invalid trades as historical rows after proving the
+      new admission is refused.
 
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.

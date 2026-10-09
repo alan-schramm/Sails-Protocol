@@ -13,9 +13,27 @@ import { negotiationService } from './negotiation.service'
 import { intentEngine } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
-import type { TradeStatus } from '../../common/types'
+import type { AssetType, TradeStatus } from '../../common/types'
+import type { EscrowType } from '../../common/types/trade'
 import { withIdempotency } from '../../common/idempotency'
 import { paymentAccountService } from '../open-settlement/payment-account.service'
+import { translateLegacyAssetType } from '../../common/settlement-scope-legacy'
+import { resolveSingleStructurallyCompatibleImplementation } from '../../common/execution-candidates'
+
+/**
+ * #235 R7H-E3C — the rail a trade in `asset` is escrowed on in production: the canonical implementation
+ * escrow.service.ts's resolveEscrowType() resolves (ADR-002 §11 translation, then the single registered
+ * implementation), without its MOCK conveniences, which production refuses to boot with (config RT-001). null when
+ * the asset has no canonical route — untranslated (LN_BTC, SPARK, …) or no registered implementation (LIQUID_BTC,
+ * USDT_TRC20, USDT_LIQUID) — so no governed escrow can exist for it and admission has nothing to check.
+ * Trade admission is checked against this rail (trade-repository.ts).
+ */
+function canonicalEscrowRail(asset: AssetType): { type: EscrowType; asset: AssetType } | null {
+  const scope = translateLegacyAssetType(asset)
+  if (!scope) return null
+  const resolution = resolveSingleStructurallyCompatibleImplementation(scope.asset, scope.rail)
+  return 'error' in resolution ? null : { type: resolution.implementation, asset }
+}
 
 export interface CreateTradeInput {
   offerId: string
@@ -166,6 +184,7 @@ export class TradeService {
       network: offer.network,
       intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
       sellerPaymentAccountId,
+      escrowRail: canonicalEscrowRail(offer.asset),
     })
 
     return trade

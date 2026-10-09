@@ -76,6 +76,8 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
   fn({
     $executeRaw: mockCapabilityGrantExecuteRaw,
     // #235 R7H-E3 - EscrowRepository.create()'s binding check (proven on real PostgreSQL in escrowSellerPaymentBinding.test.ts).
+    // #235 R7H-E3C - TradeRepository.create() runs the same check on the new trade inside this transaction (proven on
+    // real PostgreSQL in tradeAdmissionAuthority.test.ts), so the tx client also inserts the trade (trade.create below).
     $queryRaw: async () => [{ violation: null, governed: false }],
     // Issue #303 delta - CapabilityGrantRepository.create() now runs inside this
     // transaction (advisory lock + equivalent-live-grant lookup + insert), so the
@@ -92,6 +94,7 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     // re-reads only the trade's status (an escrowable ACTIVE trade by default), then inserts.
     escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
     trade: {
+      create: (...args: unknown[]) => mockTradeCreate(...args),
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: any[]) => (args[0]?.select?.status ? Promise.resolve({ status: 'ACTIVE' }) : mockTradeUpdate(...args)),
     },

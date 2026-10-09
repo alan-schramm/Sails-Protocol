@@ -13,6 +13,7 @@ import { randomBytes } from 'crypto'
 import { Client } from 'pg'
 import type { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { refusedThenHistoricalTrade } from './economicFixtures'
 import { closeTestRedis } from './identityTestHelpers'
 
 type Party = { id: string; token: string }
@@ -110,7 +111,11 @@ describe('#235 R7H-E3 — seller / PaymentAccount / payment-method binding of es
     const [seller, buyer, stranger] = [await participant('seller'), await participant('buyer'), await participant('stranger')]
     const acct = bind ? await account(seller.id, method) : null
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.0001', maxAmount: '1', paymentMethod: method, ...(acct ? { paymentAccountHash: acct.accountHash } : {}) })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.0005' })
+    const admit = () => tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.0005' })
+    // #235 R7H-E3C — an unbound or ineligible-method trade is no longer admitted; the escrow guard is exercised on the
+    // historical row a pre-E3C service committed, after proving the new admission is refused.
+    const trade = bind && method === 'PIX' ? await admit()
+      : await refusedThenHistoricalTrade(prisma, tradeService, admit, bind ? 'METHOD_NOT_ELIGIBLE' : 'UNBOUND_ACCOUNT', offer, buyer.id, '0.0005', acct?.id ?? null)
     return { seller, buyer, stranger, acct, offer, trade }
   }
 

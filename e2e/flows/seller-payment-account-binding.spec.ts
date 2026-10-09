@@ -1,4 +1,6 @@
 import { expect, type Page } from '@playwright/test'
+import { randomBytes } from 'node:crypto'
+import { Client } from 'pg'
 import { test } from '../fixtures/wallet.fixture'
 import { HomePage } from '../pages/home.page'
 import { TradePage } from '../pages/trade.page'
@@ -144,7 +146,7 @@ test('BUY: the taker is the seller — they bind their own key on the offer page
   })
 })
 
-test('NEGATIVE: an ineligible method is blocked before publishing; an unbound (pre-E3B) trade tells the seller why no escrow can exist', async ({ aliceWallet: seller, bobWallet: buyer }) => {
+test('NEGATIVE: an ineligible method is blocked before publishing; a trade request without the seller binding is refused at admission (E3C)', async ({ aliceWallet: seller, bobWallet: buyer }) => {
   await test.step('TED on BTC: the policy in force does not make it eligible — the UI says so and does not proceed', async () => {
     await openNewOffer(seller, 'Vender')
     await seller.getByRole('combobox', { name: 'Método de pagamento' }).click()
@@ -157,7 +159,7 @@ test('NEGATIVE: an ineligible method is blocked before publishing; an unbound (p
   })
 
   let offerId = ''
-  await test.step('a BUY offer the seller takes through a client that sends no binding', async () => {
+  await test.step('#235 R7H-E3C — a client that sends no binding is refused at admission: no trade, an understandable message', async () => {
     await openNewOffer(buyer, 'Comprar')
     await buyer.getByPlaceholder('Sua chave PIX').fill('pago via PIX')
     offerId = (await publish(buyer)).id
@@ -169,9 +171,57 @@ test('NEGATIVE: an ineligible method is blocked before publishing; an unbound (p
       delete body.paymentAccountHash
       await route.continue({ postData: JSON.stringify(body) })
     })
-    const trade = await startTrade(seller)
+    await seller.getByPlaceholder('0.00').fill('0.0005')
+    const [res] = await Promise.all([
+      seller.waitForResponse((r) => r.url().includes('/v1/openp2p/trades') && r.request().method() === 'POST'),
+      seller.getByRole('button', { name: 'Iniciar Trade' }).click(),
+    ])
     await seller.unroute('**/v1/openp2p/trades')
-    await new TradePage(seller).reauthenticate(trade.id)
+    expect([res.status(), (await res.json()).error]).toEqual([409, 'TRADE_ADMISSION_REFUSED'])
+    await expect(seller.getByText('Esta oferta não tem uma conta de recebimento do vendedor vinculada e não pode ser negociada com escrow protegido.')).toBeVisible()
+    await expect(seller).toHaveURL(new RegExp(`/offer/${offerId}$`)) // no trade to navigate to
+  })
+})
+
+test('LEGACY: a SELL offer published without the seller account binding is shown as non-executable; a historical unbound trade keeps its fail-closed escrow notice', async ({ aliceWallet: seller, bobWallet: buyer }) => {
+  let offer: { id: string; userId: string; priceUsd: string } = { id: '', userId: '', priceUsd: '' }
+  await test.step('an older client publishes a governed SELL offer without the binding (hash stripped from the request)', async () => {
+    await openNewOffer(seller, 'Vender')
+    await seller.getByPlaceholder('Sua chave PIX').fill(pixKey())
+    await seller.getByRole('checkbox').check()
+    await seller.route('**/v1/liquidity/offers', async (route) => {
+      const body = route.request().postDataJSON()
+      delete body.paymentAccountHash
+      await route.continue({ postData: JSON.stringify(body) })
+    })
+    const published = await publish(seller)
+    await seller.unroute('**/v1/liquidity/offers')
+    const res = await seller.request.get(`http://localhost:3000/v1/liquidity/offers/${published.id}`)
+    const view = (await res.json()).data
+    expect(view.paymentAccountBound).toBe(false)
+    offer = { id: published.id, userId: view.seller.id, priceUsd: view.priceUsd }
+  })
+
+  await test.step('the buyer sees why it cannot be traded — no start button that could only fail', async () => {
+    await openOffer(buyer, offer.id)
+    await expect(buyer.getByRole('alert').filter({ hasText: 'publicada sem uma conta de recebimento do vendedor vinculada' })).toBeVisible()
+    await expect(buyer.getByRole('button', { name: 'Iniciar Trade' })).toBeDisabled()
+  })
+
+  await test.step('a pre-E3C trade on that offer (planted as a historical row) still cannot get a protected escrow — the seller is told why', async () => {
+    const db = new Client({ connectionString: process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5432/sails_protocol' })
+    await db.connect()
+    let tradeId = ''
+    try {
+      const [{ id: buyerId }] = (await db.query(`INSERT INTO users (id, "publicKey", "displayName", "updatedAt") VALUES (gen_random_uuid(), $1, 'e3c-historical-buyer', now()) RETURNING id`, [randomBytes(32).toString('hex')])).rows
+      ;[{ id: tradeId }] = (await db.query(
+        `INSERT INTO trades (id, "offerId", "buyerId", "sellerId", asset, amount, "priceUsd", "totalUsd", "updatedAt")
+         VALUES (gen_random_uuid(), $1, $2, $3, 'BTC', 0.0005, $4, $4::numeric * 0.0005, now()) RETURNING id`,
+        [offer.id, buyerId, offer.userId, offer.priceUsd])).rows
+    } finally {
+      await db.end()
+    }
+    await new TradePage(seller).reauthenticate(tradeId)
     await expect(seller.getByRole('alert').filter({ hasText: 'sem uma conta de recebimento do vendedor vinculada' })).toBeVisible()
     await expect(seller.getByRole('button', { name: 'Criar Escrow' })).toHaveCount(0)
   })
