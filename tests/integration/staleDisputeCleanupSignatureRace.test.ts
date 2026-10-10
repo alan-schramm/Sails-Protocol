@@ -109,7 +109,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const dispute = await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', authoritySignature: 'st1-test-authority', resolvedAt: new Date() },
     })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
@@ -119,6 +119,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
         // #239D refuses cooperative signatures once a dispute exists, so a provenance-less round here would
         // test a path that no longer accepts signatures at all.
         disputeId: dispute.id, rulingAppealRound: 0, rulingArbiterId: arbiter.id, rulingOutcome: 'RELEASE',
+        rulingAuthoritySignature: 'st1-test-authority', rulingAuthorityIssuedAt: dispute.resolvedAt,
         createdAt: new Date(Date.now() - 10 * 60 * 1000),
       },
     })
@@ -130,10 +131,24 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     signatures: await client.escrowTransactionSignature.count({ where: { pendingTxId: pendingId } }),
   })
 
+  async function generation(pendingId: string) {
+    const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pendingId } })
+    if (!row.disputeId || row.rulingAppealRound === null || !row.rulingArbiterId ||
+        !row.rulingOutcome || !row.rulingAuthoritySignature || !row.rulingAuthorityIssuedAt) {
+      throw new Error('test fixture missing complete ruling provenance')
+    }
+    return {
+      disputeId: row.disputeId, rulingAppealRound: row.rulingAppealRound,
+      rulingArbiterId: row.rulingArbiterId, rulingOutcome: row.rulingOutcome,
+      rulingAuthoritySignature: row.rulingAuthoritySignature,
+      rulingAuthorityIssuedAt: row.rulingAuthorityIssuedAt,
+    }
+  }
+
   /** Cleanup as the reconciler runs it: a candidate snapshot first, then the lock-protected delete decision. */
   async function cleanup(pendingId: string, escrowId: string) {
     const snapshot = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pendingId }, include: { signatures: true } })
-    return { snapshotSignatures: snapshot.signatures.length, outcome: await deletePendingRoundIfStillUnsigned(pendingId, escrowId) }
+    return { snapshotSignatures: snapshot.signatures.length, outcome: await deletePendingRoundIfStillUnsigned(pendingId, escrowId, await generation(pendingId)) }
   }
 
   // ── deterministic interleaving harness ──────────────────────────────────────────────────────────
