@@ -264,8 +264,9 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     pg.requirePostgres('genuinely stale')
     const { escrow, pending } = await fixture()
 
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('DELETED')
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('ALREADY_GONE')
+    const authority = await generation(pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('DELETED')
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('ALREADY_GONE')
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
@@ -273,9 +274,10 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     pg.requirePostgres('concurrent cleanup')
     const { escrow, pending } = await fixture()
 
+    const authority = await generation(pending.id)
     const outcomes = await Promise.all([
-      deletePendingRoundIfStillUnsigned(pending.id, escrow.id),
-      deletePendingRoundIfStillUnsigned(pending.id, escrow.id),
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
     ])
 
     expect(outcomes.sort()).toEqual(['ALREADY_GONE', 'DELETED'])
@@ -289,13 +291,15 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const signed = await fixture()
     await submitTransactionSignature(signed.escrow.id, signed.buyer.id, buyerSigns(signed.pending.unsignedPsbtBase64))
     const unsigned = await fixture()
-    expect(await deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id)).toBe('DELETED')
+    const unsignedAuthority = await generation(unsigned.pending.id)
+    const signedAuthority = await generation(signed.pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id, unsignedAuthority)).toBe('DELETED')
 
     const fresh = restarted!
     expect(await roundState(signed.pending.id, fresh.prisma)).toEqual({ pending: true, signatures: 1 })
     expect(await roundState(unsigned.pending.id, fresh.prisma)).toEqual({ pending: false, signatures: 0 })
-    expect(await fresh.deletePendingRoundIfStillUnsigned(signed.pending.id, signed.escrow.id)).toBe('SIGNED_MEANWHILE')
-    expect(await fresh.deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id)).toBe('ALREADY_GONE')
+    expect(await fresh.deletePendingRoundIfStillUnsigned(signed.pending.id, signed.escrow.id, signedAuthority)).toBe('SIGNED_MEANWHILE')
+    expect(await fresh.deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id, unsignedAuthority)).toBe('ALREADY_GONE')
     expect(await roundState(signed.pending.id, fresh.prisma)).toEqual({ pending: true, signatures: 1 })
   })
 
