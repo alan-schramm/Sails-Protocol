@@ -273,7 +273,7 @@ jobs:
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
             # Authenticate only this push. Checkout credentials remain unpersisted.
-            git -c credential.helper='!f() { printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; }; f' push origin "refs/tags/$TAG"
+            git -c credential.helper='!f() { printf "username=x-access-token\npassword=%s\n" "$GH_TOKEN"; }; f' push origin "refs/tags/$TAG"
           fi
 
       - name: Reconcile registry before publish
