@@ -232,6 +232,27 @@ describe('#235 R7H-NF-E3C-5 B2 — atomic admission, trade-scoped Intents, lifec
     expect(await prisma.intent.count({ where: { participantId: taker.id } })).toBe(1)
   })
 
+  it('S5c FAILURE AFTER THE TRADE EVENTS ARE WRITTEN, BEFORE COMMIT: the trade, its Intent, its claim AND its events all roll back together', async () => {
+    pg.requirePostgres('B2-S5c')
+    const { offer } = await freshOffer('s5c')
+    const taker = await who('s5c-t')
+    const key = idemKey()
+    const { eventBus } = require('../../src/common/events/event-bus')
+    const real = eventBus.publishInTransaction.bind(eventBus)
+    let calls = 0
+    const spy = jest.spyOn(eventBus, 'publishInTransaction').mockImplementation(async (...args: any[]) => {
+      const dispatch = await real(...args)            // the events are written inside the transaction...
+      if (++calls === 2) throw new Error('simulated failure after the trade events were written') // ...then the unit fails
+      return dispatch
+    })
+    let res: any
+    try { res = await takeOffer(app, taker, offer.id, key) } finally { spy.mockRestore() }
+    expect(calls).toBe(2)
+    expect(res.statusCode).toBeGreaterThanOrEqual(500)
+    await expectNothingDurable(taker, offer.id, key)
+    expect(brief(await takeOffer(app, taker, offer.id, key))).toBe('201 ok') // and the key is reusable
+  })
+
   // ─── S6: crash after commit, restart, replay ──────────────────────────────────────────────────────────
 
   it('S6 CRASH AFTER COMMIT: a "restarted" module graph replays the key — same trade, no second trade or Intent — even after the offer was cancelled', async () => {
