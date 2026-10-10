@@ -3044,3 +3044,21 @@ model ExposureReservation {
   @@index([paymentAccountId])
   @@map("exposure_reservations")
 }
+
+// #235 R7H-NF-E3C-5 (D8) — append-only audit of legacy idempotency-claim reconciliation decisions
+// (src/modules/open-p2p/trade-claim-reconciliation.ts). One row per decision, resolved or not, with its evidence.
+// UPDATE and DELETE are refused by the database (migration 20261018130000_idempotency_reconciliation_audit).
+model IdempotencyReconciliationAudit {
+  id                String   @id @default(uuid())
+  claimId           String
+  scope             String
+  participantId     String
+  decision          String // MATCHED | AMBIGUOUS | NO_ATTRIBUTABLE_TRADE (CHECK constraint)
+  candidateTradeIds Json
+  evidence          Json
+  decidedBy         String
+  decidedAt         DateTime @default(now())
+
+  @@index([claimId])
+  @@map("idempotency_reconciliation_audit")
+}

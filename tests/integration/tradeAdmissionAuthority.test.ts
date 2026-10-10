@@ -222,7 +222,10 @@ describe('#235 R7H-E3C — canonical trade admission (real PostgreSQL)', () => {
     expect(res.statusCode).toBe(201)
     const trade = JSON.parse(res.body).data
     expect([trade.sellerId, trade.sellerPaymentAccountId]).toEqual([seller.id, acct.id])
-    expect((await prisma.intent.findUniqueOrThrow({ where: { id: o.intentId } })).status).toBe('NEGOTIATING')
+    // #235 R7H-NF-E3C-5 — RFC-018 Amendment A1 (CTO-approved retarget): the trade is NEGOTIATING through its OWN
+    // Intent; the offer's Intent is the advertisement's and is never transitioned by a trade.
+    expect((await prisma.intent.findUniqueOrThrow({ where: { id: trade.tradeIntentId } })).status).toBe('NEGOTIATING')
+    expect((await prisma.intent.findUniqueOrThrow({ where: { id: o.intentId } })).status).toBe('COORDINATED')
     expect((await escrowService.createEscrow(MULTISIG_ESCROW(trade), seller.id)).type).toBe('MULTISIG')
   })
 
@@ -361,13 +364,13 @@ describe('#235 R7H-E3C — canonical trade admission (real PostgreSQL)', () => {
     const other = await account(taker.id)
     await expect(tradeService.createTrade({ offerId: o.id, counterpartyId: taker.id, amount: '0.0005', idempotencyKey: key, paymentAccountHash: other.accountHash }))
       .rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/already used for a different request/) })
-    // A refused admission's key: its retry is refused again (the failed transaction committed nothing to recover).
+    // A refused admission's key: its retry is refused again, and — #235 R7H-NF-E3C-5 / D12 (CTO-approved: the claim now
+    // commits WITH the trade or not at all) — the refusal leaves NO claim row of any kind, not even a FAILED one.
     const refusedKey = idem()
     for (let i = 0; i < 2; i++) {
       await refusedWithoutEffects(o.id, [maker.id, taker.id], () => tradeService.createTrade({ offerId: o.id, counterpartyId: taker.id, amount: '0.0005', idempotencyKey: refusedKey }), 'UNBOUND_ACCOUNT')
     }
-    const [claim] = await prisma.$queryRaw<any[]>`SELECT status, "resultRef" FROM idempotency_keys WHERE key = ${refusedKey}`
-    expect([claim.status, claim.resultRef]).toEqual(['FAILED', null]) // bookkeeping only: no trade behind it
+    expect(await prisma.$queryRaw<any[]>`SELECT status FROM idempotency_keys WHERE key = ${refusedKey}`).toEqual([])
     expect(await prisma.trade.count({ where: { offerId: o.id } })).toBe(1)
   })
 

@@ -358,3 +358,77 @@ explicitly, mirroring production boot instead of relying on inline
 Core validation. `npm run build` clean, `npm test` 222/222 (no new
 tests needed — existing coverage already exercises every branch through
 the new indirection).
+
+
+---
+
+## Amendment A1 — Trade-scoped Intent (2026-10-10, #235 R7H-NF-E3C-5)
+
+**Corrigido/Implementado 2026-10-10** — this amendment corrects §Decision ("Every `Trade` gains a nullable `intentId`
+... copied from the accepted `Offer`" and "`createTrade()` ... walks the Intent through DISCOVERING -> MATCHED ->
+NEGOTIATING"). That text described an `Offer` as the thing that ends in one `Trade`; an `Offer` is a standing
+advertisement that admits many independent trades, and the Intent state machine (`core/state-machine.ts`) is
+single-shot. With one shared Intent, every trade after the first failed its post-commit Intent walk with an error
+for a trade that already existed, and any trade's lifecycle transition (cancel, escrow lock, settle, refund)
+rewrote the Intent every sibling trade depended on. Evidence: NF-E3C-5, scenarios S1–S11.
+
+### Offer Intent — the advertisement
+
+- Created with the Offer, unchanged (`liquidity.service.ts`). It represents the lifecycle of the **standing
+  advertisement**, never of an individual negotiation. It stays `COORDINATED` while the advertisement is open.
+- **No trade transitions it.** Its terminal states are the existing `CANCELLED` / `EXPIRED`. `Offer.status` remains the
+  only authority that admits (or stops admitting) trades; closing an offer never affects trades already admitted.
+- It cannot be cancelled through `DELETE /v1/intents/:id` while an Offer or a Trade references it (409
+  `INTENT_BOUND`): doing so bypassed the trade-cancellation guards (F-1).
+- `Offer.intentId` and `Trade.intentId` keep their published meaning: the originating Offer's Intent.
+
+### Trade Intent — one negotiation
+
+- Created **atomically with its trade**, in the same PostgreSQL transaction as the trade, its idempotency result and
+  its durable events (`trade-repository.ts` `admit()`), and referenced by the new `Trade.tradeIntentId` (nullable,
+  `UNIQUE`, foreign key `RESTRICT`, fixed at creation; migration `20261018120000_trade_scoped_intent`).
+- `type = TradeIntent`, `participantId` = the taker, `parentIntentId` = the Offer's Intent, `expiresAt = NULL` (a
+  trade's time authority is its escrow timelock and F8 expiry, not Intent expiry). Created already `NEGOTIATING`,
+  with the full approved walk recorded as hash-chained IntentEvents (CREATED -> VALIDATED -> COORDINATED ->
+  DISCOVERING -> MATCHED -> NEGOTIATING) and as durable `intent.*` events, triggered by `system:trade-admission`.
+  Creation is an internal, system-derived action: it needs no capability grant.
+- Its lifecycle is the trade's own and nothing else moves it: escrow lock -> `COMMITTED`, release/split ->
+  `SETTLING`/`FULFILLED`, refund -> `FAILED` (`common/events/handlers.ts`), cancellation -> `CANCELLED` (inside the
+  cancellation transaction, after the economic cancellation guards). It cannot be cancelled through the generic
+  Intents API.
+- State machine: unchanged. No new states or transitions.
+
+### Lookup
+
+`GET /v1/openp2p/trades/by-intent/:intentId` is scoped to the caller's own trades and deterministic: a trade's own
+Intent resolves to that trade for its buyer and seller; an Offer/legacy Intent resolves to the caller's trade when
+they are a party to exactly one, to **409 `AMBIGUOUS_INTENT`** (with only the caller's own trade ids) when to several,
+and to **404** otherwise (no other participant's trade is ever revealed). `findFirst` is gone.
+
+### Legacy (L1) — trades admitted before this amendment
+
+`tradeIntentId` is `NULL` for every historical trade and is **never back-filled**; no Intent history is fabricated.
+Their lifecycle keeps following the shared `intentId`, with one explicit, audited policy: when such a trade is
+cancelled — only after every existing economic cancellation guard passed, and only if it has no escrow of its own —
+the shared Intent is left untouched, and the decision recorded as the durable event
+`openp2p.trade.intent_unchanged`, when (a) another trade on the same Intent is still live, or (b) the Intent is
+already terminal. Any other combination keeps the pre-amendment behaviour: the transition is attempted and an Intent
+that cannot be cancelled refuses the **whole** cancellation with no durable effect (#235 R7G-B1).
+
+### Idempotency (CSC-1-R2, trade creation only)
+
+`openp2p.trade.create` no longer goes through `withIdempotency()`. Its claim is inserted already `COMPLETED` with its
+`resultRef` by `INSERT ... ON CONFLICT DO NOTHING` inside the admission transaction: a committed trade always has its
+claim, no `IN_PROGRESS` row is ever created in this scope, a refused admission leaves no claim at all, and the
+same-key waiter is resolved by the database. What happens after COMMIT (event dispatch, in-memory bookkeeping) is
+non-authoritative and can never become an error response for a committed trade. Legacy `IN_PROGRESS` claims are settled
+only by the conservative reconciliation (`trade-claim-reconciliation.ts`): exactly one independently attributable
+trade resolves a claim; anything else stays unresolved and replays as **409 `IDEMPOTENCY_OUTCOME_UNKNOWN`**, with
+every decision audited. Other `withIdempotency()` scopes are unchanged.
+
+### Known limitation (unchanged here)
+
+The Intent a TAKER creates through `createIntent()` / `proposeTrade()` (RFC-023) is a free-standing buyer-side Intent
+that no trade references (it tops out at `DISCOVERING`). `dispute(intentId)` / `releaseAsset(intentId)` therefore do not
+resolve a trade from it (404); use `trade.tradeIntentId`. Linking the two (`originIntentId`) is deliberately out of
+scope of this amendment.

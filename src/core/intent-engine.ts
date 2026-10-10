@@ -24,7 +24,7 @@
  * (`createIntentEngine(fakeRepo)` instead of `jest.mock('../common/database', ...)`)
  * with the real `intentEngine` export's own call sites unchanged.
  */
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { config } from '../config'
 import { ValidationError, NotFoundError, ForbiddenError, IntentBoundError } from '../common/errors'
@@ -90,6 +90,32 @@ export interface IntentEngine {
     eventName: K,
     eventPayload: SailsEventMap[K],
   ): Promise<() => Promise<void>>
+  /**
+   * #235 R7H-NF-E3C-5 (B2) — creates a system-derived, already-NEGOTIATING Intent inside the CALLER's transaction: the
+   * Intent a newly admitted trade owns. It records the full approved walk CREATED → VALIDATED → COORDINATED →
+   * DISCOVERING → MATCHED → NEGOTIATING as hash-chained IntentEvents and as durable `intent.*` events, all committed
+   * (or rolled back) with the caller's other writes. No capability check (an internal action, never a user request),
+   * no `expiresAt` (a trade's time authority is its escrow timelock / F8 expiry, not Intent expiry), and no financial
+   * sanity re-check (the trade's value is already bound by its offer's validated limits). `dispatch()` is for AFTER
+   * commit and never throws.
+   */
+  createInTransaction(tx: Prisma.TransactionClient, input: CreateIntentInTransactionInput): Promise<{ id: string; dispatch: () => void }>
+}
+
+export interface CreateIntentInTransactionInput {
+  /** Pre-generated so the caller can reference the Intent from rows it writes in the same transaction. */
+  id?: string
+  type: IntentType
+  payload: IntentPayload
+  participantId: string
+  parentIntentId?: string | null
+  /** Recorded as `triggeredBy` of every IntentEvent of the walk. */
+  triggeredBy: string
+  note?: string
+  metadata?: Record<string, unknown>
+  /** `intent.matched`'s candidate ids and `intent.negotiating`'s negotiation id. */
+  matchedCandidateIds: string[]
+  negotiationId: string
 }
 
 const handlers = new Map<IntentType, IntentHandler>()
@@ -301,6 +327,60 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
       )
 
       return coordinated as unknown as Intent<T>
+    },
+
+    async createInTransaction(tx, input) {
+      const structural = validateStructure(input.type, input.payload)
+      if (!structural.valid) {
+        throw new ValidationError('Malformed Intent rejected at entry boundary', structural.errors)
+      }
+      const id = input.id ?? randomUUID()
+      const moduleId = 'openp2p' // the only IntentType with a handler today; generalize with the IntentType registry
+      const walk: IntentStatus[] = ['CREATED', 'VALIDATED', 'COORDINATED', 'DISCOVERING', 'MATCHED', 'NEGOTIATING']
+      for (let i = 1; i < walk.length; i++) assertValidTransition(walk[i - 1], walk[i])
+
+      await tx.intent.create({
+        data: {
+          id,
+          type: input.type,
+          participantId: input.participantId,
+          moduleId,
+          parentIntentId: input.parentIntentId ?? null,
+          payload: input.payload as object,
+          status: 'NEGOTIATING' satisfies IntentStatus,
+          expiresAt: null,
+          metadata: (input.metadata ?? {}) as object,
+        },
+      })
+
+      // Hash-chained exactly like writeIntentEvent()/transitionInTransaction(): sha256(from|to|triggeredBy|prevHash),
+      // 'genesis' first. createdAt is set explicitly and strictly increasing: rows of one transaction would otherwise
+      // share a timestamp, and later transitions pick "the last event" by createdAt to extend the chain.
+      const base = Date.now()
+      let prevHash = 'genesis'
+      let from: IntentStatus | null = null
+      for (let i = 0; i < walk.length; i++) {
+        const to = walk[i]
+        const entryHash = createHash('sha256').update(`${from ?? ''}|${to}|${input.triggeredBy}|${prevHash}`).digest('hex')
+        await tx.intentEvent.create({
+          data: {
+            intentId: id, fromStatus: from, toStatus: to, triggeredBy: input.triggeredBy,
+            note: i === 0 ? input.note : undefined, prevHash, entryHash, createdAt: new Date(base + i),
+          },
+        })
+        prevHash = entryHash
+        from = to
+      }
+
+      const dispatch = await eventBus.publishInTransaction(tx, [
+        { eventName: 'intent.created', correlationId: id, payload: { intentId: id, type: input.type, participantId: input.participantId, moduleId, ...(input.parentIntentId ? { parentIntentId: input.parentIntentId } : {}) } },
+        { eventName: 'intent.validated', correlationId: id, payload: { intentId: id, participantId: input.participantId } },
+        { eventName: 'intent.coordinated', correlationId: id, payload: { intentId: id, targetModule: moduleId } },
+        { eventName: 'intent.discovering', correlationId: id, payload: { intentId: id } },
+        { eventName: 'intent.matched', correlationId: id, payload: { intentId: id, candidateIds: input.matchedCandidateIds } },
+        { eventName: 'intent.negotiating', correlationId: id, payload: { intentId: id, negotiationId: input.negotiationId } },
+      ])
+      return { id, dispatch }
     },
 
     async cancel(intentId, cancelledBy) {

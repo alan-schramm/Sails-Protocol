@@ -276,6 +276,18 @@ export interface ArbiterSlashedEvent {
   newReputation: number
 }
 
+// #235 R7H-NF-E3C-5 (L1) — a LEGACY trade (no tradeIntentId) was cancelled while the Offer Intent it shares with
+// sibling trades was deliberately left untouched. Durable audit of a decision, never a Intent transition: the Intent's
+// own history records nothing for it.
+export interface OpenP2PTradeIntentUnchangedEvent {
+  tradeId: string
+  intentId: string
+  intentStatus: string
+  reason: 'SHARED_INTENT_SIBLING_TRADES_LIVE' | 'SHARED_INTENT_ALREADY_TERMINAL'
+  liveSiblingTrades: number
+  triggeredBy: string
+}
+
 // ─── Negotiation primitive events — PROTOCOL_SPECIFICATION.md §1.4 ───────────
 export interface NegotiationOpenedEvent {
   tradeId: string
@@ -399,6 +411,7 @@ export interface SailsEventMap {
   // Sails OpenP2P — trade lifecycle
   'openp2p.trade.created': OpenP2PTradeCreatedEvent
   'openp2p.trade.status_changed': OpenP2PTradeStatusChangedEvent
+  'openp2p.trade.intent_unchanged': OpenP2PTradeIntentUnchangedEvent // L1 — legacy shared Intent left untouched
   'openp2p.trade.completed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.disputed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.cancelled': OpenP2PTradeStatusChangedEvent
@@ -547,6 +560,26 @@ export class SailsEventBus {
     listener: (event: import('./event-store').DurableEvent<K>) => void | Promise<void>
   ): void {
     this.store.subscribe(event, listener)
+  }
+
+  // #235 R7H-NF-E3C-5 — appends events to the durable log inside the CALLER's transaction and returns the
+  // post-commit `dispatch()`. Only the Postgres store can share a caller's transaction; any other store cannot make
+  // the events atomic with the caller's writes, so this fails closed rather than silently publishing late. The
+  // events appear in the durable log with the transaction (or not at all); dispatch is non-authoritative.
+  async publishInTransaction(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    events: Array<{ [K in SailsEventName]: { eventName: K; payload: SailsEventMap[K]; correlationId: string } }[SailsEventName]>,
+  ): Promise<() => void> {
+    if (!('publishInTransaction' in this.store)) {
+      throw new Error(`Event store '${this.store.storeName}' cannot publish inside a caller's transaction — atomic trade admission requires the PostgreSQL event store`)
+    }
+    const store = this.store as import('./event-store').PostgresEventStore
+    const dispatches: Array<() => void> = []
+    for (const e of events) {
+      const { dispatch } = await store.publishInTransaction(tx, e.eventName, e.payload as never, e.correlationId)
+      dispatches.push(dispatch)
+    }
+    return () => { for (const d of dispatches) d() }
   }
 
   // Issue #298 - re-drive an ALREADY-persisted durable event to this instance's local handlers

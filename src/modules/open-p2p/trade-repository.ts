@@ -44,6 +44,7 @@
  * comment: "cross-module read is fine, cross-module write requires the
  * owning module's abstraction" applied evenly to same-module reads too.
  */
+import { randomUUID } from 'crypto'
 import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType, TradeStatus } from '../../common/types'
@@ -87,7 +88,47 @@ export interface CreateTradeData {
   escrowRail?: { type: EscrowType; asset: AssetType } | null
 }
 
+/** The idempotency scope of trade creation (idempotency_keys.scope). */
+export const TRADE_CREATE_SCOPE = 'openp2p.trade.create'
+
+/** A committed or legacy-stuck idempotency claim row for a trade creation request. */
+export interface AdmissionClaim {
+  id: string
+  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'UNKNOWN'
+  requestHash: string
+  resultRef: string | null
+  createdAt: Date
+}
+
+/**
+ * #235 R7H-NF-E3C-5 — everything the ATOMIC ADMISSION UNIT needs. One PostgreSQL transaction holds, in this order:
+ * (1) the idempotency claim, inserted already COMPLETED with its result reference; (2) `beforeTrade` — the trade's own
+ * Intent and its durable events, written by the service's callback; (3) the Trade; (4) the unchanged E3C admission
+ * check (`escrow_economic_binding_violation`); (5) `afterAdmission` — the trade/negotiation durable events. A refusal
+ * at any step rolls ALL of it back: no claim, no Intent, no trade, no event. After COMMIT the caller dispatches.
+ */
+export interface AdmitTradeInput extends CreateTradeData {
+  /** Absent: no idempotency key was given, so there is no claim row (the rest of the unit is unchanged). */
+  claim?: { participantId: string; key: string; requestHash: string }
+  /** Writes the trade's own Intent (and its durable events) in `tx`; returns its id and the post-commit dispatch. */
+  beforeTrade(tx: Prisma.TransactionClient, ctx: { tradeId: string }): Promise<{ tradeIntentId: string; dispatch: () => void }>
+  /** Writes the trade's durable events in `tx` once the trade passed admission; returns the post-commit dispatch. */
+  afterAdmission(tx: Prisma.TransactionClient, trade: TradeRow): Promise<{ dispatch: () => void }>
+}
+
+export type AdmitTradeResult =
+  /** `dispatches` run AFTER commit, each independently; the caller owns the failure boundary (non-authoritative). */
+  | { kind: 'ADMITTED'; trade: TradeRow; dispatches: Array<() => void> }
+  /** The key already has a claim (committed by another request, or a legacy row): nothing was written. */
+  | { kind: 'EXISTING_CLAIM'; claim: AdmissionClaim }
+
 export interface TradeRepository {
+  /** The claim row for (caller, key) in the trade-creation scope, if any — read BEFORE validation so a replay is never re-validated. */
+  findAdmissionClaim(participantId: string, key: string): Promise<AdmissionClaim | null>
+
+  /** The atomic admission unit — see AdmitTradeInput. */
+  admit(input: AdmitTradeInput): Promise<AdmitTradeResult>
+
   /** createTrade()'s own Offer existence check — see this file's header comment for why an Offer read lives on TradeRepository rather than a separate repository. */
   findOfferById(offerId: string): Promise<OfferRow | null>
 
@@ -177,6 +218,85 @@ const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
 class PrismaTradeRepository implements TradeRepository {
   async findOfferById(offerId: string) {
     return prisma.offer.findUnique({ where: { id: offerId } })
+  }
+
+  async findAdmissionClaim(participantId: string, key: string): Promise<AdmissionClaim | null> {
+    const [row] = await prisma.$queryRaw<Array<AdmissionClaim>>`
+      SELECT id, status::text AS status, "requestHash", "resultRef", "createdAt"
+      FROM idempotency_keys
+      WHERE scope = ${TRADE_CREATE_SCOPE} AND "participantId" = ${participantId} AND key = ${key}`
+    return row ?? null
+  }
+
+  async admit(input: AdmitTradeInput): Promise<AdmitTradeResult> {
+    const tradeId = randomUUID()
+    const rail = input.escrowRail
+    return prisma.$transaction(async (tx) => {
+      // (1) The claim FIRST, as INSERT ... ON CONFLICT DO NOTHING: a unique-key conflict inside a PostgreSQL
+      // transaction aborts it (25P02 for every following statement), so a conflict must never be an exception here.
+      // If another transaction owns the key this statement WAITS for it, then returns no row: its committed result
+      // is read, nothing of ours was written, and the (empty) transaction ends — the caller recovers or refuses.
+      if (input.claim) {
+        const { participantId, key, requestHash } = input.claim
+        const inserted = await tx.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO idempotency_keys (id, scope, "participantId", key, "requestHash", status, "resultRef", "completedAt")
+          VALUES (${randomUUID()}, ${TRADE_CREATE_SCOPE}, ${participantId}, ${key}, ${requestHash},
+                  'COMPLETED'::"IdempotencyKeyStatus", ${tradeId}, now())
+          ON CONFLICT (scope, "participantId", key) DO NOTHING
+          RETURNING id`
+        if (inserted.length === 0) {
+          const [existing] = await tx.$queryRaw<AdmissionClaim[]>`
+            SELECT id, status::text AS status, "requestHash", "resultRef", "createdAt"
+            FROM idempotency_keys
+            WHERE scope = ${TRADE_CREATE_SCOPE} AND "participantId" = ${participantId} AND key = ${key}`
+          if (!existing) throw new Error(`Idempotency claim for key '${key}' vanished during trade admission`)
+          // A claim an old-code request marked FAILED (its persist() threw before any trade existed) is reclaimed
+          // for this attempt, atomically with it — the same semantics as the legacy reclaimFailed().
+          if (existing.status !== 'FAILED' || existing.requestHash !== requestHash) {
+            return { kind: 'EXISTING_CLAIM', claim: existing } as const
+          }
+          const reclaimed = await tx.$queryRaw<Array<{ id: string }>>`
+            UPDATE idempotency_keys
+            SET status = 'COMPLETED'::"IdempotencyKeyStatus", "resultRef" = ${tradeId}, "completedAt" = now()
+            WHERE id = ${existing.id} AND status = 'FAILED'::"IdempotencyKeyStatus"
+            RETURNING id`
+          if (reclaimed.length === 0) return { kind: 'EXISTING_CLAIM', claim: { ...existing, status: 'IN_PROGRESS' } } as const
+        }
+      }
+
+      // (2) The trade's own Intent (FK target of trades.tradeIntentId) and its durable events.
+      const intent = await input.beforeTrade(tx, { tradeId })
+
+      // (3) The trade, with its originating Offer Intent (`intentId`) and its own (`tradeIntentId`).
+      const trade = await tx.trade.create({
+        data: {
+          id: tradeId,
+          offerId: input.offerId,
+          buyerId: input.buyerId,
+          sellerId: input.sellerId,
+          asset: input.asset,
+          amount: input.amount,
+          priceUsd: input.priceUsd,
+          totalUsd: input.totalUsd,
+          network: input.network,
+          intentId: input.intentId,
+          tradeIntentId: intent.tradeIntentId,
+          sellerPaymentAccountId: input.sellerPaymentAccountId ?? null,
+        },
+      })
+
+      // (4) The unchanged E3C admission check (the E3 authority, on the uncommitted row). A violation aborts the
+      // whole unit: the claim, the Intent, the trade and every event above are rolled back together.
+      if (rail) {
+        const [admission] = await tx.$queryRaw<Array<{ violation: string | null }>>`
+          SELECT escrow_economic_binding_violation(${tradeId}, ${rail.type}::"EscrowType", ${rail.asset}::"AssetType") AS violation`
+        if (admission?.violation) throw tradeAdmissionRefused(admission.violation)
+      }
+
+      // (5) The trade's durable events. Committed with the trade, dispatched after.
+      const events = await input.afterAdmission(tx, trade)
+      return { kind: 'ADMITTED', trade, dispatches: [intent.dispatch, events.dispatch] } as const
+    })
   }
 
   async create(input: CreateTradeData) {

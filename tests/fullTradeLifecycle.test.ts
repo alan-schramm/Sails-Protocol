@@ -294,6 +294,10 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     user: users,
     trade: trades,
     vouch: vouches,
+    // #235 R7H-NF-E3C-5 - trade admission creates the trade's OWN Intent (and its IntentEvents) in this transaction;
+    // the same real in-memory tables the rest of the flow reads, so a later lifecycle transition sees them.
+    intent: intents,
+    intentEvent: intentEvents,
     $executeRaw: jest.fn().mockResolvedValue(0),
     // The ruling path's SELECT ... FOR UPDATE of the dispute it displaces, answered from the same fake table.
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -497,7 +501,14 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
       amount: '20',
     })
     expect(trade.intentId).toBe(offer.intentId)
-    expect(intents.rows.get(offer.intentId)?.status).toBe('NEGOTIATING')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('NEGOTIATING')
+    // #235 R7H-NF-E3C-5 — RFC-018 Amendment A1 (CTO-approved retarget of the Intent assertions in this file): the
+    // trade's lifecycle is carried by ITS OWN Intent (tradeIntentId, parented to the offer's); the offer's Intent
+    // is the advertisement's and no trade ever transitions it.
+    expect(trade.tradeIntentId).toBeTruthy()
+    expect(trade.tradeIntentId).not.toBe(offer.intentId)
+    expect(intents.rows.get(trade.tradeIntentId)?.parentIntentId).toBe(offer.intentId)
+    expect(intents.rows.get(offer.intentId)?.status).toBe('COORDINATED')
 
     // 6-8. Escrow locks, (emulated) PIX payment happens, settlement
     // finalizes — the real orchestrator, the same function
@@ -528,7 +539,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     // The Intent this whole chain started from reached its own real
     // terminal state — not left behind by any of the 4 modules it passed
     // through (RFC-018's entire point).
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FULFILLED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FULFILLED')
   })
 
   it('a dispute raised after escrow locks resolves through the real chain — proves the Trade.escrowId fix end to end', async () => {
@@ -560,7 +571,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
 
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
 
     const disputeService = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
     const dispute = await disputeService.raiseDispute(trade.id, 'buyer-1', 'PIX payment never arrived')
@@ -574,7 +585,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(resolved.status).toBe('RESOLVED')
     expect(escrows.rows.get(escrow.id)?.status).toBe('REFUNDED')
     expect(trades.rows.get(trade.id)?.status).toBe('CANCELLED')
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FAILED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FAILED')
 
     // RFC-007 D9 — a REFUND ruling means the seller won, the buyer lost.
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
@@ -646,7 +657,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(0)
     expect(users.rows.get('seller-1')?.reputationScore).toBe(0)
 
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FULFILLED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FULFILLED')
   })
 })
 
@@ -684,7 +695,7 @@ describe('Event replay / idempotency — durable-event redelivery must never dup
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, lockedAmount: '20', asset: 'USDT_ERC20' }, 'seller-1')
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
 
     // Redeliver the exact same event a second time — simulates a durable
     // queue's at-least-once retry, not something this test fabricates
@@ -699,7 +710,7 @@ describe('Event replay / idempotency — durable-event redelivery must never dup
     // subscribe() catches and logs it (console.error, expected in this
     // test's output), and the Intent is left exactly where it was.
     // Protected by construction, not by anything built for this test.
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
   })
 
   it('INVARIANT (Issue #298, was the "BAD known gap"): the SAME durable settlement.escrow.released event redelivered N times - including concurrently and by a second consumer - applies each additive effect exactly once', async () => {

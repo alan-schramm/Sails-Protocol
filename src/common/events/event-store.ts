@@ -524,6 +524,48 @@ export class PostgresEventStore implements EventStore {
 
   // Issue #298 - see SailsEventBus.redeliver(). Local dispatch only: the event was already published
   // (durable row + cross-instance signal) when it was first emitted.
+  /**
+   * #235 R7H-NF-E3C-5 — appends one durable event INSIDE the caller's transaction (same per-correlation advisory lock
+   * and hash chain as publish(), which is deliberately left untouched). The row commits or rolls back with the
+   * caller's other writes; nothing is dispatched here. The returned `dispatch()` is called by the caller AFTER commit
+   * and is non-authoritative: the event is already durable, so a handler failure is logged and never thrown.
+   * Intended for transaction-owned, per-new-correlation events (a trade's creation), which carry no `transitionId`.
+   */
+  async publishInTransaction<K extends SailsEventName>(
+    tx: Prisma.TransactionClient,
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string,
+  ): Promise<{ eventId: string; dispatch: () => void }> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+    const last = await tx.durableEventRecord.findFirst({ where: { correlationId }, orderBy: { publishedAt: 'desc' } })
+    const prevHash = last?.entryHash ?? GENESIS_HASH
+    let publishedAt = new Date().toISOString()
+    if (last && publishedAt <= last.publishedAt) {
+      publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+    }
+    const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+    const eventId = uuidv4()
+    await tx.durableEventRecord.create({
+      data: { id: eventId, eventName, correlationId, payload: payload as unknown as Prisma.InputJsonValue, publishedAt, entryHash, prevHash },
+    })
+    const event: DurableEvent<K> = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+    const dispatch = () => {
+      try {
+        this.emitter.emit(eventName, event)
+      } catch (err) {
+        log.error({ msg: 'Post-commit event dispatch failed (the event is durable; not an operation failure)', eventName, eventId, correlationId, err: err instanceof Error ? err.message : String(err) })
+      }
+      if (this.crossInstancePublisher) {
+        const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+        this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
+          log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+        })
+      }
+    }
+    return { eventId, dispatch }
+  }
+
   async redeliver(eventId: string): Promise<boolean> {
     const row = await this.client.durableEventRecord.findUnique({ where: { id: eventId } })
     if (!row) return false

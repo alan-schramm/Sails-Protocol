@@ -342,7 +342,19 @@ export class SailsOpenP2PModule {
     return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`, undefined, true);
   }
 
-  /** Requires an active session — same fix as getTrade() above. RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
+  /**
+   * Requires an active session — same fix as getTrade() above. RFC-018's intentId link, exposed directly — the same
+   * lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced.
+   *
+   * #235 R7H-NF-E3C-5 — the lookup is scoped to the CALLER's own trades and is deterministic:
+   * - a trade's own Intent (`trade.tradeIntentId`) resolves to that trade for its buyer and its seller;
+   * - an Offer Intent (`trade.intentId`, shared by every trade taken from that offer) resolves to the caller's trade
+   *   if they are a party to exactly one;
+   * - several (typically the maker of a popular offer) → `SailsError` with `code: 'AMBIGUOUS_INTENT'`, statusCode 409,
+   *   and `error.details.tradeIds` listing only the caller's own trade ids — resolve one by `tradeIntentId` or by id;
+   * - none, or an Intent the caller has no trade on → `SailsNotFoundError` (404): another participant's trades are
+   *   never revealed, not even their existence.
+   */
   async getTradeByIntent(intentId: string): Promise<Trade> {
     return this.transport.get<Trade>(
       `/v1/openp2p/trades/by-intent/${intentId}`,

@@ -129,6 +129,21 @@ export class IntentBoundError extends AppError {
   }
 }
 
+// #235 R7H-NF-E3C-5 (D8) — a legacy `openp2p.trade.create` idempotency claim left IN_PROGRESS by a process that
+// died (or by an old-code request still in flight) whose outcome cannot be established from durable evidence. The
+// request is neither confirmed nor refused: the caller must NOT treat it as failed, nor blindly start a new one.
+// `candidateTradeIds` are only trades the claim's own owner (the caller) is a party to.
+export class IdempotencyOutcomeUnknownError extends AppError {
+  constructor(key: string, candidateTradeIds: string[]) {
+    super(
+      `The outcome of the request with idempotency key '${key}' is not known: it may or may not have created a trade. Check your trades before retrying with a new key.`,
+      409,
+      'IDEMPOTENCY_OUTCOME_UNKNOWN',
+      { candidateTradeIds },
+    )
+  }
+}
+
 // #235 R7H-NF-E3C-5 (F-7) — an Offer/legacy Intent shared by several of the CALLER's own trades does not identify
 // one of them. `details.tradeIds` holds only trades the caller is a party to; nothing about other participants.
 export class AmbiguousIntentError extends AppError {

@@ -104,6 +104,18 @@ export interface Trade {
   cancelledAt: string | null
   /** #235 R7C — the seller's PaymentAccount bound to this trade (internal id); null if none was declared. */
   sellerPaymentAccountId?: string | null
+  /**
+   * RFC-018 — the Intent of the Offer this trade was taken from. Shared by every trade of that offer (and, for trades
+   * admitted before RFC-018 Amendment A1, the Intent that carried their lifecycle): do not use it to identify one trade.
+   */
+  intentId?: string | null
+  /**
+   * #235 R7H-NF-E3C-5 (RFC-018 Amendment A1) — this trade's OWN Intent, created atomically with it: independent of every
+   * other trade on the same offer, never reused. `null` / absent for trades admitted before the amendment (their
+   * lifecycle follows `intentId`; nothing is back-filled). Prefer it for `intent-facade` calls (`dispute`,
+   * `releaseAsset`) and `openp2p.getTradeByIntent`: it resolves to exactly this trade for either party.
+   */
+  tradeIntentId?: string | null
   createdAt: string
   updatedAt: string
   // Only populated by openp2p.getTrade() (GET /v1/openp2p/trades/:id) —

@@ -47,7 +47,7 @@ type OfferForTrade = { id: string; userId: string; side: string; asset: string; 
  * (the escrow trigger, attestation, the trust ramp) still need such a trade, as it exists from before E3C. This first
  * proves a new admission of it is refused with `code` and leaves no trade, then plants exactly what the pre-E3C
  * service committed: the same row (parties, amount, price, network, intent, binding) by a direct insert, followed by
- * the service's own unchanged post-commit step (events, the offer Intent's walk to NEGOTIATING, the negotiation).
+ * the pre-B2 post-commit step (events, the offer Intent's walk to NEGOTIATING, the negotiation — legacyPostCommit()).
  * A historical fixture scoped to that one trade; no guard is lifted (no trigger guards a trade insert).
  */
 export async function refusedThenHistoricalTrade(
@@ -71,8 +71,36 @@ export async function refusedThenHistoricalTrade(
       sellerPaymentAccountId,
     },
   })
-  await (tradeService as { postPersistTrade(input: unknown, trade: unknown): Promise<void> }).postPersistTrade({ offerId: offer.id, counterpartyId: takerId, amount }, trade)
+  await legacyPostCommit(trade, takerId)
   return trade
+}
+
+/**
+ * The post-commit step the service ran for every trade BEFORE #235 R7H-NF-E3C-5 (B2): the trade-created event, the walk
+ * of the OFFER's shared Intent to NEGOTIATING, and the negotiation opening. B2 no longer does this (each trade is born
+ * with its own Intent, atomically); a historical-trade fixture reproduces it so the downstream guard under test sees
+ * exactly the state such a trade really had. The Intent is walked only if still COORDINATED (a second historical
+ * trade on one offer finds it already past that — which was the pre-B2 defect, not something to re-create).
+ */
+async function legacyPostCommit(trade: any, takerId: string): Promise<void> {
+  const { eventBus } = require('../../src/common/events/event-bus')
+  const { intentEngine } = require('../../src/core/intent-engine')
+  const { negotiationService } = require('../../src/modules/open-p2p/negotiation.service')
+  await eventBus.emit('openp2p.trade.created', {
+    tradeId: trade.id, offerId: trade.offerId, buyerId: trade.buyerId, sellerId: trade.sellerId,
+    asset: trade.asset, amount: trade.amount.toString(), priceUsd: trade.priceUsd.toString(),
+  }, trade.id)
+  if (trade.intentId) {
+    const { prisma } = require('../../src/common/database')
+    const intent = await prisma.intent.findUnique({ where: { id: trade.intentId } })
+    if (intent?.status === 'COORDINATED') {
+      const by = 'system:trade-lifecycle'
+      await intentEngine.transition(trade.intentId, 'DISCOVERING', by, 'intent.discovering', { intentId: trade.intentId })
+      await intentEngine.transition(trade.intentId, 'MATCHED', by, 'intent.matched', { intentId: trade.intentId, candidateIds: [takerId] })
+      await intentEngine.transition(trade.intentId, 'NEGOTIATING', by, 'intent.negotiating', { intentId: trade.intentId, negotiationId: trade.id })
+    }
+  }
+  await negotiationService.open(trade.id, trade.buyerId, trade.sellerId)
 }
 
 /** Fixture accounts are removed after the trades and offers that reference them, before their owners. */
