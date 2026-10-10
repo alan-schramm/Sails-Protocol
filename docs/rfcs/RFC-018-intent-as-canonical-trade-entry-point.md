@@ -436,6 +436,31 @@ result. `trade-claim-reconciliation.ts` only observes: it appends at most one im
 (the database refuses any other decision) and has no operator override. A claim is resolved only by durable causal
 evidence written by the code that created the trade, which is what the atomic admission above does.
 
+### Technical freeze — audited B2 scope (CTO, 2026-10-10)
+
+The CTO approved a **technical freeze of the audited B2 scope** at implementation HEAD
+`c51b8bb8da47048fac7fce8968e45c51950d1df9` (PR #432, DRAFT, unmerged; exact-head CI run 38066511891, success).
+Evidence: the independent Gate A–G security audit and the Gate C re-audit
+(`READY_FOR_CTO_R7H_NF_E3C_5_B2_GATE_C_FINAL_REAUDIT`: Gate C PASS; material findings C-M1 and C-M2 closed with executable
+PostgreSQL evidence). This is **not** a merge, a deployment, an E3 global freeze or an E4 authorization, and it does not
+close #235. Residual findings are registered in `docs/BACKLOG.md` ("B2 technical freeze and residual findings register");
+deployment prerequisites are in `docs/DEPLOYMENT.md` section 2.2. Commits added to this branch after the audited HEAD are
+documentation only.
+
+Frozen invariants. **Any change to one of them requires a new explicit CTO decision.**
+
+1. The standing Offer Intent is not transitioned by independent trades.
+2. Every newly admitted trade has its own Trade Intent.
+3. The claim, the Trade Intent, its IntentEvents, the durable events, the Trade and the economic-binding validation form
+   one atomic PostgreSQL admission unit.
+4. A same-key retry returns only an outcome supported by durable evidence.
+5. Legacy `IN_PROGRESS` claims without causal proof remain unresolved.
+6. No inferred MATCHED, no fabricated FAILED, no duplicate trade on replay.
+7. An unresolved legacy claim returns `409 IDEMPOTENCY_OUTCOME_UNKNOWN`.
+8. Candidate trade hints are caller-scoped and non-authoritative.
+9. Intent deletion and by-Intent lookup preserve the F-1 / F-7 authorization.
+10. Historical shared-Intent trades remain legacy; there is no speculative backfill.
+
 ### Known limitation (unchanged here)
 
 The Intent a TAKER creates through `createIntent()` / `proposeTrade()` (RFC-023) is a free-standing buyer-side Intent

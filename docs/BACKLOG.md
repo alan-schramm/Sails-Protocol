@@ -5911,3 +5911,52 @@ Canonical invariants:
 A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONAL / FUTURE only. If operated later, it is one additional ecosystem participant, never a mandatory calendar, central timestamp authority, interoperability gate, or Day-0 dependency.
 
 **Implementation/evidence remains open.** This entry freezes the required property; it does not claim the current implementation already satisfies multi-calendar redundancy.
+
+## B2 technical freeze and residual findings register (#235 R7H-NF-E3C-5, 2026-10-10)
+
+**Status: B2 AUDITED SCOPE TECHNICALLY FROZEN — NOT MERGED, NOT DEPLOYED, #235 NOT CLOSED, R7H/E3 NOT COMPLETE, E4 NOT AUTHORIZED.**
+
+Record of the CTO decision after the independent Opus 5.5 security audit (Gates A–G) and the Gate C re-audit
+(`READY_FOR_CTO_R7H_NF_E3C_5_B2_GATE_C_FINAL_REAUDIT`).
+
+- Frozen implementation HEAD: `c51b8bb8da47048fac7fce8968e45c51950d1df9` (PR #432, DRAFT, base `fix/235-r7h-e3-seller-payment-binding`).
+  Exact-head CI run 38066511891: success (unit lane 192 suites / 2989 tests; PostgreSQL lane 84 suites / 1096 tests).
+- The ten frozen invariants: `docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`, Amendment A1, "Technical freeze".
+- Deployment prerequisites (mandatory, **not satisfied**): `docs/DEPLOYMENT.md` section 2.2.
+- This entry registers findings only. It authorizes no implementation. Nothing here changes an earlier entry's status.
+
+**What remains of #235 (verified against the code, 2026-10-10).** The original defect "the computed payment-account trade
+limit is not enforced" is **still open in production code**: E1 delivered the schema, E2 the canonical quote authority and
+E3/E3C/B2 the seller binding and the atomic admission, but no production path writes `exposure_reservations`,
+`readAuthorizationQuote()` has no production consumer, and `computeTradeLimit()` is only surfaced read-only. Owner-wide caps
+and fiat/reorg accounting are named in the R7H-E1 CHANGELOG entry as later slices.
+
+### Residual findings
+
+Severity is preserved exactly as the audit assigned it; nothing was downgraded. "Next gate" is the owner and the point at
+which the finding must be closed or consciously accepted.
+
+| ID | Severity | Class | Provenance | Scope and evidence | Owner / next gate |
+|---|---|---|---|---|---|
+| **B-1** | **Medium** | Defect, pre-existing | Audit Gate B. Reproduced identically on the pre-B2 baseline `3ef9959`: not introduced by B2. | An offer set to CANCELLED or PAUSED after validation, and also inside the admission transaction, still admits the trade (201); `escrow_economic_binding_violation()` never reads `offers.status`. `trade.service.ts` `prepareAdmission`, `trade-repository.ts` `admit`, `liquidity.service.ts` `updateOfferStatus`. | Separate mission. **Must be resolved and verified before production exposure** (deployment prerequisite 4). |
+| D-L1 | Low | Defect (legacy trades only) | Audit Gate D | `trade.service.ts` `updateStatus`, L1: the live-sibling count is not serialized. The last two live siblings cancelled concurrently both SKIP, leaving the shared Intent non-terminal with zero live trades (12/15 natural runs). No economic effect: every economic cancellation guard precedes L1. | Separate hardening mission. |
+| D-L2 | Low | Policy decision (consequence of the frozen L1 policy) | Audit Gate D | A legacy trade with its own unfunded (`CREATED`) escrow never skips: cancelling it moves the shared Intent to CANCELLED while a sibling is ACTIVE; when a sibling already committed the shared Intent, the cancellation is refused. No economic effect (escrow handlers tolerate it). | **Requires a CTO policy decision** (own escrow by existence vs by funded state). |
+| G-L1 | Low | Hardening, database | Audit Gate G | Trigger `trades_enforce_trade_intent_integrity` guards only one direction. A direct INSERT of a trade whose `intentId` is another trade's own Intent is accepted, and cancelling that row cancels the other trade's Intent; a direct UPDATE of `intentId` is accepted. No application path. | Separate B2-owned hardening mission. It blocks the freeze only if the CTO requires bidirectional database enforcement. |
+| A-L1 | Low | Defect, error semantics | Audit Gate A | Concurrent reclaim of a legacy FAILED claim: the losers get a synthetic IN_PROGRESS and 409 `IDEMPOTENCY_OUTCOME_UNKNOWN` although the winner committed (1x201 + 3x409; a retry returns 201). Not a false definitive failure. `trade-repository.ts` `admit`. | Separate small mission. |
+| C-L2 | Low (conditional on a non-UTC session) | Hardening | Audit Gate A/C; classified in the re-audit | `trade-repository.ts` `admit`: the claim INSERT omits `createdAt` (database default) and uses `now()` for `completedAt` (also on the FAILED reclaim). Measured +50 400 s / -43 200 s from the trade under UTC+14 / UTC-12 sessions. No decision reads these columns for B2 rows (forensic only). The reconciliation path was already corrected. | Deployment condition (prerequisite 3) plus an optional hardening mission. |
+| G-C1 | Deployment condition | Operations | Audit Gate G | Pre-B2 instances move the *offer* Intent for B2 trades (`trade.intentId` lifecycle) and keep writing legacy trades and claims. | Deployment prerequisite 1. |
+| R-1 | Deployment condition | Operations | Re-audit | Migration `20261018140000` is forward-only. A database where a pre-corrective build ran keeps its inferred attributions; the corrected build's replay returns the inferred trade. Reproduced on a mixed database (2 MATCHED rows survive; `VALIDATE CONSTRAINT` is refused). | Deployment prerequisite 2. The expected count is 0 because the PR was never merged; **no environment was verified.** |
+| R-2 | Deployment condition | Operations | Re-audit | A stale pre-corrective instance cannot persist an inference (the database refuses MATCHED, `23514`) but answers 500. | Deployment prerequisite 1. |
+| R-3 | Informational | Documentation | Re-audit | The manual rollback comment in migration `20261018140000` fails once any `UNRESOLVED` row exists. | Correct (new migration or runbook; the applied file is not edited) before anyone relies on rollback. |
+| R-4 | Informational | Test practice | Re-audit | `jest.spyOn(prisma, '$executeRaw')` also captures `tx.$executeRaw` and runs it through the bound original **outside** the transaction (the row survives a rollback). The two spies in `tradeClaimReconciliation.test.ts` target the transaction-free observation path, so their evidence is valid. | Test guidance for future missions; not to be used to test transactional code. |
+| R-5 | Informational | Design note | Re-audit | Unverified candidate hints are caller-owned and non-authoritative but not scoped to the claim's offer. No isolation breach. | CTO may refine; no action required. |
+| R-6 | Informational | Operability | Re-audit | The observation path has no statement timeout: with the audit table locked for 3 s the replay waited 3 011 ms and returned the same 409. | Optional hardening. |
+| **ST-1** | **Medium (merge integrity; impact not assessed)** | Process / dependency | Found while preparing this freeze, 2026-10-10 | The 24-PR draft stack under #432 (#392 ... #432) rests on the branch `fix/244-stale-dispute-cleanup-signature-race` (head `d644c15`), the head of PR #390, which was **closed without merge** as superseded by the authoritative restack **#391** (`4a9239c`). #391's head is not contained in that branch (12 commits only in #391, 1 only in the closed branch). Three non-test files differ: `src/modules/open-settlement/dispute-pending-reconciliation.ts`, `src/modules/open-settlement/escrow-pending-tx.ts` and `package.json`; the #432 head carries the **closed branch's** `dispute-pending-reconciliation.ts`. `main` has not moved since 2026-09-21 and is 117 commits behind #432. | **CTO / Gatekeeper decision** before any merge ordering is planned; outside the B2 scope. |
+
+### Existing tracking checked (no duplicate created)
+
+- `docs/BACKLOG.md` contained no R7G / R7H / #235 entry other than the original trade-limit enforcement owner (Day-0 benchmark
+  hypothesis 9); this register is the only place that follows the R7H chain.
+- GitHub issue search for the finding keywords returned no tracker for any item above. The closest are #235 (owner of the
+  trade-limit enforcement defect, not closed) and #293 (lifecycle timers, no-show/griefing and basic trade-safety gaps).
+  No issue was created or modified by this record.

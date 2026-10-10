@@ -119,6 +119,10 @@ All notable changes to this project will be documented in this file.
       observations, at most one per claim, enforced by the database (migration
       `20261018140000_legacy_claim_unresolved_only`); there is no operator override. Every time comparison on this
       path is UTC-explicit, so the database session time zone cannot change what is observed or gated.
+    - **Technical freeze (CTO, 2026-10-10).** The audited B2 scope is frozen at `c51b8bb8da47048fac7fce8968e45c51950d1df9`: the ten invariants are
+      recorded in RFC-018 Amendment A1, the residual findings in `docs/BACKLOG.md`, and the deployment prerequisites
+      (not satisfied) in `docs/DEPLOYMENT.md` section 2.2. Not a merge, a deployment, an E3 global freeze or an E4
+      authorization; #235 stays open.
     - **Tests.** RFC-018 A1 retargets, as approved: the Intent assertions of `fullTradeLifecycle` and `routes.test`
       follow the trade's own Intent; the E3C refusal test expects no claim row. New real-PostgreSQL suites:
       `intentBindingAndLookup`, `tradeIntentSchema`, `tradeIntentAtomicAdmission`, `tradeClaimReconciliation` (after
