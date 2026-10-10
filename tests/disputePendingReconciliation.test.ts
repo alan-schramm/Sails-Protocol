@@ -34,6 +34,8 @@ jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
 const mockPendingFindMany = jest.fn()
 const mockPendingDelete = jest.fn()
 const mockPendingStillThere = jest.fn()
+const mockDisputeFindUnique = jest.fn()
+const mockCommittedFindUnique = jest.fn()
 const mockLock = jest.fn().mockResolvedValue(0)
 const mockDisputeFindFirst = jest.fn()
 jest.mock('../src/common/database', () => ({
@@ -50,6 +52,8 @@ jest.mock('../src/common/database', () => ({
         deleteMany: (...args: unknown[]) => mockPendingDelete(...args),
         findUnique: (...args: unknown[]) => mockPendingStillThere(...args),
       },
+      dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args) },
+      economicDispositionAuthorization: { findUnique: (...args: unknown[]) => mockCommittedFindUnique(...args) },
     }),
   },
 }))
@@ -66,12 +70,15 @@ function pendingFixture(overrides: Record<string, any> = {}) {
     unsignedPsbtBase64: 'unsigned-psbt-b64',
     createdAt: SIX_MIN_AGO,
     signatures: [],
+    disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1',
+    rulingOutcome: 'RELEASE', rulingAuthoritySignature: 'authority-1',
+    rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z'),
     escrow: { id: 'escrow-1', type: 'MULTISIG' },
     ...overrides,
   }
 }
 
-const RESOLVED_DISPUTE = { id: 'dispute-1', escrowId: 'escrow-1', status: 'RESOLVED', appealRound: 0 }
+const RESOLVED_DISPUTE = { id: 'dispute-1', escrowId: 'escrow-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'authority-1' }
 const RULING_ROW_WITH_OUTCOME = { outcomeContent: { ruling: 'RELEASE' } }
 const FAKE_RECORD_WITH_OUTCOME = { outcome: { content: { ruling: 'RELEASE' } } }
 
@@ -81,10 +88,12 @@ beforeEach(() => {
   mockLoadDisputeRulingRecord.mockResolvedValue(RULING_ROW_WITH_OUTCOME)
   mockFromDisputeRulingRow.mockReturnValue(FAKE_RECORD_WITH_OUTCOME)
   mockPendingDelete.mockResolvedValue({ count: 1 })
-  mockPendingStillThere.mockResolvedValue(null)
+  mockPendingStillThere.mockResolvedValue(pendingFixture())
+  mockDisputeFindUnique.mockResolvedValue(RESOLVED_DISPUTE)
+  mockCommittedFindUnique.mockResolvedValue(null)
 })
 
-const CONDITIONAL_DELETE = { where: { id: 'pending-1', escrowId: 'escrow-1', signatures: { none: {} } } }
+const CONDITIONAL_DELETE = { where: { id: 'pending-1', escrowId: 'escrow-1', signatures: { none: {} }, disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1', rulingOutcome: 'RELEASE', rulingAuthoritySignature: 'authority-1', rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z') } }
 
 describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifact reconciliation', () => {
   it('no candidates — a clean, empty report', async () => {
@@ -191,7 +200,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockValidateTranslatedOutputsAgainstOutcome.mockReturnValue({ ok: false, mismatches: ['mismatch'] })
     mockPendingDelete.mockResolvedValueOnce({ count: 0 })
-    mockPendingStillThere.mockResolvedValueOnce({ id: 'pending-1' })
+    mockPendingStillThere.mockResolvedValueOnce(pendingFixture({ signatures: [{ participantId: 'buyer-1' }] }))
 
     const report = await reconcileStalePendingDisputeTranslations()
 
@@ -203,6 +212,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockLoadDisputeRulingRecord.mockResolvedValue(null)
     mockPendingDelete.mockResolvedValueOnce({ count: 0 })
+    mockPendingStillThere.mockResolvedValueOnce(pendingFixture()).mockResolvedValueOnce(null)
 
     const report = await reconcileStalePendingDisputeTranslations()
 
