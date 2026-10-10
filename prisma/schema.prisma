@@ -3045,15 +3045,18 @@ model ExposureReservation {
   @@map("exposure_reservations")
 }
 
-// #235 R7H-NF-E3C-5 (D8) — append-only audit of legacy idempotency-claim reconciliation decisions
-// (src/modules/open-p2p/trade-claim-reconciliation.ts). One row per decision, resolved or not, with its evidence.
-// UPDATE and DELETE are refused by the database (migration 20261018130000_idempotency_reconciliation_audit).
+// #235 R7H-NF-E3C-5 (D8, Gate C corrective) — append-only audit of OBSERVATIONS of legacy idempotency claims
+// (src/modules/open-p2p/trade-claim-reconciliation.ts). A legacy IN_PROGRESS claim is never attributed to a trade
+// (correlation is not causation): the only decision is UNRESOLVED, at most one row per claim, and `candidateTradeIds`
+// are NON-AUTHORITATIVE hints. UPDATE and DELETE are refused by the database (migration
+// 20261018130000_idempotency_reconciliation_audit); the UNRESOLVED-only CHECK and the one-row-per-claim partial unique
+// index (not representable here) are in migration 20261018140000_legacy_claim_unresolved_only.
 model IdempotencyReconciliationAudit {
   id                String   @id @default(uuid())
   claimId           String
   scope             String
   participantId     String
-  decision          String // MATCHED | AMBIGUOUS | NO_ATTRIBUTABLE_TRADE (CHECK constraint)
+  decision          String // UNRESOLVED only (CHECK constraint): an observation, never an attribution
   candidateTradeIds Json
   evidence          Json
   decidedBy         String

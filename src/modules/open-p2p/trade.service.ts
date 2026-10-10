@@ -13,7 +13,7 @@ import { negotiationService } from './negotiation.service'
 import { intentEngine } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository, type AdmissionClaim } from './trade-repository'
 import { lifecycleIntentId, legacySharedIntentCancelDecision } from './trade-intent'
-import { reconcileLegacyTradeClaim } from './trade-claim-reconciliation'
+import { observeLegacyTradeClaim } from './trade-claim-reconciliation'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType, TradeStatus } from '../../common/types'
 import type { TradeIntentPayload } from '../../common/types/intent'
@@ -185,7 +185,7 @@ export class TradeService {
   /**
    * What a pre-existing claim for this (caller, key) means. Returns the trade for a committed claim, `null` when the
    * claim is FAILED (a legacy request that never created a trade: this attempt may proceed and reclaim it), and
-   * throws for a different request, or for a legacy claim whose outcome is not established (409).
+   * throws for a different request, or for a legacy IN_PROGRESS claim, whose outcome is never inferred (409).
    */
   private async settleExistingClaim(claim: AdmissionClaim, key: string, requestHash: string, participantId: string) {
     if (claim.requestHash !== requestHash) {
@@ -202,16 +202,20 @@ export class TradeService {
       return trade
     }
     if (claim.status === 'FAILED') return null
-    // IN_PROGRESS: a row only OLD code wrote (this scope never creates one now) whose process died, or an old-code
-    // request still in flight during a rolling deploy. Settled only by the conservative D8 reconciliation: exactly one
-    // independently attributable trade resolves it; anything else stays UNRESOLVED and is answered 409
-    // IDEMPOTENCY_OUTCOME_UNKNOWN — never failed, never retried into a second trade.
-    const outcome = await reconcileLegacyTradeClaim(claim.id, `replay:${participantId}`)
-    if (outcome.decision === 'MATCHED' && outcome.tradeId) {
-      const trade = await this.repo.findById(outcome.tradeId)
-      if (trade) return trade
+    // IN_PROGRESS (or any status without a result reference): a row only OLD code wrote (this scope never creates one
+    // now) whose process died, or an old-code request still in flight during a rolling deploy. Gate C corrective: its
+    // outcome is UNKNOWN and STAYS unknown. A legacy trade carries no reference to the claim that produced it, so
+    // owner + payload + timestamp only correlate the two; correlation is not causation. No trade is attributed, the
+    // claim is neither completed nor failed, and no new trade is created (the key stays reserved). The replay is
+    // observed (one immutable audit row) and answered 409 with UNVERIFIED hints — never with a result.
+    let hints: string[] = []
+    try {
+      hints = (await observeLegacyTradeClaim(claim.id, `replay:${participantId}`)).unverifiedCandidateTradeIds
+    } catch (err) {
+      // Bookkeeping only: failing to record the observation can neither confirm nor refuse the request.
+      log.error({ msg: 'Legacy trade claim observation failed; the replay is answered unknown all the same', claimId: claim.id, err: err instanceof Error ? err.message : String(err) })
     }
-    throw new IdempotencyOutcomeUnknownError(key, outcome.candidateTradeIds)
+    throw new IdempotencyOutcomeUnknownError(key, hints)
   }
 
   // Validation and derivation ONLY — every rule below is the pre-B2 persistTrade() body, unchanged. No write happens

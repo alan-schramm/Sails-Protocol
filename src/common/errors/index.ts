@@ -129,17 +129,21 @@ export class IntentBoundError extends AppError {
   }
 }
 
-// #235 R7H-NF-E3C-5 (D8) — a legacy `openp2p.trade.create` idempotency claim left IN_PROGRESS by a process that
-// died (or by an old-code request still in flight) whose outcome cannot be established from durable evidence. The
-// request is neither confirmed nor refused: the caller must NOT treat it as failed, nor blindly start a new one.
-// `candidateTradeIds` are only trades the claim's own owner (the caller) is a party to.
+// #235 R7H-NF-E3C-5 (B2, Gate C corrective) — a legacy `openp2p.trade.create` idempotency claim left IN_PROGRESS by a
+// process that died (or by an old-code request still in flight). Its outcome cannot be established from durable causal
+// evidence and is NEVER inferred: the request is neither confirmed nor refused, the key stays reserved, and the caller
+// must not treat it as failed nor blindly start a new one.
+// `details.unverifiedCandidateTradeIds` are NON-AUTHORITATIVE hints and only trades the claim's own owner (the caller)
+// took shortly after the original request: correlation, not proof that this request created any of them.
 export class IdempotencyOutcomeUnknownError extends AppError {
-  constructor(key: string, candidateTradeIds: string[]) {
+  constructor(key: string, unverifiedCandidateTradeIds: string[]) {
     super(
-      `The outcome of the request with idempotency key '${key}' is not known: it may or may not have created a trade. Check your trades before retrying with a new key.`,
+      `The outcome of the request with idempotency key '${key}' is not known: it may or may not have created a trade, and it will not be inferred. ` +
+      'Check your own trades (GET /v1/openp2p/trades) before retrying with a new key. ' +
+      'details.unverifiedCandidateTradeIds are hints only (your trades created shortly after the original request) and are not proof of this request\'s outcome.',
       409,
       'IDEMPOTENCY_OUTCOME_UNKNOWN',
-      { candidateTradeIds },
+      { authoritative: false, unverifiedCandidateTradeIds },
     )
   }
 }
