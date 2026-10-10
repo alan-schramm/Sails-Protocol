@@ -5951,7 +5951,57 @@ which the finding must be closed or consciously accepted.
 | R-4 | Informational | Test practice | Re-audit | `jest.spyOn(prisma, '$executeRaw')` also captures `tx.$executeRaw` and runs it through the bound original **outside** the transaction (the row survives a rollback). The two spies in `tradeClaimReconciliation.test.ts` target the transaction-free observation path, so their evidence is valid. | Test guidance for future missions; not to be used to test transactional code. |
 | R-5 | Informational | Design note | Re-audit | Unverified candidate hints are caller-owned and non-authoritative but not scoped to the claim's offer. No isolation breach. | CTO may refine; no action required. |
 | R-6 | Informational | Operability | Re-audit | The observation path has no statement timeout: with the audit table locked for 3 s the replay waited 3 011 ms and returned the same 409. | Optional hardening. |
-| **ST-1** | **Medium (merge integrity; impact not assessed)** | Process / dependency | Found while preparing this freeze, 2026-10-10 | The 24-PR draft stack under #432 (#392 ... #432) rests on the branch `fix/244-stale-dispute-cleanup-signature-race` (head `d644c15`), the head of PR #390, which was **closed without merge** as superseded by the authoritative restack **#391** (`4a9239c`). #391's head is not contained in that branch (12 commits only in #391, 1 only in the closed branch). Three non-test files differ: `src/modules/open-settlement/dispute-pending-reconciliation.ts`, `src/modules/open-settlement/escrow-pending-tx.ts` and `package.json`; the #432 head carries the **closed branch's** `dispute-pending-reconciliation.ts`. `main` has not moved since 2026-09-21 and is 117 commits behind #432. | **CTO / Gatekeeper decision** before any merge ordering is planned; outside the B2 scope. |
+| **ST-1** | **Medium (merge integrity; impact not assessed)** | Process / dependency | Found while preparing this freeze, 2026-10-10 | The 24-PR draft stack under #432 (#392 ... #432) rests on the branch `fix/244-stale-dispute-cleanup-signature-race` (head `d644c15`), the head of PR #390, which was **closed without merge** as superseded by the authoritative restack **#391** (`4a9239c`) *(Corrigido 2026-10-10: the forensic audit showed #391 is not superior; #390 was reopened and #391 closed — see "ST-1 decision" below)*. #391's head is not contained in that branch (12 commits only in #391, 1 only in the closed branch). Three non-test files differ: `src/modules/open-settlement/dispute-pending-reconciliation.ts`, `src/modules/open-settlement/escrow-pending-tx.ts` and `package.json`; the #432 head carries the **closed branch's** `dispute-pending-reconciliation.ts`. `main` has not moved since 2026-09-21 and is 117 commits behind #432. | **DECIDED 2026-10-10 (CTO, Option A): the existing ancestry is accepted and the governance record repaired and verified** ("ST-1 decision" below). The follow-ups ST1-F5 .. F7 and the remaining risks listed there stay open. |
+
+### ST-1 decision — stack base forensic audit and governance repair (CTO, 2026-10-10)
+
+**Forensic facts** (read-only audit, `READY_FOR_CTO_ST1_STACK_BASE_FORENSIC_DECISION`):
+
+- #390 (`d644c15adf481829fadca83336224561fd7694be`) and #391 (`4a9239c535d6cc6fd1cf296a337ce7e4d5cb19cf`) are **independent,
+  parallel implementations** of #244 on the same base `cf2e2138baf24d9fd96df692d612adf31726a23b` (#389), opened 3 minutes apart
+  on 2026-10-04. The stack grew on #390 because #391 was never visible to the session that built it; #390 was closed on
+  2026-10-06 as "superseded" without any PR being retargeted.
+- **Production semantics are equivalent** (same `pg_advisory_xact_lock(hashtext(escrowId))` key, the same zero-signature
+  conditional delete, the same round re-check under the lock). #391 contains **no production fix** the stack lacks. The stack's
+  version of the two files also carries later frozen work on the same locked transaction (#239D, R7G-B2A).
+- **Regression evidence is stronger on the stack.** Five regressions injected into the production code (signature without the
+  lock, without the round re-check, cleanup without the lock, cleanup without the zero-signature condition, the original
+  unconditional delete): the stack's #244 evidence killed 5 of 5; #391's integration suite (fixture adapted to later frozen
+  invariants) 0 of 5, its race tests exercising a test-local copy of the SQL; #391's own 138 unit tests 1 of 5.
+
+**Decision: Option A, explicit acceptance of the existing #390 ancestry. No restack, no transplant, no commit of any
+implementation PR.** Executed and verified 2026-10-10:
+
+| Action | Result |
+|---|---|
+| PR #390 reopened | OPEN, draft, head `d644c15adf481829fadca83336224561fd7694be` unchanged, base `fix/238-atomic-dispute-opening-restacked` |
+| PR #392 | still based on `fix/244-stale-dispute-cleanup-signature-race`; head `019ec3ba2dda31a77fff87eaed64f68f900600cf` unchanged |
+| PR #391 closed, with a factual comment | CLOSED, not merged; branch `gatekeeper/244-signed-cleanup-race-restacked` preserved at `4a9239c535d6cc6fd1cf296a337ce7e4d5cb19cf` |
+| Branch `fix/244-stale-dispute-cleanup-signature-race` protected | GitHub branch protection: deletion refused, force-push refused, enforced for administrators; no required reviews or checks. Read back through the API and exercised on a disposable ref with the identical rule (delete and forced move both refused with HTTP 422; the ref was removed afterwards). |
+| The 56-PR chain (#432 down to #320, based on `main`) | Re-verified: only #390 and #391 changed status. No other head or base changed. No commit, SHA or exact-head CI evidence of any other PR was touched. |
+
+**Findings preserved** (severities as audited):
+
+| ID | Severity | Status |
+|---|---|---|
+| ST1-F1 stack depends on a closed PR's branch (deletion would orphan it) | Medium | **Mitigated:** #390 reopened and its branch protected. Residual risk below. |
+| ST1-F2 #390's closure rationale contradicted by evidence; #391 left open as if authoritative | Medium | **Corrected:** #390 reopened, #391 closed with the factual comment. |
+| ST1-F3 #391 reports an already-deleted round as "has signatures" | Low | Moot while #391 stays closed. |
+| ST1-F4 #391's tests violate frozen F8A / E3 invariants | Low | Moot unless #391 is ever revived. |
+| ST1-F5 no real-PostgreSQL race test through the reconciler entry point in either lineage | Info | **Open**, optional hardening at the stack top. |
+| ST1-F6 other pending-round deleters are outside the #244 class and identical in both lineages | Info | Unchanged. |
+| ST1-F7 `gatekeeper/235-payment-account-limit-enforcement` equals `main` (0 commits, no PR) | Info | Unchanged; not a parallel #235 lineage. |
+
+**Remaining risks (not hidden):**
+
+- Branch protection is a repository setting, not code. Removing it, or a repository admin deleting the branch after lifting it,
+  re-exposes ST1-F1. GitHub's behaviour when a branch with dependent open PRs is deleted is known but was not tested.
+- Protection also refuses force-pushes to that branch. A future restack of the stack's base requires a deliberate, recorded
+  removal of the protection.
+- The preserved #391 branch is **not** protected (not authorized by this decision); deleting it would lose that audit history.
+- Merge planning must place #390 between #389 and #392 (bottom-up). All 56 PRs remain unmerged; the stack is still 117 commits
+  ahead of `main`, which has not moved since 2026-09-21.
+- `4a9239c` (#391) is not an ancestor of the stack, by decision. Anyone comparing the two lineages must read this entry first.
 
 ### Existing tracking checked (no duplicate created)
 
