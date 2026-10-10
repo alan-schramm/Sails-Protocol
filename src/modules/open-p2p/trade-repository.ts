@@ -219,7 +219,14 @@ class PrismaTradeRepository implements TradeRepository {
 
   async findByIntentForParticipant(intentId: string, participantId: string) {
     return prisma.trade.findMany({
-      where: { intentId, OR: [{ buyerId: participantId }, { sellerId: participantId }] },
+      // `intentId` is the originating Offer's (or a legacy trade's shared) Intent; `tradeIntentId` is one trade's OWN
+      // Intent. Both resolve here, always intersected with "the caller is a party".
+      where: {
+        AND: [
+          { OR: [{ intentId }, { tradeIntentId: intentId }] },
+          { OR: [{ buyerId: participantId }, { sellerId: participantId }] },
+        ],
+      },
       include: { escrow: true, offer: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })

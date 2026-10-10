@@ -330,6 +330,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
           SELECT (
             EXISTS (SELECT 1 FROM offers WHERE "intentId" = ${intentId})
             OR EXISTS (SELECT 1 FROM trades WHERE "intentId" = ${intentId})
+            OR EXISTS (SELECT 1 FROM trades WHERE "tradeIntentId" = ${intentId})
           ) AS bound`
         if (ref?.bound) throw new IntentBoundError(intentId)
         return expired

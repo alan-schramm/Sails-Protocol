@@ -387,7 +387,13 @@ model Trade {
   // creation (createTrade()). Nullable, same rationale as Offer.intentId
   // above.
   intentId               String?
-  intent                 Intent?         @relation(fields: [intentId], references: [id])
+  intent                 Intent?         @relation("TradeOfferIntent", fields: [intentId], references: [id])
+  // #235 R7H-NF-E3C-5 (B2) — this trade's OWN Intent, created atomically with the trade (trade-repository.ts) and
+  // owned by the taker; `intentId` above stays the originating Offer's Intent. Nullable: trades admitted before B2
+  // keep NULL (no history is back-filled) and their lifecycle keeps following `intentId`. Unique, immutable, and
+  // never an offer's or another trade's Intent (migration 20261018120000_trade_scoped_intent).
+  tradeIntentId          String?         @unique
+  tradeIntent            Intent?         @relation("TradeScopedIntent", fields: [tradeIntentId], references: [id], onDelete: Restrict)
   completedAt            DateTime?
   cancelledAt            DateTime?
   // #235 R7C — the seller's (fiat receiver's) PaymentAccount this trade's
@@ -410,6 +416,7 @@ model Trade {
   @@index([buyerId])
   @@index([sellerId])
   @@index([status])
+  @@index([intentId])
   @@map("trades")
 }
 
@@ -2219,7 +2226,7 @@ model Intent {
   // Intent-creating flows never pass one).
   idempotencyClaimId String? @unique
 
-  events IntentEvent[]
+  events     IntentEvent[]
   // RFC-018 — back-relations for Offer.intentId/Trade.intentId above.
   // Modeled as arrays since that's the FK direction Prisma requires, but
   // the two sides are NOT symmetric, confirmed by direct code
@@ -2241,8 +2248,11 @@ model Intent {
   //   a composite-business-key uniqueness constraint on Trade creation
   //   for exactly this reason — see `src/common/idempotency.ts`'s own
   //   header).
-  offers Offer[]
-  trades Trade[]
+  offers     Offer[]
+  trades     Trade[]       @relation("TradeOfferIntent")
+  // #235 R7H-NF-E3C-5 (B2) — the single Trade this Intent is the OWN Intent of (`Trade.tradeIntentId`, unique).
+  // Absent for offer Intents, legacy Intents and free-standing Intents.
+  tradeOwned Trade?        @relation("TradeScopedIntent")
 
   @@index([participantId])
   @@index([status])
