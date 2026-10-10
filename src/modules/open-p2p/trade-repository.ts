@@ -99,8 +99,12 @@ export interface TradeRepository {
   /** escrow + messages(createdAt asc) + offer — getTrade()'s full detail view. */
   findByIdWithDetails(tradeId: string): Promise<TradeWithDetailsRow | null>
 
-  /** escrow + offer, first match on intentId — getTradeByIntentId()'s own shape for @satsails/p2p-trading-sdk's dispute() facade. */
-  findByIntentId(intentId: string): Promise<TradeWithEscrowAndOfferRow | null>
+  /**
+   * #235 R7H-NF-E3C-5 (F-7) — escrow + offer, every trade the CALLER is a party to that references `intentId`,
+   * oldest first. Never an arbitrary `findFirst`, and never a trade the caller is not a party to: the caller scope is
+   * part of the query, so nothing about other participants' trades is read or revealed.
+   */
+  findByIntentForParticipant(intentId: string, participantId: string): Promise<TradeWithEscrowAndOfferRow[]>
 
   /** escrow only — reconciliationService.reconcileTrade()'s own shape. */
   findByIdWithEscrow(tradeId: string): Promise<TradeWithEscrowRow | null>
@@ -213,10 +217,11 @@ class PrismaTradeRepository implements TradeRepository {
     })
   }
 
-  async findByIntentId(intentId: string) {
-    return prisma.trade.findFirst({
-      where: { intentId },
+  async findByIntentForParticipant(intentId: string, participantId: string) {
+    return prisma.trade.findMany({
+      where: { intentId, OR: [{ buyerId: participantId }, { sellerId: participantId }] },
       include: { escrow: true, offer: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   }
 

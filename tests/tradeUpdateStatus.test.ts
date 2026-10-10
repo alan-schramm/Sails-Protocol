@@ -26,7 +26,7 @@ function fakeRepo(overrides: Record<string, unknown> = {}) {
     create: jest.fn(),
     findById: (...args: unknown[]) => mockFindById(...args),
     findByIdWithDetails: jest.fn(),
-    findByIntentId: jest.fn(),
+    findByIntentForParticipant: jest.fn(),
     findByIdWithEscrow: jest.fn(),
     findManyByParticipant: jest.fn(),
     countByParticipant: jest.fn(),

@@ -128,10 +128,9 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { intentId } = intentIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
-    const trade = await tradeService.getTradeByIntentId(intentId)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a party to trade ${trade.id}`)
-    }
+    // #235 R7H-NF-E3C-5 (F-7) — the party check is part of the lookup itself (trade.service.ts): a non-party gets
+    // 404, never a 403 naming another participant's trade.
+    const trade = await tradeService.getTradeByIntentId(intentId, participantId)
     return reply.code(200).send({ success: true, data: trade })
   })
 

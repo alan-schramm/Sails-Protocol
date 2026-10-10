@@ -27,7 +27,8 @@
 import { createHash } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { config } from '../config'
-import { ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
+import { ValidationError, NotFoundError, ForbiddenError, IntentBoundError } from '../common/errors'
+import { prisma } from '../common/database'
 import { eventBus } from '../common/events/event-bus'
 import type { SailsEventName, SailsEventMap } from '../common/events/event-bus'
 import { assertValidTransition, isExpired, type IntentStatus } from './state-machine'
@@ -315,18 +316,30 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
         throw new ForbiddenError(`${cancelledBy} does not own Intent ${intentId}`)
       }
 
-      if (isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })) {
-        await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
-          intentId,
-          reason: 'expiresAt window closed before cancellation was processed',
-        })
-        return
-      }
-
-      await transition(intentId, 'CANCELLED', cancelledBy, 'intent.cancelled', {
-        intentId,
-        cancelledBy,
+      // #235 R7H-NF-E3C-5 (F-1) — an Intent that an Offer or a Trade references (Offer.intentId, Trade.intentId,
+      // Trade.tradeIntentId) is part of that economic object's lifecycle and is never cancelled here: doing so
+      // bypassed the trade-cancellation guards (a maker could cancel the Intent shared by live trades, after which
+      // their buyers could not cancel). The reference check and the transition are ONE transaction holding the
+      // Intent row's FOR UPDATE lock, which conflicts with the FOR KEY SHARE any referencing INSERT takes through
+      // its foreign key — a reference cannot appear between the check and the cancellation. Checked after the
+      // ownership test above, so only the owner ever learns an Intent is bound (no existence signal to others).
+      const expired = isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })
+      const publish = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM intents WHERE id = ${intentId} FOR UPDATE`
+        const [ref] = await tx.$queryRaw<Array<{ bound: boolean }>>`
+          SELECT (
+            EXISTS (SELECT 1 FROM offers WHERE "intentId" = ${intentId})
+            OR EXISTS (SELECT 1 FROM trades WHERE "intentId" = ${intentId})
+          ) AS bound`
+        if (ref?.bound) throw new IntentBoundError(intentId)
+        return expired
+          ? transitionInTransaction(tx, intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
+              intentId,
+              reason: 'expiresAt window closed before cancellation was processed',
+            })
+          : transitionInTransaction(tx, intentId, 'CANCELLED', cancelledBy, 'intent.cancelled', { intentId, cancelledBy })
       })
+      await publish()
     },
 
     transition,

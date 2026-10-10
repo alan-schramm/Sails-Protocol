@@ -7,7 +7,7 @@
  * into a real Trade row, the other half of TODO.md §1's "modules/open-p2p/
  * — trade routes ... only service-layer logic survived" gap.
  */
-import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError, AmbiguousIntentError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { negotiationService } from './negotiation.service'
 import { intentEngine } from '../../core/intent-engine'
@@ -253,10 +253,17 @@ export class TradeService {
   // server-side. Same no-auth pattern as getTrade() below — an intentId
   // isn't guessable-and-sensitive any more than a tradeId already is,
   // and getTrade() itself has never required auth.
-  async getTradeByIntentId(intentId: string) {
-    const trade = await this.repo.findByIntentId(intentId)
-    if (!trade) throw new NotFoundError('Trade for this intent', intentId)
-    return trade
+  //
+  // #235 R7H-NF-E3C-5 (F-7) — caller-scoped and deterministic. An Offer/legacy Intent is shared by every trade taken
+  // from that offer, so the lookup is limited to the trades the CALLER is a party to: exactly one → that trade;
+  // none (including "the Intent exists but only other participants trade on it") → 404, indistinguishable from an
+  // unknown Intent; several (typically the maker of a popular offer) → 409 AMBIGUOUS_INTENT listing only the
+  // caller's own trade ids. No other participant's trade id or identity is ever disclosed.
+  async getTradeByIntentId(intentId: string, participantId: string) {
+    const trades = await this.repo.findByIntentForParticipant(intentId, participantId)
+    if (trades.length === 1) return trades[0]
+    if (trades.length === 0) throw new NotFoundError('Trade for this intent', intentId)
+    throw new AmbiguousIntentError(trades.map((t) => t.id))
   }
 
   // escrow + messages(asc) + offer include — found while auditing a real
