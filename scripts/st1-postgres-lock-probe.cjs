@@ -52,8 +52,6 @@ async function main() {
     // Deliberately exercise 40P01 with reversed lock order, proving
     // the probe detects a real PostgreSQL deadlock and transaction abort.
     await begin(a); await begin(b)
-    await a.query("SET LOCAL deadlock_timeout = '100ms'").catch(() => {})
-    await b.query("SET LOCAL deadlock_timeout = '100ms'").catch(() => {})
     await lock(a, escrow); await lock(b, dispute)
     const waitD = lock(a, dispute).then(() => 'acquired', e => e.code)
     await sleep(80)
