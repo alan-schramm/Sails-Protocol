@@ -5998,10 +5998,41 @@ implementation PR.** Executed and verified 2026-10-10:
   re-exposes ST1-F1. GitHub's behaviour when a branch with dependent open PRs is deleted is known but was not tested.
 - Protection also refuses force-pushes to that branch. A future restack of the stack's base requires a deliberate, recorded
   removal of the protection.
-- The preserved #391 branch is **not** protected (not authorized by this decision); deleting it would lose that audit history.
+- ~~The preserved #391 branch is **not** protected (not authorized by this decision); deleting it would lose that audit history.~~ *(Corrigido 2026-10-10 — CTO/Gatekeeper authorized it: `gatekeeper/244-signed-cleanup-race-restacked` is now protected; see "ST-1 acceptance".)*
 - Merge planning must place #390 between #389 and #392 (bottom-up). All 56 PRs remain unmerged; the stack is still 117 commits
   ahead of `main`, which has not moved since 2026-09-21.
 - `4a9239c` (#391) is not an ancestor of the stack, by decision. Anyone comparing the two lineages must read this entry first.
+
+### ST-1 acceptance — governance closure ACCEPTED (CTO / Gatekeeper, 2026-10-10)
+
+**Status: ST-1 GOVERNANCE CLOSURE = ACCEPTED.** The repair recorded above
+(`READY_FOR_CTO_ST1_GOVERNANCE_REPAIR_VERIFICATION`) was reviewed and accepted. Option A stands: no restack, merge, deployment or
+change of economic authority.
+
+**Preserved records (not rewritten):**
+
+- The documentary HEAD of the repair is `0e83a7865482059540d9d0044b7a6bb1902a6810` (docs-only commit on PR #432; exact-head CI
+  run 38085996518: success, unit 192/2989, PostgreSQL 84/1096). The reopen of #390 at `d644c15adf481829fadca83336224561fd7694be`
+  ran CI 38085846377: success. Later documentation commits do not alter that record.
+- **Historical CI exception, accepted and preserved:** PR #384, head `fa9e8e625ee5733aa7034583484330a0be9ff359`, run
+  37126017634 (attempt 2, 2026-10-03), is **red** on exactly one test, `rulingPriorStateAtomicity` test F. It predates this
+  repair, was neither caused nor changed by it, and its SHA is unchanged. The next PR in the chain, #385 (`740285b`, test F made
+  a real race), is the fix and is green. It is a recorded exception, not a green head: do not read "all heads green" at merge
+  planning.
+
+**Branch protection, both ST-1 branches (verified by read-back):**
+
+| Branch | Tip | Deletion | Force-push | Admins |
+|---|---|---|---|---|
+| `fix/244-stale-dispute-cleanup-signature-race` (#390) | `d644c15adf481829fadca83336224561fd7694be` | refused | refused | enforced |
+| `gatekeeper/244-signed-cleanup-race-restacked` (#391, closed, preserved) | `4a9239c535d6cc6fd1cf296a337ce7e4d5cb19cf` | refused | refused | enforced |
+
+#391 stays closed and its commits are untouched. #390's protection was not altered.
+
+**Mandatory separation:** closing the ST-1 *governance* record does **not** close the temporal-binding gap of the stale
+pending-round cleanup. That correction remains in its own independent gate, and issue #343 ("[Day-0 recovery] Bound M9-R
+dispatch recovery scan under accumulated PostgreSQL state") **stays blocked until that correction is accepted**. Nothing in
+this entry, ST1-F1..F7 or the protections above should be read as that acceptance.
 
 ### Existing tracking checked (no duplicate created)
 
