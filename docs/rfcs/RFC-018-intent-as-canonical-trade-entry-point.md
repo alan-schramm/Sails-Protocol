@@ -421,10 +421,20 @@ that cannot be cancelled refuses the **whole** cancellation with no durable effe
 `resultRef` by `INSERT ... ON CONFLICT DO NOTHING` inside the admission transaction: a committed trade always has its
 claim, no `IN_PROGRESS` row is ever created in this scope, a refused admission leaves no claim at all, and the
 same-key waiter is resolved by the database. What happens after COMMIT (event dispatch, in-memory bookkeeping) is
-non-authoritative and can never become an error response for a committed trade. Legacy `IN_PROGRESS` claims are settled
-only by the conservative reconciliation (`trade-claim-reconciliation.ts`): exactly one independently attributable
-trade resolves a claim; anything else stays unresolved and replays as **409 `IDEMPOTENCY_OUTCOME_UNKNOWN`**, with
-every decision audited. Other `withIdempotency()` scopes are unchanged.
+non-authoritative and can never become an error response for a committed trade. Other `withIdempotency()` scopes are
+unchanged.
+
+**Legacy `IN_PROGRESS` claims are never attributed to a trade** *(Corrigido 2026-10-10, Gate C corrective — the first
+text of this amendment let a reconciliation resolve a claim when exactly one trade matched its owner, payload hash and
+a 30 s window; an independent audit reproduced false and double attribution from exactly that)*. Before this amendment
+a trade and its claim were two separate commits and the trade row carries no reference to the claim, so owner +
+payload + timestamp only **correlate** them, and correlation is not causation. A legacy claim stays `IN_PROGRESS`
+(never `COMPLETED`, never `FAILED`, no `resultRef`), its key stays reserved (no second trade can be created through it),
+and a replay is answered **409 `IDEMPOTENCY_OUTCOME_UNKNOWN`** with `details: { authoritative: false,
+unverifiedCandidateTradeIds }` — hints (the caller's own legacy trades created shortly after the claim), never a
+result. `trade-claim-reconciliation.ts` only observes: it appends at most one immutable `UNRESOLVED` audit row per claim
+(the database refuses any other decision) and has no operator override. A claim is resolved only by durable causal
+evidence written by the code that created the trade, which is what the atomic admission above does.
 
 ### Known limitation (unchanged here)
 

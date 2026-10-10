@@ -105,12 +105,24 @@ All notable changes to this project will be documented in this file.
     - **Legacy.** Cancelling a pre-B2 trade leaves the Intent it shares with live sibling trades (or an already
       terminal one) untouched and records `openp2p.trade.intent_unchanged`; every economic cancellation guard and
       R7G-B1's "an Intent that cannot be cancelled refuses the whole cancellation" are unchanged otherwise. Legacy
-      `IN_PROGRESS` claims are reconciled only on exactly one independently attributable trade (audited, append-only
-      `idempotency_reconciliation_audit`, migration `20261018130000_idempotency_reconciliation_audit`); otherwise a
-      replay is 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`.
+      `IN_PROGRESS` claims are **never** attributed to a trade (see the Gate C corrective below): they are observed
+      (append-only `idempotency_reconciliation_audit`, migration `20261018130000_idempotency_reconciliation_audit`) and
+      replay as 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`.
+    - **Gate C corrective (CTO FREEZE: "correlation is not causation").** *Corrigido 2026-10-10:* the first build of
+      this entry resolved a legacy `IN_PROGRESS` claim when exactly one trade matched its owner, its payload hash and a
+      30 s window. An independent audit reproduced false attribution (another claim's trade, a keyless trade, a trade
+      of the claimant's own offer made by someone else) and double attribution under concurrency, because a legacy
+      trade carries no reference to the claim that produced it. A legacy claim now stays `IN_PROGRESS` — never
+      `COMPLETED`, never `FAILED`, no `resultRef` — and replays as 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`, whose
+      `details` are `{ authoritative: false, unverifiedCandidateTradeIds }`: only the caller's own legacy trades
+      created shortly after the claim, as hints and never a result. The audit table records only `UNRESOLVED`
+      observations, at most one per claim, enforced by the database (migration
+      `20261018140000_legacy_claim_unresolved_only`); there is no operator override. Every time comparison on this
+      path is UTC-explicit, so the database session time zone cannot change what is observed or gated.
     - **Tests.** RFC-018 A1 retargets, as approved: the Intent assertions of `fullTradeLifecycle` and `routes.test`
       follow the trade's own Intent; the E3C refusal test expects no claim row. New real-PostgreSQL suites:
-      `intentBindingAndLookup`, `tradeIntentSchema`, `tradeIntentAtomicAdmission`, `tradeClaimReconciliation`.
+      `intentBindingAndLookup`, `tradeIntentSchema`, `tradeIntentAtomicAdmission`, `tradeClaimReconciliation` (after
+      the Gate C corrective: the adversarial C1–C7 suite that enforces the policy above).
 
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.
