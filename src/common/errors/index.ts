@@ -115,6 +115,52 @@ export class TradeAdmissionError extends AppError {
   }
 }
 
+// #235 R7H-NF-E3C-5 (F-1) — an Intent referenced by an Offer or a Trade (Offer.intentId, Trade.intentId,
+// Trade.tradeIntentId) belongs to that economic object's lifecycle and cannot be cancelled through the generic
+// Intents API: it ends through the offer or trade lifecycle, whose economic guards are authoritative. 409: the
+// resource's state conflicts with the request; revealed only to the Intent's owner (after the ownership check).
+export class IntentBoundError extends AppError {
+  constructor(intentId: string) {
+    super(
+      `Intent ${intentId} is bound to an offer or a trade and cannot be cancelled directly — cancel the offer or the trade instead`,
+      409,
+      'INTENT_BOUND',
+    )
+  }
+}
+
+// #235 R7H-NF-E3C-5 (B2, Gate C corrective) — a legacy `openp2p.trade.create` idempotency claim left IN_PROGRESS by a
+// process that died (or by an old-code request still in flight). Its outcome cannot be established from durable causal
+// evidence and is NEVER inferred: the request is neither confirmed nor refused, the key stays reserved, and the caller
+// must not treat it as failed nor blindly start a new one.
+// `details.unverifiedCandidateTradeIds` are NON-AUTHORITATIVE hints and only trades the claim's own owner (the caller)
+// took shortly after the original request: correlation, not proof that this request created any of them.
+export class IdempotencyOutcomeUnknownError extends AppError {
+  constructor(key: string, unverifiedCandidateTradeIds: string[]) {
+    super(
+      `The outcome of the request with idempotency key '${key}' is not known: it may or may not have created a trade, and it will not be inferred. ` +
+      'Check your own trades (GET /v1/openp2p/trades) before retrying with a new key. ' +
+      'details.unverifiedCandidateTradeIds are hints only (your trades created shortly after the original request) and are not proof of this request\'s outcome.',
+      409,
+      'IDEMPOTENCY_OUTCOME_UNKNOWN',
+      { authoritative: false, unverifiedCandidateTradeIds },
+    )
+  }
+}
+
+// #235 R7H-NF-E3C-5 (F-7) — an Offer/legacy Intent shared by several of the CALLER's own trades does not identify
+// one of them. `details.tradeIds` holds only trades the caller is a party to; nothing about other participants.
+export class AmbiguousIntentError extends AppError {
+  constructor(tradeIds: string[]) {
+    super(
+      'This Intent is shared by several of your trades — resolve the trade by its own id or by trade.tradeIntentId',
+      409,
+      'AMBIGUOUS_INTENT',
+      { tradeIds },
+    )
+  }
+}
+
 // Issue #291 - a settlement result (provider evidence: txReleaseId) is
 // write-once. A DIFFERENT value for an escrow that already holds one is an
 // integrity anomaly: never overwritten, never silently ignored.

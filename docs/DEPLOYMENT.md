@@ -147,6 +147,24 @@ Check the exchanges from wherever the service runs:
 npm run price:smoke
 ```
 
+### 2.2 Trade-scoped Intent admission (B2): deployment prerequisites (#235 R7H-NF-E3C-5)
+
+The audited B2 scope is **technically frozen** (RFC-018 Amendment A1). It is **not authorized for deployment**. The five
+items below are mandatory prerequisites. **None is satisfied by this document or by the audit.** No production
+environment was independently inspected, and nothing here claims production readiness.
+
+| # | Prerequisite | How it is established | Status |
+|---|---|---|---|
+| 1 | Non-overlapping cutover (G-C1, R-2) | Every pre-B2 and pre-corrective instance is stopped **before** any B2 instance is started, and none remains active. A pre-B2 instance moves the *offer* Intent for B2 trades and keeps writing legacy-shaped trades and claims; a pre-corrective instance's attribution write is refused by the database (`23514`) and answers 500. A rolling or mixed-version deploy is not permitted. | NOT SATISFIED |
+| 2 | No historical inferred attribution (R-1) | `SELECT count(*) FROM idempotency_reconciliation_audit WHERE decision <> 'UNRESOLVED';` returns **0** on the target database (equivalently `ALTER TABLE idempotency_reconciliation_audit VALIDATE CONSTRAINT idempotency_reconciliation_audit_unresolved_only;` succeeds). Migration `20261018140000` is forward-only: it does not undo an attribution that a pre-corrective build already persisted. | NOT VERIFIED on any environment |
+| 3 | PostgreSQL session `TimeZone = UTC` (C-L2) | `SHOW TimeZone;` returns `UTC` on the application's connection (database, role and pool settings), until the admission-timestamp hardening is done. The B2 claim row's `createdAt` / `completedAt` use the session-local clock (measured +14 h and -12 h from the trade under UTC+14 / UTC-12 sessions). | NOT VERIFIED |
+| 4 | B-1 resolved and verified | An offer cancelled or paused after validation, or inside the admission transaction, must refuse admission. Pre-existing: reproduced identically on the pre-B2 baseline `3ef9959`. Separate mission; must be resolved **before production exposure**. | OPEN |
+| 5 | Explicit CTO authorization for deployment | A written CTO decision naming the exact commit. | NOT GRANTED |
+
+Rollback note (R-3): the manual rollback comment in migration `20261018140000_legacy_claim_unresolved_only` re-adds the
+old CHECK with validation, which fails once any `UNRESOLVED` row exists. Do not rely on it as written; the migration file
+itself is not edited (it is already applied elsewhere).
+
 ## 3. Setup
 
 **Docker-first path (2026-08-03) — no Node/npm on the host at all**, the

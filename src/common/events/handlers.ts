@@ -1,6 +1,7 @@
 import { prisma } from '../database'
 import { applyEventProjectionOnce, recordTransitionProjected, TRANSITION_PROJECTED_KEY, type ProjectionTx } from './event-projection'
 import { tradeRepository } from '../../modules/open-p2p/trade-repository'
+import { lifecycleIntentId } from '../../modules/open-p2p/trade-intent'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
@@ -376,8 +377,9 @@ export function registerEventHandlers(): void {
     await projectTrade(event, payload.tradeId, payload.escrowId)
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
 
-    if (trade?.intentId) {
-      await advanceIntent(trade.intentId, 'COMMITTED', 'intent.committed', { intentId: trade.intentId, settlementId: payload.escrowId, terms: null })
+    const lockedIntentId = trade ? lifecycleIntentId(trade) : null
+    if (lockedIntentId) {
+      await advanceIntent(lockedIntentId, 'COMMITTED', 'intent.committed', { intentId: lockedIntentId, settlementId: payload.escrowId, terms: null })
     }
     await markTransitionProjected(event)
   })
@@ -411,8 +413,9 @@ export function registerEventHandlers(): void {
 
     await applyReleaseOutcomes(eventId, payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
-    if (trade.intentId) {
-      await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
+    const releasedIntentId = lifecycleIntentId(trade)
+    if (releasedIntentId) {
+      await fulfillIntent(releasedIntentId, payload.escrowId, 'RELEASED')
     }
     await markTransitionProjected(event)
   })
@@ -457,9 +460,10 @@ export function registerEventHandlers(): void {
 
     const resolvedRefund = await applyRefundOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
-    if (trade.intentId) {
-      await ensureIntentCommitted(trade.intentId, payload.escrowId)
-      await advanceIntent(trade.intentId, 'FAILED', 'intent.failed', { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' })
+    const refundedIntentId = lifecycleIntentId(trade)
+    if (refundedIntentId) {
+      await ensureIntentCommitted(refundedIntentId, payload.escrowId)
+      await advanceIntent(refundedIntentId, 'FAILED', 'intent.failed', { intentId: refundedIntentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' })
     }
     await markTransitionProjected(event)
   })
@@ -486,8 +490,9 @@ export function registerEventHandlers(): void {
       }, payload.tradeId)
     )
 
-    if (trade.intentId) {
-      await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT')
+    const splitIntentId = lifecycleIntentId(trade)
+    if (splitIntentId) {
+      await fulfillIntent(splitIntentId, payload.escrowId, 'SPLIT')
     }
     await markTransitionProjected(event)
   })

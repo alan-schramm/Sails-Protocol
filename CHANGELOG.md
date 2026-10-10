@@ -75,7 +75,7 @@ All notable changes to this project will be documented in this file.
       be escrowed.
     - **Rail.** The canonical route is the production one. A test-only MOCK escrow never makes such a trade
       admissible, in any environment. Assets without a governed canonical route are unchanged.
-    - **No new authority.** No new policy engine and no migration. Historical trades are untouched: their
+    - **No new authority.** No new policy engine and no migration (in E3C). Historical trades are untouched: their
       escrow stays refused.
     - **Public offer view** gains `paymentAccountBound`: whether a SELL offer carries its seller's committed
       account, never which one. It is not evidence of PIX-key control or identity. The UI shows such offers as
@@ -83,6 +83,50 @@ All notable changes to this project will be documented in this file.
     - **Tests.** Test-only fixture migration: 12 settlement suites now use bound PIX offers (identical test sets
       and assertions), and the E3 guard suites plant their invalid trades as historical rows after proving the
       new admission is refused.
+  - **R7H-NF-E3C-5 (B2) — trade-scoped Intents and atomic trade admission** (RFC-018 Amendment A1;
+    SDK minor: additive `Trade.tradeIntentId`, caller-scoped `getTradeByIntent()`):
+    - **Defect fixed.** Every trade taken from an offer shared the offer's single, single-shot Intent. The second and
+      later takers got an error (400/500) for a trade that existed and could be escrowed (deterministic, not a
+      race), and one trade's cancellation or escrow lock rewrote the Intent every sibling depended on.
+    - **Each new trade owns an Intent** (`trades.tradeIntentId`, migration `20261018120000_trade_scoped_intent`:
+      additive, nullable, unique, foreign-keyed `RESTRICT`, fixed at creation; historical trades keep `NULL`, nothing
+      is back-filled). `Trade.intentId` / `Offer.intentId` keep their meaning. The offer's Intent is the
+      advertisement's and is no longer transitioned by trades.
+    - **Atomic admission.** One PostgreSQL transaction commits the idempotency result, the trade's Intent with its
+      hash-chained history, the trade, the unchanged E3C admission check and the durable trade / negotiation /
+      Intent events. A refusal or crash before commit leaves nothing; anything after commit (event dispatch) is
+      non-authoritative and can no longer become an error for a committed trade. No `IN_PROGRESS` claim is created
+      in this scope any more; a refused admission leaves no claim row. Other idempotency scopes are unchanged.
+    - **F-1.** `DELETE /v1/intents/:id` refuses (409 `INTENT_BOUND`) an Intent that an offer or a trade references,
+      atomically with the cancellation. Free-standing Intents stay owner-cancellable.
+    - **F-7.** `GET /v1/openp2p/trades/by-intent/:id` is scoped to the caller's own trades: one → 200, none or not a
+      party → 404 (no longer a 403 naming another participant's trade), several → 409 `AMBIGUOUS_INTENT` with only
+      the caller's own trade ids. For `dispute()` / `releaseAsset()` pass `trade.tradeIntentId`.
+    - **Legacy.** Cancelling a pre-B2 trade leaves the Intent it shares with live sibling trades (or an already
+      terminal one) untouched and records `openp2p.trade.intent_unchanged`; every economic cancellation guard and
+      R7G-B1's "an Intent that cannot be cancelled refuses the whole cancellation" are unchanged otherwise. Legacy
+      `IN_PROGRESS` claims are **never** attributed to a trade (see the Gate C corrective below): they are observed
+      (append-only `idempotency_reconciliation_audit`, migration `20261018130000_idempotency_reconciliation_audit`) and
+      replay as 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`.
+    - **Gate C corrective (CTO FREEZE: "correlation is not causation").** *Corrigido 2026-10-10:* the first build of
+      this entry resolved a legacy `IN_PROGRESS` claim when exactly one trade matched its owner, its payload hash and a
+      30 s window. An independent audit reproduced false attribution (another claim's trade, a keyless trade, a trade
+      of the claimant's own offer made by someone else) and double attribution under concurrency, because a legacy
+      trade carries no reference to the claim that produced it. A legacy claim now stays `IN_PROGRESS` — never
+      `COMPLETED`, never `FAILED`, no `resultRef` — and replays as 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`, whose
+      `details` are `{ authoritative: false, unverifiedCandidateTradeIds }`: only the caller's own legacy trades
+      created shortly after the claim, as hints and never a result. The audit table records only `UNRESOLVED`
+      observations, at most one per claim, enforced by the database (migration
+      `20261018140000_legacy_claim_unresolved_only`); there is no operator override. Every time comparison on this
+      path is UTC-explicit, so the database session time zone cannot change what is observed or gated.
+    - **Technical freeze (CTO, 2026-10-10).** The audited B2 scope is frozen at `c51b8bb8da47048fac7fce8968e45c51950d1df9`: the ten invariants are
+      recorded in RFC-018 Amendment A1, the residual findings in `docs/BACKLOG.md`, and the deployment prerequisites
+      (not satisfied) in `docs/DEPLOYMENT.md` section 2.2. Not a merge, a deployment, an E3 global freeze or an E4
+      authorization; #235 stays open.
+    - **Tests.** RFC-018 A1 retargets, as approved: the Intent assertions of `fullTradeLifecycle` and `routes.test`
+      follow the trade's own Intent; the E3C refusal test expects no claim row. New real-PostgreSQL suites:
+      `intentBindingAndLookup`, `tradeIntentSchema`, `tradeIntentAtomicAdmission`, `tradeClaimReconciliation` (after
+      the Gate C corrective: the adversarial C1–C7 suite that enforces the policy above).
 
 - **#235 R7H-E2 — canonical BTC/USD price authority: real collector, database writer-role separation.**
   - New module `src/modules/open-valuation/`.
