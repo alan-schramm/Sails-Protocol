@@ -77,11 +77,79 @@ export type StalePendingDeleteResult = 'DELETED' | 'SIGNED_MEANWHILE' | 'ALREADY
  * (id + escrow) still exists and still has zero durable signatures. A signature accepted before the lock
  * makes it match 0 rows; a signer arriving after finds the round gone and fails closed.
  */
-export async function deletePendingRoundIfStillUnsigned(pendingTransactionId: string, escrowId: string): Promise<StalePendingDeleteResult> {
+type PendingGeneration = {
+  disputeId: string
+  rulingAppealRound: number
+  rulingArbiterId: string
+  rulingOutcome: string
+  rulingAuthoritySignature: string
+  rulingAuthorityIssuedAt: Date
+}
+
+function recordedGeneration(pending: {
+  disputeId: string | null
+  rulingAppealRound: number | null
+  rulingArbiterId: string | null
+  rulingOutcome: string | null
+  rulingAuthoritySignature: string | null
+  rulingAuthorityIssuedAt: Date | null
+}): PendingGeneration | null {
+  if (!pending.disputeId || pending.rulingAppealRound === null ||
+      !pending.rulingArbiterId || !pending.rulingOutcome ||
+      !pending.rulingAuthoritySignature || !pending.rulingAuthorityIssuedAt) return null
+  return pending as PendingGeneration
+}
+
+export async function deletePendingRoundIfStillUnsigned(
+  pendingTransactionId: string,
+  escrowId: string,
+  generation?: PendingGeneration,
+): Promise<StalePendingDeleteResult | 'PROVENANCE_REJECTED'> {
+  // Legacy callers cannot authorize deletion from a bare pending ID.
+  if (!generation) return 'PROVENANCE_REJECTED'
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    // Re-read the operation AND live dispute under the same lock used by signers.
+    const pending = await tx.escrowPendingTransaction.findUnique({
+      where: { id: pendingTransactionId },
+      include: { signatures: true },
+    })
+    if (!pending) return 'ALREADY_GONE'
+    if (pending.escrowId !== escrowId) return 'PROVENANCE_REJECTED'
+    if (pending.signatures.length) return 'SIGNED_MEANWHILE'
+    const current = recordedGeneration(pending)
+    if (!current ||
+        current.disputeId !== generation.disputeId ||
+        current.rulingAppealRound !== generation.rulingAppealRound ||
+        current.rulingArbiterId !== generation.rulingArbiterId ||
+        current.rulingOutcome !== generation.rulingOutcome ||
+        current.rulingAuthoritySignature !== generation.rulingAuthoritySignature ||
+        current.rulingAuthorityIssuedAt.getTime() !== generation.rulingAuthorityIssuedAt.getTime()) {
+      return 'PROVENANCE_REJECTED'
+    }
+    const dispute = await tx.dispute.findUnique({ where: { id: generation.disputeId } })
+    if (!dispute || dispute.escrowId !== escrowId ||
+        dispute.status !== 'RESOLVED' ||
+        dispute.appealRound !== generation.rulingAppealRound ||
+        dispute.arbiterId !== generation.rulingArbiterId ||
+        dispute.ruling !== generation.rulingOutcome ||
+        dispute.authoritySignature !== generation.rulingAuthoritySignature) {
+      return 'PROVENANCE_REJECTED'
+    }
+    const committed = await tx.economicDispositionAuthorization.findUnique({
+      where: { pendingOperationId: pendingTransactionId },
+    })
+    if (committed) return 'PROVENANCE_REJECTED'
     const { count } = await tx.escrowPendingTransaction.deleteMany({
-      where: { id: pendingTransactionId, escrowId, signatures: { none: {} } },
+      where: {
+        id: pendingTransactionId, escrowId, signatures: { none: {} },
+        disputeId: generation.disputeId,
+        rulingAppealRound: generation.rulingAppealRound,
+        rulingArbiterId: generation.rulingArbiterId,
+        rulingOutcome: generation.rulingOutcome as typeof pending.rulingOutcome,
+        rulingAuthoritySignature: generation.rulingAuthoritySignature,
+        rulingAuthorityIssuedAt: generation.rulingAuthorityIssuedAt,
+      },
     })
     if (count === 1) return 'DELETED'
     const stillThere = await tx.escrowPendingTransaction.findUnique({ where: { id: pendingTransactionId }, select: { id: true } })
@@ -104,12 +172,18 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
 
   // #244 - a delete the snapshot below decided on is reported by what the lock-protected re-check found.
   const deleteUnlessSigned = async (pending: { id: string; escrowId: string }, verdict: 'DELETED_GUARD_FAILED' | 'DELETED_NO_OUTCOME'): Promise<boolean> => {
-    const outcome = await deletePendingRoundIfStillUnsigned(pending.id, pending.escrowId)
+    const generation = recordedGeneration(pending as Parameters<typeof recordedGeneration>[0])
+    if (!generation) {
+      report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
+      return false
+    }
+    const outcome = await deletePendingRoundIfStillUnsigned(pending.id, pending.escrowId, generation)
     if (outcome === 'DELETED') {
       report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict })
       return true
     }
-    if (outcome === 'SIGNED_MEANWHILE') report.skippedHasSignatures.push(pending.escrowId)
+    if (outcome === 'PROVENANCE_REJECTED') report.failed.push({ escrowId: pending.escrowId, error: 'pending ruling generation no longer authorizes cleanup' })
+    else if (outcome === 'SIGNED_MEANWHILE') report.skippedHasSignatures.push(pending.escrowId)
     else report.alreadyCleaned.push(pending.escrowId)
     return false
   }
@@ -135,9 +209,16 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         continue
       }
 
+      const generation = recordedGeneration(pending)
+      if (!generation) {
+        report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
+        continue
+      }
       const dispute = await prisma.dispute.findFirst({
-        where: { escrowId: pending.escrowId, status: 'RESOLVED' },
-        orderBy: { appealRound: 'desc' },
+        where: { id: generation.disputeId, escrowId: pending.escrowId, status: 'RESOLVED',
+          appealRound: generation.rulingAppealRound, arbiterId: generation.rulingArbiterId,
+          ruling: generation.rulingOutcome as typeof pending.rulingOutcome,
+          authoritySignature: generation.rulingAuthoritySignature },
       })
       if (!dispute) {
         // Structurally shouldn't happen (the candidate query itself
@@ -147,7 +228,7 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         continue
       }
 
-      const row = await loadDisputeRulingRecord(pending.escrowId, dispute.appealRound)
+      const row = await loadDisputeRulingRecord(pending.escrowId, generation.rulingAppealRound)
       if (!row || !row.outcomeContent) {
         // A RESOLVED dispute with no durable Core-authoritative Outcome
         // at all — this pending row cannot possibly have been created by
