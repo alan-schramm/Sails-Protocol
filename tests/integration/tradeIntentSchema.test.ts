@@ -104,7 +104,17 @@ describe('#235 R7H-NF-E3C-5 B — trades.tradeIntentId migration (real PostgreSQ
     const first = await insertTrade(offer, b1.id, { intentId: offer.intentId, tradeIntentId: intent.id })
     expect(await code(insertTrade(offer, b2.id, { intentId: offer.intentId, tradeIntentId: intent.id }))).toMatch(/^23505/)
     expect(await code(insertTrade(offer, b2.id, { intentId: offer.intentId, tradeIntentId: randomUUID() }))).toMatch(/^23503/)
-    expect(await code(db.query(`DELETE FROM intents WHERE id = $1`, [intent.id]))).toMatch(/^23001/) // RESTRICT
+    // A referenced Intent cannot be deleted. PostgreSQL reports a RESTRICT violation as 23001 from 18 on and as 23503 on
+    // earlier servers (CI runs 16), and an Intent that has events is also held by intent_events' own FK — whichever
+    // trigger fires first answers. So: (1) the Intent with events is refused (either family code); (2) a BARE Intent
+    // (no events) is held by trades.tradeIntentId alone, and the error names exactly that constraint.
+    expect(await code(db.query(`DELETE FROM intents WHERE id = $1`, [intent.id]))).toMatch(/^(23001|23503)/)
+    const bare = await prisma.intent.create({ data: { type: 'TradeIntent', participantId: b2.id, moduleId: 'openp2p', payload: {}, status: 'NEGOTIATING' } })
+    const bareTrade = await insertTrade(offer, b2.id, { intentId: offer.intentId, tradeIntentId: bare.id })
+    const refusal = await db.query(`DELETE FROM intents WHERE id = $1`, [bare.id]).then(() => null, (e: { code?: string; message?: string }) => e)
+    expect(refusal?.code).toMatch(/^(23001|23503)/)
+    expect(refusal?.message).toContain('trades_tradeIntentId_fkey')
+    expect((await prisma.trade.findUniqueOrThrow({ where: { id: bareTrade } })).tradeIntentId).toBe(bare.id)
     expect((await prisma.trade.findUniqueOrThrow({ where: { id: first } })).tradeIntentId).toBe(intent.id)
   })
 
