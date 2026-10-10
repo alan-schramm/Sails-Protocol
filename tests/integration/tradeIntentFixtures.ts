@@ -53,8 +53,11 @@ export async function boundSellOffer(seller: Party) {
   return { offer, account }
 }
 
-/** POST /v1/openp2p/trades through the real route. */
-export const takeOffer = (app: any, taker: Party, offerId: string, key: string | undefined = idemKey(), amount = '0.0005') =>
+/**
+ * POST /v1/openp2p/trades through the real route. `key`: omitted → a fresh idempotency key; `null` → NO key at all.
+ * (`undefined` would fall back to the default and generate one — hence the explicit `null` for the keyless case.)
+ */
+export const takeOffer = (app: any, taker: Party, offerId: string, key: string | null = idemKey(), amount = '0.0005') =>
   call(app, taker, 'POST', '/v1/openp2p/trades', { offerId, amount, ...(key ? { idempotencyKey: key } : {}) })
 
 /**

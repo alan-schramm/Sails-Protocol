@@ -151,7 +151,9 @@ describe('#235 R7H-NF-E3C-5 D8 — legacy idempotency-claim reconciliation (real
   it('NO MISATTRIBUTION (B2): a trade admitted by B2 (its own Intent) is never a legacy claim\'s product, whatever its timing and hash', async () => {
     pg.requirePostgres('D8-b2')
     const { offer, taker } = await world('b2')
-    expect((await takeOffer(app, taker, offer.id, idemKey())).statusCode).toBe(201)
+    // Keyless on purpose: a B2 trade admitted WITH a key is already shielded by "attributed to another claim"; one
+    // admitted without a key has no claim at all, so only the legacy-trade (tradeIntentId IS NULL) rule excludes it.
+    expect((await takeOffer(app, taker, offer.id, null)).statusCode).toBe(201)
     const b2 = await prisma.trade.findFirstOrThrow({ where: { offerId: offer.id, tradeIntentId: { not: null } } })
     const stuck = await stuckClaim(taker.id, offer.id, '0.0005', b2, 50) // created right before it, identical request
     const outcome = await rec.reconcileLegacyTradeClaim(stuck.id, 'w')

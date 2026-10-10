@@ -459,10 +459,11 @@ describe('#235 R7H-NF-E3C-5 B2 — atomic admission, trade-scoped Intents, lifec
     pg.requirePostgres('B2-nokey')
     const { offer } = await freshOffer('nk')
     const taker = await who('nk-t')
-    expect(brief(await takeOffer(app, taker, offer.id, undefined))).toBe('201 ok')
-    expect(brief(await takeOffer(app, taker, offer.id, undefined))).toBe('201 ok')
+    expect(brief(await takeOffer(app, taker, offer.id, null))).toBe('201 ok')
+    expect(brief(await takeOffer(app, taker, offer.id, null))).toBe('201 ok')
     const trades = await tradesOf(offer.id)
     expect(trades).toHaveLength(2)
+    expect(await prisma.$queryRaw<any[]>`SELECT 1 FROM idempotency_keys WHERE "participantId" = ${taker.id}`).toEqual([]) // truly keyless: no claim row
     for (const t of trades) {
       await expectDurableChain(t.id, TRADE_EVENTS)
       await expectIntentChain(t.tradeIntentId!, WALK)
